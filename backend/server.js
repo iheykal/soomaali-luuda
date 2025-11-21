@@ -22,6 +22,52 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
+// --- GLOBAL CORS SETUP (MUST BE FIRST) ---
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Always allow Render subdomains (automatic fix)
+    if (origin.includes('.onrender.com')) {
+        return callback(null, true);
+    }
+
+    // In development, allow all
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      return callback(null, true);
+    }
+    
+    // Check allowed origins
+    const allowedOrigins = process.env.FRONTEND_URL 
+      ? [process.env.FRONTEND_URL, process.env.FRONTEND_URL.replace(/\/$/, '')] 
+      : [];
+      
+    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+    
+    // Fallback: Allow everything for now to fix deployment issues (can be tightened later)
+    console.log('⚠️ Allowing origin (fallback):', origin);
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
+// Root endpoint for easy health check
+app.get('/', (req, res) => {
+    res.send('Ludo Backend is Running! 🚀');
+});
+
 // 1. Enable Compression (Optimized for 512MB RAM limit)
 app.use(compression({
   level: 6, // Balanced setting for CPU vs Size
@@ -33,6 +79,7 @@ app.use(compression({
     return compression.filter(req, res);
   }
 }));
+
 
 // Socket.IO CORS configuration
 const socketOrigins = process.env.FRONTEND_URL === "*" 
