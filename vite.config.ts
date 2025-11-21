@@ -9,6 +9,16 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
+      preview: {
+        host: '0.0.0.0',
+        port: process.env.PORT ? parseInt(process.env.PORT) : 5000,
+        allowedHosts: [
+          'soomaali-ludda.onrender.com',
+          '.onrender.com', // Allow all Render subdomains
+          'localhost',
+          '127.0.0.1'
+        ]
+      },
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
