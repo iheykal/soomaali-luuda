@@ -73,7 +73,21 @@ const corsOptions = {
       ? ["*"]
       : [process.env.FRONTEND_URL].filter(Boolean);
     
-    if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+    // Auto-allow Render subdomains if FRONTEND_URL is not set or if origin is from Render
+    const isRenderDomain = origin && origin.includes('.onrender.com');
+    const isAllowedRender = isRenderDomain && (
+      allowedOrigins.includes("*") || 
+      allowedOrigins.some(allowed => allowed && origin.includes(allowed.replace('https://', '').replace('http://', '').split('.')[0]))
+    );
+    
+    // If no FRONTEND_URL is set but origin is from Render, allow it (helpful for deployment)
+    if (isRenderDomain && allowedOrigins.length === 0) {
+      console.log('⚠️ FRONTEND_URL not set, but allowing Render domain:', origin);
+      console.log('💡 Set FRONTEND_URL environment variable for better security');
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.includes("*") || allowedOrigins.includes(origin) || isAllowedRender) {
       callback(null, true);
     } else {
       // Log CORS error for debugging
