@@ -1,4 +1,3 @@
-
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -52,6 +51,27 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   optionsSuccessStatus: 204 // Some legacy browsers (IE11, various SmartTVs) choke on 204
 }));
+
+// Ensure preflight requests always return proper CORS headers (echo origin for Render subdomains)
+app.options('*', (req, res) => {
+  try {
+    const origin = req.headers.origin || '*';
+
+    // IMPORTANT: When credentials are used, Access-Control-Allow-Origin must be an exact origin (not '*').
+    // We echo the incoming origin because this server already allows Render subdomains in the main CORS config.
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
+
+    // Some clients expect a 204 No Content for preflight
+    return res.sendStatus(204);
+  } catch (e) {
+    console.error('Error handling CORS preflight:', e);
+    // Fall back to generic response
+    return res.sendStatus(204);
+  }
+});
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
@@ -2097,7 +2117,7 @@ const runAutoTurn = async (gameId) => {
               game.legalMoves = [];
               
               const nextPlayer = game.players[nextPlayerIndex];
-              game.message = `Waiting for ${nextPlayer?.color || 'player'}...`;
+              game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color || 'player'}...`;
               
               console.log(`🔄 [Auto-Turn] Turn passed: nextPlayerIndex=${nextPlayerIndex}, nextPlayer=${nextPlayer?.color}`);
               await game.save();
@@ -2143,6 +2163,8 @@ const runAutoTurn = async (gameId) => {
         }
     }
 };
+
+// --- SOCKET.IO CONNECTION ---
 
 io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
@@ -2223,7 +2245,7 @@ io.on('connection', (socket) => {
           await user.save();
           console.log(`💰 Refunded ${stake} to ${user.username || userId}. New balance: ${user.balance}`);
         } else {
-          console.log(`⚠️ User ${userId} not found, skipping refund (demo mode)`);
+          console.log(`⚠️ User ${userId} not found, skipping refund on disconnect (demo mode)`);
         }
       }
     } catch (error) {
@@ -2302,11 +2324,11 @@ io.on('connection', (socket) => {
             } else {
                 // For other players, only update if they have a socket
                 if (player.isDisconnected === undefined || player.isDisconnected === null || player.isDisconnected === true) {
-                    // Only set isDisconnected to false if they have a socket
-                    if (player.socketId) {
-                        player.isDisconnected = false;
-                        playerFlagsUpdated = true;
-                    }
+                  // Only set isDisconnected to false if they have a socket
+                  if (player.socketId) {
+                    player.isDisconnected = false;
+                    playerFlagsUpdated = true;
+                  }
                 }
             }
         });
@@ -2472,7 +2494,7 @@ io.on('connection', (socket) => {
               const nextPlayer = game.players[nextPlayerIndex];
               game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color || 'player'}...`;
               
-              console.log(`🔄 Turn passed: nextPlayerIndex=${nextPlayerIndex}, nextPlayer=${nextPlayer?.color}, turnState=${game.turnState}`);
+              console.log(`🔄 Turn passed: nextPlayerIndex=${nextPlayerIndex}, nextPlayer=${nextPlayer?.color}`);
               await game.save();
               
               const updatedState = game.toObject ? game.toObject() : game;
