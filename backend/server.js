@@ -60,6 +60,19 @@ const corsOptions = {
 // Apply CORS middleware
 app.use(cors(corsOptions));
 
+// Handle OPTIONS requests for all routes (preflight requests)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
     res.send('Ludo Backend is Running! 🚀');
