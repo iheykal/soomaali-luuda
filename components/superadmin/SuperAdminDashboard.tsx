@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { adminAPI } from '../../services/adminAPI';
 import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse } from '../../types';
-import Board from '../Board';
+import Board from '../GameBoard';
 import { useGameLogic } from '../../hooks/useGameLogic';
 import html2canvas from 'html2canvas';
 import TransactionReceipt from '../TransactionReceipt';
