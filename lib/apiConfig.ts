@@ -73,12 +73,13 @@ const getApiUrl = () => {
     }
     
     // Default: localhost for development
-    const defaultUrl = 'http://localhost:5000/api';
-    console.log('🔧 Using default API URL:', defaultUrl);
+    // If nothing else matches, prefer the deployed backend URL (Render). This avoids frontend attempting to reach :5000 in production.
+    const defaultUrl = 'https://soomaali-ludda-backend.onrender.com/api';
+    console.log('🔧 Using default API URL (deployed):', defaultUrl);
     return defaultUrl;
   } catch (error) {
     console.error('❌ Error determining API URL, using default:', error);
-    return 'http://localhost:5000/api';
+    return 'https://soomaali-ludda-backend.onrender.com/api';
   }
 };
 
@@ -135,12 +136,13 @@ const getSocketUrl = () => {
       }
     
     // Default: localhost for development
-    const defaultUrl = 'http://localhost:5000';
-    console.log('🔧 Using default Socket URL:', defaultUrl);
+    // Default to deployed backend domain for sockets to avoid :5000 in production
+    const defaultUrl = 'https://soomaali-ludda-backend.onrender.com';
+    console.log('🔧 Using default Socket URL (deployed):', defaultUrl);
     return defaultUrl;
   } catch (error) {
     console.error('❌ Error determining Socket URL, using default:', error);
-    return 'http://localhost:5000';
+    return 'https://soomaali-ludda-backend.onrender.com';
   }
 };
 
