@@ -1,0 +1,698 @@
+import { useReducer, useCallback, useEffect, useRef } from 'react';
+import type { GameState, Player, PlayerColor, Token, LegalMove, TokenPosition, MultiplayerMessage, MultiplayerGame } from '../types';
+import { PLAYER_COLORS, START_POSITIONS, HOME_ENTRANCES, HOME_PATH_LENGTH, SAFE_SQUARES } from '../lib/boardLayout';
+import { SOCKET_URL } from '../lib/apiConfig';
+import { io, Socket } from 'socket.io-client';
+
+// --- Constants ---
+const ROLL_TIME_LIMIT = 8;
+const MOVE_TIME_LIMIT = 20;
+
+// --- Socket Service Wrapper ---
+let socket: Socket | null = null;
+
+// --- Game Logic ---
+export type Action =
+    | { type: 'START_GAME'; players: Player[]; initialState?: GameState }
+    | { type: 'ROLL_DICE'; value: number }
+    | { type: 'SET_LEGAL_MOVES_AND_PROCEED'; moves: LegalMove[] }
+    | { type: 'MOVE_TOKEN'; move: LegalMove }
+    | { type: 'NEXT_TURN'; grantExtraTurn: boolean }
+    | { type: 'ANIMATION_COMPLETE' }
+    | { type: 'AI_THINKING' }
+    | { type: 'SET_STATE'; state: GameState }
+    | { type: 'RESET_GAME' }
+    | { type: 'TICK_TIMER' };
+
+const initialState: GameState = {
+    players: [],
+    tokens: [],
+    currentPlayerIndex: 0,
+    diceValue: null,
+    turnState: 'ROLLING',
+    message: 'Welcome to Ludo!',
+    gameStarted: false,
+    winners: [],
+    legalMoves: [],
+    timer: ROLL_TIME_LIMIT,
+    stake: 0,
+};
+
+const reducer = (state: GameState, action: Action): GameState => {
+    switch (action.type) {
+        case 'START_GAME': {
+            if (action.initialState) {
+                return action.initialState;
+            }
+            const tokens: Token[] = action.players.flatMap(p =>
+                Array.from({ length: 4 }, (_, i) => ({
+                    id: `${p.color}-${i}`,
+                    color: p.color,
+                    position: { type: 'YARD', index: i },
+                }))
+            );
+            return {
+                ...initialState,
+                gameStarted: true,
+                players: action.players,
+                tokens,
+                currentPlayerIndex: 0,
+                turnState: 'ROLLING',
+                message: '',
+                timer: ROLL_TIME_LIMIT,
+            };
+        }
+        
+        case 'SET_STATE':
+            // Completely replace the state with server state
+            // Server is the source of truth for multiplayer games
+            const serverState = action.state;
+            const shouldBeStarted = serverState.gameStarted !== undefined
+                ? serverState.gameStarted
+                : (serverState.status === 'ACTIVE' && serverState.players?.length >= 2);
+
+            // Ensure diceValue is properly handled
+            // Server sends diceValue as:
+            // - number (1-6) when a dice is rolled (turnState: MOVING)
+            // - null when starting a new turn (turnState: ROLLING)
+            // - undefined might occur in edge cases - treat as null
+            let diceValue: number | null = null;
+            
+            if (serverState.diceValue !== undefined && serverState.diceValue !== null) {
+                // Server sent a valid dice value (1-6)
+                diceValue = Number(serverState.diceValue);
+                console.log(`🔄 SET_STATE: Received valid diceValue from server: ${diceValue}`);
+            } else if (serverState.diceValue === null) {
+                // Server explicitly cleared dice value
+                diceValue = null;
+                console.log(`🔄 SET_STATE: Server cleared diceValue (new turn)`);
+            } else {
+                // Server didn't send diceValue (undefined) - keep current state
+                diceValue = state.diceValue;
+                console.log(`🔄 SET_STATE: Server didn't send diceValue, keeping current: ${diceValue}`);
+            }
+
+            // Ensure turnState is valid - if game is started and diceValue is null, turnState should be ROLLING
+            let finalTurnState = serverState.turnState;
+            
+            // FIX: If diceValue is null (no active roll), we MUST be in ROLLING state to allow the player to roll.
+            // This overrides 'MOVING' or other states if the dice has been cleared.
+            if (shouldBeStarted && diceValue === null && serverState.turnState !== 'GAMEOVER') {
+                if (finalTurnState !== 'ROLLING') {
+                    console.log(`🔧 Fixing turnState in frontend: was ${finalTurnState}, setting to ROLLING (cause: diceValue is null)`);
+                    finalTurnState = 'ROLLING';
+                }
+            }
+            
+            // Additional check: If message says "Waiting for X" and turnState is not ROLLING, fix it
+            if (serverState.message && serverState.message.includes('Waiting for') && finalTurnState !== 'ROLLING') {
+                console.log(`🔧 Fixing turnState: message indicates waiting for player, setting to ROLLING`);
+                finalTurnState = 'ROLLING';
+            }
+
+            // Ensure diceValue is properly handled for animation
+            if (diceValue !== null && diceValue !== undefined && typeof diceValue === 'number' && diceValue >= 1 && diceValue <= 6) {
+                console.log(`🎲 Frontend received valid dice value: ${diceValue} for animation`);
+            }
+
+            console.log(`🔄 SET_STATE complete: diceValue=${diceValue}, turnState=${finalTurnState}, currentPlayer=${serverState.players?.[serverState.currentPlayerIndex]?.color}, gameStarted=${shouldBeStarted}`);
+
+            // Ensure stake is preserved
+            // Backend sends stake in GAME_STATE_UPDATE. We must prioritize it.
+            const stake = serverState.stake !== undefined ? serverState.stake : state.stake;
+
+            // SYNC TIMER: Use server timer if available to keep devices in sync
+            // But if server doesn't send it (undefined), keep local.
+            // We trust the server's authoritative timer to fix drift.
+            let timer = serverState.timer !== undefined ? serverState.timer : state.timer;
+            
+            // Reset timer locally if turn changed and server didn't send timer
+            if (serverState.timer === undefined) {
+                if (finalTurnState === 'ROLLING' && serverState.currentPlayerIndex !== state.currentPlayerIndex) {
+                     timer = ROLL_TIME_LIMIT;
+                } else if (finalTurnState === 'MOVING' && diceValue !== null && diceValue !== state.diceValue) {
+                     timer = MOVE_TIME_LIMIT;
+                }
+            }
+
+            return {
+                ...serverState,
+                // Explicitly set diceValue
+                diceValue: diceValue,
+                // Ensure turnState is valid
+                turnState: finalTurnState,
+                // Use server's legalMoves
+                legalMoves: serverState.legalMoves || [],
+                timer: timer,
+                // If game was already started locally, keep it started even if server sends false temporarily
+                gameStarted: state.gameStarted ? (shouldBeStarted || state.gameStarted) : shouldBeStarted,
+                stake: stake
+            };
+
+        case 'RESET_GAME':
+            return initialState;
+        
+        case 'TICK_TIMER':
+            return { ...state, timer: Math.max(0, state.timer - 1) };
+
+        case 'ROLL_DICE': {
+            return {
+                ...state,
+                diceValue: action.value,
+                turnState: 'MOVING',
+                message: `${state.players[state.currentPlayerIndex].color} rolled a ${action.value}. Select a token to move.`,
+                timer: MOVE_TIME_LIMIT,
+            };
+        }
+        
+        case 'SET_LEGAL_MOVES_AND_PROCEED': {
+             if (action.moves.length === 0) {
+                 return {
+                    ...state,
+                    legalMoves: [],
+                    message: `No legal moves. Passing turn.`,
+                    timer: ROLL_TIME_LIMIT, // Reset timer for next player immediately
+                 }
+            }
+            return { ...state, legalMoves: action.moves, timer: MOVE_TIME_LIMIT };
+        }
+        
+        case 'MOVE_TOKEN': {
+            // In multiplayer, this is just an optimistic update OR driven by server state
+            // For simplicity, we let the server state override this via SET_STATE usually.
+            // But for local play, we calculate.
+            
+            const { move } = action;
+            const diceValue = state.diceValue!;
+            const currentPlayerColor = state.players[state.currentPlayerIndex].color;
+            let captured = false;
+
+            let newTokens = state.tokens.map(t =>
+                t.id === move.tokenId ? { ...t, position: move.finalPosition } : { ...t }
+            );
+            
+            if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
+                const targetPos = move.finalPosition.index;
+                const opponentTokensAtTarget = newTokens.filter(t =>
+                    t.color !== currentPlayerColor &&
+                    t.position.type === 'PATH' &&
+                    t.position.index === targetPos
+                );
+                
+                const isBlockade = opponentTokensAtTarget.length > 1 &&
+                    opponentTokensAtTarget.every(t => t.color === opponentTokensAtTarget[0].color);
+
+                if (!isBlockade && opponentTokensAtTarget.length > 0) {
+                    newTokens = newTokens.map(t => {
+                        if (opponentTokensAtTarget.some(ot => ot.id === t.id)) {
+                            captured = true;
+                            return { ...t, position: { type: 'YARD', index: parseInt(t.id.split('-')[1]) } };
+                        }
+                        return t;
+                    });
+                }
+            }
+
+            const grantExtraTurn = diceValue === 6 || captured || move.finalPosition.type === 'HOME';
+
+            const winners = [...state.winners];
+            const playerTokens = newTokens.filter(t => t.color === currentPlayerColor);
+            if (playerTokens.every(t => t.position.type === 'HOME')) {
+                if (!winners.includes(currentPlayerColor)) {
+                    winners.push(currentPlayerColor);
+                }
+            }
+
+            const isGameOver = state.players.length - winners.length <= 1;
+
+            if (isGameOver) {
+                const remainingPlayer = state.players.find(p => !winners.includes(p.color));
+                if (remainingPlayer) winners.push(remainingPlayer.color);
+
+                return {
+                    ...state,
+                    tokens: newTokens,
+                    winners,
+                    turnState: 'GAMEOVER',
+                    message: `${winners[0]} is the winner!`,
+                };
+            }
+
+            return {
+                ...state,
+                tokens: newTokens,
+                winners,
+                turnState: 'ANIMATING',
+                message: `${currentPlayerColor} is moving...`,
+                legalMoves: [],
+                _pendingExtraTurn: grantExtraTurn,
+            };
+        }
+
+        case 'ANIMATION_COMPLETE': {
+            return {
+                ...state,
+                ...getNextTurnState(state, state._pendingExtraTurn || false),
+                _pendingExtraTurn: undefined,
+            };
+        }
+
+        case 'NEXT_TURN': {
+            return { ...state, ...getNextTurnState(state, action.grantExtraTurn) };
+        }
+        
+        case 'AI_THINKING': {
+            return { ...state, message: `${state.players[state.currentPlayerIndex].color} (Computer) is thinking...` };
+        }
+
+        default:
+            return state;
+    }
+};
+
+const getNextTurnState = (state: GameState, grantExtraTurn: boolean): Partial<GameState> => {
+    let nextPlayerIndex = grantExtraTurn ? state.currentPlayerIndex : (state.currentPlayerIndex + 1) % state.players.length;
+    
+    while (state.winners.includes(state.players[nextPlayerIndex].color)) {
+        nextPlayerIndex = (nextPlayerIndex + 1) % state.players.length;
+    }
+    
+    return {
+        currentPlayerIndex: nextPlayerIndex,
+        diceValue: null,
+        turnState: 'ROLLING',
+        message: '',
+        legalMoves: [],
+        timer: ROLL_TIME_LIMIT,
+    };
+};
+
+interface MultiplayerConfig {
+  gameId: string;
+  localPlayerColor?: PlayerColor;
+  sessionId?: string;
+  playerId?: string;
+  isSpectator?: boolean;
+}
+
+export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
+    console.log('🎯 useGameLogic initialized with config:', multiplayerConfig);
+    const [state, dispatch] = useReducer(reducer, initialState);
+    const isMultiplayer = !!multiplayerConfig;
+
+    console.log('🎲 Game logic state:', {
+        isMultiplayer,
+        gameStarted: state.gameStarted,
+        players: state.players?.length,
+        currentPlayerIndex: state.currentPlayerIndex
+    });
+
+    // In multiplayer, 'isMyTurn' strictly depends on the server state matching our color
+    const isMyTurn = isMultiplayer
+        ? (multiplayerConfig?.isSpectator ? false : state.players[state.currentPlayerIndex]?.color === multiplayerConfig?.localPlayerColor)
+        : true;
+
+    // Debug logging for turn state
+    const currentPlayerColor = state.players[state.currentPlayerIndex]?.color;
+    console.log(`🎮 Turn state check: isMultiplayer=${isMultiplayer}, currentPlayerIndex=${state.currentPlayerIndex}, currentPlayerColor=${currentPlayerColor}, localPlayerColor=${multiplayerConfig?.localPlayerColor}, isMyTurn=${isMyTurn}, turnState=${state.turnState}, gameStarted=${state.gameStarted}`);
+    
+    const localDispatchRef = useRef(dispatch);
+    localDispatchRef.current = dispatch;
+
+    // --- Socket Connection Effect ---
+    useEffect(() => {
+        if (!isMultiplayer || !multiplayerConfig) {
+            console.log('🎯 Skipping socket connection - not multiplayer or no config');
+            return;
+        }
+
+        // Connect to Socket.io Server
+        // Use SOCKET_URL from apiConfig for proper network IP detection
+        const socketUrl = (import.meta as any).env?.VITE_USE_REAL_API === 'true' 
+            ? window.location.origin 
+            : SOCKET_URL;
+        
+        console.log('🔌 Connecting to Socket.IO for game:', socketUrl);
+        
+        // Try websocket first, but fallback to polling if websocket fails
+        // This is important for network environments where websockets might be blocked
+        socket = io(socketUrl, {
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            reconnectionAttempts: Infinity,
+            transports: ['polling', 'websocket'], // Try polling first, then websocket
+            timeout: 20000, // 20 second connection timeout
+            forceNew: true, // Force new connection for game (separate from matchmaking)
+            upgrade: true, // Allow transport upgrade
+            rememberUpgrade: false // Don't remember upgrade preference
+        });
+
+        socket.on('connect', () => {
+            console.log('✅ Game socket connected, socket ID:', socket?.id);
+            console.log('🎮 Joining game room:', multiplayerConfig.gameId);
+            
+            // Verify socket is connected before emitting
+            if (!socket || !socket.connected) {
+                console.error('❌ Socket not connected, cannot join game');
+                return;
+            }
+            
+            // Join the specific game room
+            if (multiplayerConfig.isSpectator) {
+                console.log('👀 Joining game as spectator:', multiplayerConfig.gameId);
+                socket.emit('watch_game', {
+                    gameId: multiplayerConfig.gameId
+                });
+            } else {
+                socket.emit('join_game', {
+                    gameId: multiplayerConfig.gameId,
+                    userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
+                    playerColor: multiplayerConfig.localPlayerColor
+                });
+            }
+            
+            console.log('📤 Join/Watch event emitted for game:', multiplayerConfig.gameId);
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('❌ Socket connection error:', error);
+            console.error('❌ Attempted URL:', socketUrl);
+            console.error('❌ Error details:', {
+                message: error.message,
+                type: error.type,
+                description: error.description
+            });
+            
+            // If websocket fails, try to force polling
+            if (error.message && error.message.includes('websocket')) {
+                console.log('🔄 WebSocket failed, attempting to use polling transport...');
+                // Socket.IO will automatically fallback to polling if configured
+            }
+        });
+
+        socket.on('reconnect', (attemptNumber) => {
+            console.log('🔄 Reconnected to server after', attemptNumber, 'attempt(s)');
+            // Rejoin the game room when reconnected
+            if (multiplayerConfig) {
+                console.log('🔄 Rejoining game room:', multiplayerConfig.gameId);
+                if (multiplayerConfig.isSpectator) {
+                    socket?.emit('watch_game', {
+                        gameId: multiplayerConfig.gameId
+                    });
+                } else {
+                    socket?.emit('join_game', {
+                        gameId: multiplayerConfig.gameId,
+                        userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
+                        playerColor: multiplayerConfig.localPlayerColor
+                    });
+                }
+            }
+        });
+
+        socket.on('reconnect_attempt', (attemptNumber) => {
+            console.log('🔄 Reconnection attempt', attemptNumber);
+        });
+
+        socket.on('reconnect_error', (error) => {
+            console.error('❌ Reconnection error:', error);
+        });
+
+        socket.on('reconnect_failed', () => {
+            console.error('❌ Reconnection failed after all attempts');
+        });
+
+        socket.on('disconnect', (reason) => {
+            console.log('❌ Disconnected from server:', reason);
+            if (reason === 'io server disconnect') {
+                // Server disconnected the client, manual reconnect needed
+                console.log('⚠️ Server disconnected, will attempt to reconnect...');
+                socket?.connect();
+            } else if (reason === 'transport close' || reason === 'transport error') {
+                // Transport error - will auto-reconnect with different transport
+                console.log('⚠️ Transport error, will attempt to reconnect...');
+            }
+        });
+
+        socket.on('GAME_STATE_UPDATE', (data: { state: GameState }) => {
+            const disconnectedPlayers = (data.state.players || []).filter((p: any) => p.isDisconnected).map((p: any) => p.color);
+            const currentPlayer = data.state.players?.[data.state.currentPlayerIndex];
+            console.log('📊 GAME_STATE_UPDATE received:', {
+                gameStarted: data.state.gameStarted,
+                currentPlayerIndex: data.state.currentPlayerIndex,
+                currentPlayerColor: currentPlayer?.color,
+                currentPlayerIsAI: currentPlayer?.isAI,
+                turnState: data.state.turnState,
+                playersCount: data.state.players?.length,
+                diceValue: data.state.diceValue,
+                diceValueType: typeof data.state.diceValue,
+                message: data.state.message,
+                disconnectedPlayers: disconnectedPlayers
+            });
+
+            // For multiplayer games, ensure all players are marked as human (not AI)
+            const correctedState = data.state.players
+                ? { ...data.state, players: data.state.players.map(player => ({ ...player, isAI: false })) }
+                : data.state;
+
+            // Ensure diceValue is properly preserved (can be number or null)
+            if (correctedState.diceValue !== undefined && correctedState.diceValue !== null) {
+                correctedState.diceValue = Number(correctedState.diceValue);
+                console.log(`🎲 Preserving diceValue: ${correctedState.diceValue} (type: ${typeof correctedState.diceValue})`);
+            } else {
+                console.log(`🎲 diceValue is ${correctedState.diceValue === null ? 'null' : 'undefined'}`);
+            }
+
+            console.log('📊 After correction - players:', correctedState.players?.map(p => `${p.color}(AI:${p.isAI})`).join(', '));
+            console.log('📊 Legal moves received:', correctedState.legalMoves?.length || 0, 'moves');
+            if (correctedState.legalMoves && correctedState.legalMoves.length > 0) {
+                console.log('📊 Legal moves details:', correctedState.legalMoves.map(m => `${m.tokenId} -> ${m.finalPosition.type}:${m.finalPosition.index}`).join(', '));
+            }
+
+            // Server is the source of truth. Override local state.
+            localDispatchRef.current({ type: 'SET_STATE', state: correctedState });
+        });
+
+        socket.on('ERROR', (data: { message: string }) => {
+            console.error("Server Error:", data.message);
+            if (data.message !== "Wait for animation") {
+                // Only show non-animation errors
+                // "Wait for animation" is often a transient state issue that we can ignore 
+                // or let the auto-correction handle
+                // alert(data.message); 
+            }
+        });
+
+        return () => {
+            console.log('Cleaning up multiplayer socket connection');
+            if (socket) {
+                console.log('Disconnecting game socket');
+                socket.disconnect();
+                socket = null;
+            }
+        };
+    }, [isMultiplayer, multiplayerConfig]);
+
+
+    const calculateLegalMoves = useCallback((currentState: GameState, diceValue: number): LegalMove[] => {
+        const { tokens, currentPlayerIndex, players } = currentState;
+        if (!players[currentPlayerIndex]) return [];
+        const currentPlayer = players[currentPlayerIndex];
+        const moves: LegalMove[] = [];
+
+        for (const token of tokens.filter(t => t.color === currentPlayer.color)) {
+            const currentPos = token.position;
+
+            if (currentPos.type === 'YARD') {
+                if (diceValue === 6) {
+                    const startPos = START_POSITIONS[currentPlayer.color];
+                    const tokensOnStart = tokens.filter(t => t.position.type === 'PATH' && t.position.index === startPos && t.color === currentPlayer.color);
+                    // Fix: Allow up to 4 tokens on start square (relaxed rule)
+                    if (tokensOnStart.length < 4) {
+                        moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: startPos } });
+                    }
+                }
+            } else if (currentPos.type === 'PATH') {
+                const homeEntrance = HOME_ENTRANCES[currentPlayer.color];
+                const distanceToHomeEntrance = (homeEntrance - currentPos.index + 52) % 52;
+                
+                if (diceValue > distanceToHomeEntrance) {
+                    const stepsIntoHome = diceValue - distanceToHomeEntrance - 1;
+                    if (stepsIntoHome < HOME_PATH_LENGTH) {
+                        moves.push({ tokenId: token.id, finalPosition: { type: 'HOME_PATH', index: stepsIntoHome } });
+                    } else if (stepsIntoHome === HOME_PATH_LENGTH) {
+                        moves.push({ tokenId: token.id, finalPosition: { type: 'HOME' } });
+                    }
+                } else {
+                    const finalIndex = (currentPos.index + diceValue) % 52;
+                    const tokensAtDest = tokens.filter(t => t.position.type === 'PATH' && t.position.index === finalIndex && t.color === currentPlayer.color);
+                    if (tokensAtDest.length < 2) {
+                        moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: finalIndex } });
+                    }
+                }
+            } else if (currentPos.type === 'HOME_PATH') {
+                const newHomeIndex = currentPos.index + diceValue;
+                if (newHomeIndex < HOME_PATH_LENGTH) {
+                    moves.push({ tokenId: token.id, finalPosition: { type: 'HOME_PATH', index: newHomeIndex } });
+                } else if (newHomeIndex === HOME_PATH_LENGTH) {
+                    moves.push({ tokenId: token.id, finalPosition: { type: 'HOME' } });
+                }
+            }
+        }
+        return moves;
+    }, []);
+
+    const handleRollDice = useCallback(async () => {
+        console.log(`🎲 ========== HANDLE ROLL DICE ==========`);
+        console.log(`🎲 turnState: ${state.turnState}`);
+        console.log(`🎲 isMultiplayer: ${isMultiplayer}`);
+        console.log(`🎲 isMyTurn: ${isMyTurn}`);
+        console.log(`🎲 current diceValue: ${state.diceValue}`);
+        console.log(`🎲 currentPlayer: ${state.players[state.currentPlayerIndex]?.color}`);
+        console.log(`🎲 localPlayerColor: ${multiplayerConfig?.localPlayerColor}`);
+        console.log(`🎲 gameStarted: ${state.gameStarted}`);
+        console.log(`🎲 timer: ${state.timer}`);
+
+        // CRITICAL FIX: Allow rolling even if timer is 0 - backend will handle auto-roll
+        // Only check if it's actually the player's turn and game is started
+        if (!state.gameStarted) {
+            console.error(`❌ Cannot roll: game not started`);
+            console.log(`🎲 =======================================`);
+            return;
+        }
+
+        // Multiplayer: Client does NOT generate random number.
+        if (isMultiplayer) {
+            if (isMyTurn) {
+                // CRITICAL FIX: Allow roll even if turnState is not exactly ROLLING
+                // The server will validate and fix the state if needed
+                if (state.turnState !== 'ROLLING' && state.diceValue !== null) {
+                    console.warn(`⚠️ Warning: turnState is ${state.turnState} but diceValue is ${state.diceValue}, allowing roll attempt (server will validate)`);
+                }
+                
+                if (!socket || !socket.connected) {
+                    console.error('❌ Cannot roll: Socket not connected');
+                    console.error('❌ Socket:', socket);
+                    console.error('❌ Socket connected:', socket?.connected);
+                    console.log(`🎲 =======================================`);
+                    return;
+                }
+                
+                if (!multiplayerConfig || !multiplayerConfig.gameId) {
+                    console.error('❌ Cannot roll: Missing game configuration');
+                    console.error('❌ multiplayerConfig:', multiplayerConfig);
+                    console.log(`🎲 =======================================`);
+                    return;
+                }
+                
+                console.log(`✅ Sending roll_dice event to server`);
+                console.log(`✅ gameId: ${multiplayerConfig.gameId}`);
+                console.log(`✅ socket connected: ${socket.connected}`);
+                console.log(`✅ socket ID: ${socket.id}`);
+                socket.emit('roll_dice', { gameId: multiplayerConfig.gameId });
+                console.log(`✅ roll_dice event emitted, waiting for server response...`);
+                console.log(`🎲 =======================================`);
+            } else {
+                console.error(`❌ Cannot roll: not my turn`);
+                console.error(`❌ Current player: ${state.players[state.currentPlayerIndex]?.color}`);
+                console.error(`❌ My color: ${multiplayerConfig?.localPlayerColor}`);
+                console.log(`🎲 =======================================`);
+            }
+            return;
+        }
+
+        // Local game: Check turnState
+        if (state.turnState !== 'ROLLING') {
+            console.error(`❌ Cannot roll: not in ROLLING state (current state: ${state.turnState})`);
+            console.log(`🎲 =======================================`);
+            return;
+        }
+
+        // Local Play Logic:
+        console.log(`🎲 Local game: generating random dice value...`);
+        const roll = Math.floor(Math.random() * 6) + 1;
+        console.log(`🎲 Generated roll: ${roll}`);
+        dispatch({ type: 'ROLL_DICE', value: roll });
+        const moves = calculateLegalMoves(state, roll);
+        dispatch({ type: 'SET_LEGAL_MOVES_AND_PROCEED', moves });
+        if (moves.length === 0) {
+            setTimeout(() => {
+                dispatch({ type: 'NEXT_TURN', grantExtraTurn: roll === 6 });
+            }, 1200);
+        }
+        console.log(`🎲 =======================================`);
+    }, [state, calculateLegalMoves, isMyTurn, isMultiplayer, multiplayerConfig, socket]);
+
+    const handleMoveToken = useCallback((tokenId: string) => {
+        if (state.turnState !== 'MOVING') return;
+
+        // Multiplayer: Send intention to server
+        if (isMultiplayer) {
+            if (isMyTurn) {
+                socket?.emit('move_token', { gameId: multiplayerConfig.gameId, tokenId });
+            }
+            return;
+        }
+
+        // Local Logic:
+        const move = state.legalMoves.find(m => m.tokenId === tokenId);
+        if (move) {
+            dispatch({ type: 'MOVE_TOKEN', move });
+        }
+    }, [state.turnState, state.legalMoves, isMyTurn, isMultiplayer, multiplayerConfig]);
+
+    // --- Timer Logic ---
+    // Tick timer locally every second if it's > 0
+    useEffect(() => {
+        if (state.timer > 0 && state.turnState !== 'GAMEOVER' && state.gameStarted) {
+            const timerId = setInterval(() => {
+                localDispatchRef.current({ type: 'TICK_TIMER' });
+            }, 1000);
+            return () => clearInterval(timerId);
+        }
+    }, [state.timer, state.turnState, state.gameStarted]);
+
+    // --- AI Turn Logic (Local Game) ---
+    const { currentPlayerIndex, turnState, gameStarted, players, legalMoves } = state;
+    useEffect(() => {
+        if (!gameStarted || isMultiplayer || turnState === 'GAMEOVER') return;
+
+        const currentPlayer = players[currentPlayerIndex];
+        if (!currentPlayer?.isAI) return;
+
+        let timeoutId: ReturnType<typeof setTimeout>;
+
+        if (turnState === 'ROLLING') {
+            // Auto Roll for AI
+            timeoutId = setTimeout(() => {
+                handleRollDice();
+            }, 1000);
+        } else if (turnState === 'MOVING') {
+             // Auto Move for AI (Random Selection as requested)
+             timeoutId = setTimeout(() => {
+                if (legalMoves.length > 0) {
+                    const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+                    handleMoveToken(randomMove.tokenId);
+                }
+            }, 1500);
+        }
+
+        return () => clearTimeout(timeoutId);
+    }, [currentPlayerIndex, turnState, gameStarted, isMultiplayer, handleRollDice, handleMoveToken, players, legalMoves]);
+    
+    const startGame = (players: Player[], initialState?: GameState) => dispatch({ type: 'START_GAME', players, initialState });
+
+    const setState = (newState: GameState) => dispatch({ type: 'SET_STATE', state: newState });
+
+    const handleAnimationComplete = useCallback(() => {
+        // In multiplayer, the server handles state transitions via updates. 
+        // We might just need this for local cleaning or notifying server animation is done (if we were syncing perfectly)
+        // For now, we rely on the fact that 'MOVE_TOKEN' response from server sets state to ROLLING immediately 
+        // but we might want to delay that locally. 
+        if (!isMultiplayer) {
+             dispatch({ type: 'ANIMATION_COMPLETE' });
+        }
+    }, [isMultiplayer]);
+
+    return { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn };
+};

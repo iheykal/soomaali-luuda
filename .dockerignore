@@ -1,0 +1,61 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build outputs
+dist
+build
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+**/__tests__/**
+**/*.test.*
+**/*.spec.*
+
+# Temporary files
+temp-*
+*.tmp
+
+# Scripts (not needed in production)
+**/scripts/**
+**/*.cjs
+**/*.js
+!backend/server.js
+!backend/logic/gameEngine.js
+!backend/models/*.js
+!backend/utils/*.js
+
+# Debug files
+debug-*.js
+check-*.js
+fix-*.js
+make-*.js
+update-*.js
+delete-*.js
+db-inspect.js
+

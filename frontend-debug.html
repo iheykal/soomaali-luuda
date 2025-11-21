@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Access Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .debug-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Admin Access Debug Tool</h1>
+    <p>This tool helps diagnose why you're getting admin access denied errors.</p>
+
+    <div id="status" class="debug-section info">
+        <h3>🔄 Checking...</h3>
+    </div>
+
+    <div class="debug-section">
+        <h3>1. Check Current User</h3>
+        <button onclick="checkCurrentUser()">Check Who I'm Logged In As</button>
+        <div id="user-info"></div>
+    </div>
+
+    <div class="debug-section">
+        <h3>2. Check Admin Access</h3>
+        <button onclick="checkAdminAccess()">Test Admin Access</button>
+        <div id="admin-info"></div>
+    </div>
+
+    <div class="debug-section">
+        <h3>3. Quick Fix</h3>
+        <button onclick="logoutAndReload()">Log Out & Refresh</button>
+        <p>This will log you out and refresh the page. Log back in to get fresh permissions.</p>
+    </div>
+
+    <div class="debug-section">
+        <h3>📋 Debug Info</h3>
+        <div id="debug-info"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://192.168.100.32:5000';
+
+        function getToken() {
+            return localStorage.getItem('ludo_token');
+        }
+
+        async function makeRequest(url, options = {}) {
+            const token = getToken();
+            if (!token) {
+                throw new Error('No authentication token found. Please log in first.');
+            }
+
+            return fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                ...options
+            });
+        }
+
+        async function checkCurrentUser() {
+            const infoDiv = document.getElementById('user-info');
+            infoDiv.innerHTML = '<p>🔄 Checking...</p>';
+
+            try {
+                const response = await makeRequest(`${API_URL}/api/auth/me`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    infoDiv.innerHTML = `
+                        <div class="success">
+                            <h4>✅ Current User Info:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    infoDiv.innerHTML = `
+                        <div class="error">
+                            <h4>❌ Error getting user info:</h4>
+                            <p>${data.error || 'Unknown error'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                infoDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Connection Error:</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function checkAdminAccess() {
+            const infoDiv = document.getElementById('admin-info');
+            infoDiv.innerHTML = '<p>🔄 Checking...</p>';
+
+            try {
+                const response = await makeRequest(`${API_URL}/api/admin/users`);
+                const data = await response.json();
+
+                if (response.ok) {
+                    const adminUsers = data.users.filter(u => u.role === 'SUPER_ADMIN');
+                    infoDiv.innerHTML = `
+                        <div class="success">
+                            <h4>✅ Admin Access Granted!</h4>
+                            <p>Found ${adminUsers.length} Super Admin users</p>
+                            <details>
+                                <summary>Super Admins:</summary>
+                                <pre>${JSON.stringify(adminUsers.map(u => ({ username: u.username, role: u.role })), null, 2)}</pre>
+                            </details>
+                        </div>
+                    `;
+                } else {
+                    infoDiv.innerHTML = `
+                        <div class="error">
+                            <h4>❌ Admin Access Denied:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                            <p><strong>Solution:</strong> ${data.message || 'Log out and log back in to refresh your token.'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                infoDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Connection Error:</h4>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function logoutAndReload() {
+            localStorage.removeItem('ludo_token');
+            alert('Logged out! Refreshing page...');
+            window.location.reload();
+        }
+
+        // Auto-run checks on page load
+        window.onload = function() {
+            const token = getToken();
+            const statusDiv = document.getElementById('status');
+
+            if (!token) {
+                statusDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ No Authentication Token</h3>
+                        <p>Please log in to the main app first, then come back to this debug page.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            statusDiv.innerHTML = `
+                <div class="success">
+                    <h3>✅ Authentication Token Found</h3>
+                    <p>Token: ${token.substring(0, 20)}...</p>
+                </div>
+            `;
+
+            // Show debug info
+            document.getElementById('debug-info').innerHTML = `
+                <p><strong>API URL:</strong> ${API_URL}</p>
+                <p><strong>Token Length:</strong> ${token.length} characters</p>
+                <p><strong>Token Preview:</strong> ${token.substring(0, 50)}...</p>
+            `;
+        };
+    </script>
+</body>
+</html>
