@@ -49,15 +49,15 @@ const getApiUrl = () => {
       if (hostname.includes('onrender.com')) {
         // Try common backend naming patterns
         const baseName = hostname.replace('.onrender.com', '');
-        // Try: baseName-backend, baseName-backend-service, or just baseName
-        const possibleBackends = [
-          `${baseName}-backend.onrender.com`,
-          `${baseName.replace('-frontend', '')}-backend.onrender.com`,
-          baseName.replace('frontend', 'backend') + '.onrender.com'
-        ];
         
-        // For now, try the most common pattern: add -backend
-        const backendUrl = `https://${baseName}-backend.onrender.com/api`;
+        // Special case: handle spelling variations (ludda vs luuda)
+        let backendBaseName = baseName;
+        if (baseName.includes('ludda')) {
+          backendBaseName = baseName.replace('ludda', 'luuda');
+        }
+        
+        // Try: baseName-backend
+        const backendUrl = `https://${backendBaseName}-backend.onrender.com/api`;
         console.log('🔧 Auto-detected Render backend URL:', backendUrl);
         console.log('⚠️ If this is wrong, set VITE_API_URL environment variable in Render');
         return backendUrl;
@@ -112,8 +112,14 @@ const getSocketUrl = () => {
         if (hostname.includes('onrender.com')) {
           // Try common backend naming patterns
           const baseName = hostname.replace('.onrender.com', '');
-          // Try: baseName-backend, baseName-backend-service, or just baseName
-          const backendUrl = `https://${baseName}-backend.onrender.com`;
+          
+          // Special case: handle spelling variations (ludda vs luuda)
+          let backendBaseName = baseName;
+          if (baseName.includes('ludda')) {
+            backendBaseName = baseName.replace('ludda', 'luuda');
+          }
+          
+          const backendUrl = `https://${backendBaseName}-backend.onrender.com`;
           console.log('🔧 Auto-detected Render backend Socket URL:', backendUrl);
           console.log('⚠️ If this is wrong, set VITE_SOCKET_URL environment variable in Render');
           return backendUrl;
