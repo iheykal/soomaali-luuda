@@ -103,54 +103,6 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e6 // 1MB max buffer size
 });
 
-// Middleware - CORS configuration
-// In development, allow all origins. In production, use FRONTEND_URL
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // In development mode, allow all origins
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      return callback(null, true);
-    }
-    
-    // Auto-allow Render subdomains (for easier deployment)
-    const isRenderDomain = origin && origin.includes('.onrender.com');
-    if (isRenderDomain) {
-      console.log('✅ Allowing Render domain:', origin);
-      return callback(null, true);
-    }
-    
-    // In production, check against FRONTEND_URL
-    const allowedOrigins = process.env.FRONTEND_URL === "*" 
-      ? ["*"]
-      : [process.env.FRONTEND_URL].filter(Boolean);
-    
-    if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      // Log CORS error for debugging
-      console.warn('CORS blocked origin:', origin, 'Allowed:', allowedOrigins);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200 // Some legacy browsers (IE11, various SmartTVs) choke on 204
-};
-
-app.use(cors(corsOptions));
-
-// Add error handling for CORS
-app.use((err, req, res, next) => {
-  if (err.message === 'Not allowed by CORS') {
-    console.error('CORS Error:', req.headers.origin, 'not allowed');
-    return res.status(403).json({ error: 'CORS: Origin not allowed' });
-  }
-  next(err);
-});
 app.use(express.json());
 
 // Health check endpoints
