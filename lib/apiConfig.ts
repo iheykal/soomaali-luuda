@@ -44,6 +44,25 @@ const getApiUrl = () => {
         return url;
       }
       
+      // Auto-detect Render backend URL pattern
+      // If frontend is on Render (soomaali-ludda.onrender.com), try backend (soomaali-luuda-backend.onrender.com)
+      if (hostname.includes('onrender.com')) {
+        // Try common backend naming patterns
+        const baseName = hostname.replace('.onrender.com', '');
+        // Try: baseName-backend, baseName-backend-service, or just baseName
+        const possibleBackends = [
+          `${baseName}-backend.onrender.com`,
+          `${baseName.replace('-frontend', '')}-backend.onrender.com`,
+          baseName.replace('frontend', 'backend') + '.onrender.com'
+        ];
+        
+        // For now, try the most common pattern: add -backend
+        const backendUrl = `https://${baseName}-backend.onrender.com/api`;
+        console.log('🔧 Auto-detected Render backend URL:', backendUrl);
+        console.log('⚠️ If this is wrong, set VITE_API_URL environment variable in Render');
+        return backendUrl;
+      }
+      
       // If accessed via network IP (mobile/remote), use network IP for backend
       if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
         // Use same hostname but port 5000 for backend
@@ -76,26 +95,38 @@ const getSocketUrl = () => {
       }
     }
     
-    // Auto-detect based on current hostname
-    if (typeof window !== 'undefined') {
-      const hostname = window.location.hostname;
-      const protocol = window.location.protocol;
-      
-      // In production mode, use same origin
-      if (import.meta.env.VITE_USE_REAL_API === 'true') {
-        const url = window.location.origin;
-        console.log('🔧 Using same origin Socket URL:', url);
-        return url;
+      // Auto-detect based on current hostname
+      if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        
+        // In production mode, use same origin
+        if (import.meta.env.VITE_USE_REAL_API === 'true') {
+          const url = window.location.origin;
+          console.log('🔧 Using same origin Socket URL:', url);
+          return url;
+        }
+        
+        // Auto-detect Render backend URL pattern
+        // If frontend is on Render (soomaali-ludda.onrender.com), try backend (soomaali-luuda-backend.onrender.com)
+        if (hostname.includes('onrender.com')) {
+          // Try common backend naming patterns
+          const baseName = hostname.replace('.onrender.com', '');
+          // Try: baseName-backend, baseName-backend-service, or just baseName
+          const backendUrl = `https://${baseName}-backend.onrender.com`;
+          console.log('🔧 Auto-detected Render backend Socket URL:', backendUrl);
+          console.log('⚠️ If this is wrong, set VITE_SOCKET_URL environment variable in Render');
+          return backendUrl;
+        }
+        
+        // If accessed via network IP (mobile/remote), use network IP for backend
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          // Use same hostname but port 5000 for backend
+          const url = `${protocol}//${hostname}:5000`;
+          console.log('🔧 Auto-detected network Socket URL:', url);
+          return url;
+        }
       }
-      
-      // If accessed via network IP (mobile/remote), use network IP for backend
-      if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-        // Use same hostname but port 5000 for backend
-        const url = `${protocol}//${hostname}:5000`;
-        console.log('🔧 Auto-detected network Socket URL:', url);
-        return url;
-      }
-    }
     
     // Default: localhost for development
     const defaultUrl = 'http://localhost:5000';
