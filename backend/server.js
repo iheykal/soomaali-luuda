@@ -23,55 +23,35 @@ const app = express();
 const server = http.createServer(app);
 
 // --- GLOBAL CORS SETUP (MUST BE FIRST) ---
-const corsOptions = {
+// Simple CORS configuration that allows Render subdomains
+app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // Always allow Render subdomains (automatic fix)
+    // Always allow Render subdomains
     if (origin.includes('.onrender.com')) {
-        return callback(null, true);
+      return callback(null, true);
     }
-
+    
+    // Allow specific frontend URL if set
+    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
+      return callback(null, true);
+    }
+    
     // In development, allow all
     if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
       return callback(null, true);
     }
     
-    // Check allowed origins
-    const allowedOrigins = process.env.FRONTEND_URL 
-      ? [process.env.FRONTEND_URL, process.env.FRONTEND_URL.replace(/\/$/, '')] 
-      : [];
-      
-    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-      return callback(null, true);
-    }
-    
-    // Fallback: Allow everything for now to fix deployment issues (can be tightened later)
-    console.log('⚠️ Allowing origin (fallback):', origin);
+    // Default: allow (for now to fix deployment)
     return callback(null, true);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200
-};
-
-// Apply CORS middleware
-app.use(cors(corsOptions));
-
-// Handle OPTIONS requests for all routes (preflight requests)
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
+  optionsSuccessStatus: 204 // Some legacy browsers (IE11, various SmartTVs) choke on 204
+}));
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
