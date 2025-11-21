@@ -53,24 +53,26 @@ app.use(cors({
 }));
 
 // Ensure preflight requests always return proper CORS headers (echo origin for Render subdomains)
-app.options('*', (req, res) => {
-  try {
-    const origin = req.headers.origin || '*';
+// Use a middleware (not app.options with '*') to avoid path-to-regexp errors in certain environments.
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    try {
+      const origin = req.headers.origin || '*';
 
-    // IMPORTANT: When credentials are used, Access-Control-Allow-Origin must be an exact origin (not '*').
-    // We echo the incoming origin because this server already allows Render subdomains in the main CORS config.
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
+      // IMPORTANT: When credentials are used, Access-Control-Allow-Origin must be an exact origin (not '*').
+      // We echo the incoming origin because this server already allows Render subdomains in the main CORS config.
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
 
-    // Some clients expect a 204 No Content for preflight
-    return res.sendStatus(204);
-  } catch (e) {
-    console.error('Error handling CORS preflight:', e);
-    // Fall back to generic response
-    return res.sendStatus(204);
+      return res.sendStatus(204);
+    } catch (e) {
+      console.error('Error handling CORS preflight:', e);
+      return res.sendStatus(204);
+    }
   }
+  next();
 });
 
 // Root endpoint for easy health check
@@ -1616,7 +1618,8 @@ const processMatchmaking = async () => {
       const player2 = players[1];
       
       // Only match if they have different socketIds (can be same userId)
-      if (player1.socketId !== player2.socketId) {
+      const matchCondition = player1.socketId !== player2.socketId;
+      if (matchCondition) {
         // Remove both from queue
         matchmakingQueue.set(stake, players.slice(2));
         if (matchmakingQueue.get(stake).length === 0) {
@@ -1870,7 +1873,7 @@ const scheduleAutoTurn = async (gameId, delay = 1500) => {
 
     if (activeAutoTurns.has(gameId)) {
         console.log(`🤖 Auto-turn already scheduled for game ${gameId}, skipping`);
-        return; // Prevent double scheduling
+               return; // Prevent double scheduling
     }
     activeAutoTurns.add(gameId);
 
@@ -2307,7 +2310,7 @@ io.on('connection', (socket) => {
             if (player.isAI !== false) {
                 player.isAI = false;
                 playerFlagsUpdated = true;
-                console.log(`🔧 Forced ${player.color} to be human (isAI: false) in join_game for game ${gameId}`);
+                console.log(`🔧 Forced ${player.color} to be human (isAI: false) in multiplayer game ${gameId}`);
             }
             // For the rejoining player, force remove disconnected flag
             if (player.userId === userId) {
@@ -2501,7 +2504,7 @@ io.on('connection', (socket) => {
               console.log(`📤 Sending GAME_STATE_UPDATE after turn pass: currentPlayerIndex=${updatedState.currentPlayerIndex}, currentPlayer=${updatedState.players?.[updatedState.currentPlayerIndex]?.color}, turnState=${updatedState.turnState}`);
               io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
               
-              // Schedule next player's turn if needed (use nextPlayer from above)
+              // Schedule next player's turn if needed
               if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
                 scheduleAutoTurn(gameId, 1500);
               } else if (nextPlayer) {
