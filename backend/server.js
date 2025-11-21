@@ -68,26 +68,19 @@ const corsOptions = {
       return callback(null, true);
     }
     
+    // Auto-allow Render subdomains (for easier deployment)
+    const isRenderDomain = origin && origin.includes('.onrender.com');
+    if (isRenderDomain) {
+      console.log('✅ Allowing Render domain:', origin);
+      return callback(null, true);
+    }
+    
     // In production, check against FRONTEND_URL
     const allowedOrigins = process.env.FRONTEND_URL === "*" 
       ? ["*"]
       : [process.env.FRONTEND_URL].filter(Boolean);
     
-    // Auto-allow Render subdomains if FRONTEND_URL is not set or if origin is from Render
-    const isRenderDomain = origin && origin.includes('.onrender.com');
-    const isAllowedRender = isRenderDomain && (
-      allowedOrigins.includes("*") || 
-      allowedOrigins.some(allowed => allowed && origin.includes(allowed.replace('https://', '').replace('http://', '').split('.')[0]))
-    );
-    
-    // If no FRONTEND_URL is set but origin is from Render, allow it (helpful for deployment)
-    if (isRenderDomain && allowedOrigins.length === 0) {
-      console.log('⚠️ FRONTEND_URL not set, but allowing Render domain:', origin);
-      console.log('💡 Set FRONTEND_URL environment variable for better security');
-      return callback(null, true);
-    }
-    
-    if (allowedOrigins.includes("*") || allowedOrigins.includes(origin) || isAllowedRender) {
+    if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       // Log CORS error for debugging
