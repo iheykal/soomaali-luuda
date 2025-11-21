@@ -60,9 +60,6 @@ const corsOptions = {
 // Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly
-app.options('(.*)', cors(corsOptions));
-
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
     res.send('Ludo Backend is Running! 🚀');
