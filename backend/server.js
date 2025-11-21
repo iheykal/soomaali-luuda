@@ -2701,9 +2701,29 @@ setInterval(async () => {
 }, 6 * 60 * 60 * 1000);
 
 // Run cleanup then start server
-performStartupCleanup().then(() => {
-  server.listen(PORT, HOST, () => {
-    console.log(`Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-    console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);
+// Start server even if cleanup fails (non-blocking)
+performStartupCleanup()
+  .then(() => {
+    console.log('✅ Startup cleanup completed');
+  })
+  .catch((err) => {
+    console.error('⚠️ Startup cleanup failed (non-critical):', err.message);
+    console.log('🔄 Continuing server startup...');
+  })
+  .finally(() => {
+    // Always start the server, even if cleanup failed
+    server.listen(PORT, HOST, () => {
+      console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+      console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);
+      console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+    });
+    
+    // Handle server errors
+    server.on('error', (err) => {
+      console.error('❌ Server error:', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`💡 Port ${PORT} is already in use`);
+      }
+    });
   });
-});
