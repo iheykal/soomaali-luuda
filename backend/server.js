@@ -1533,6 +1533,7 @@ const findMatch = (stake, socketId, userId, userName) => {
   // Find a player with the same stake who is not the current player (by socketId)
   // Note: Same userId is allowed (same user in different tabs/browsers)
   const queueForStake = matchmakingQueue.get(stake) || [];
+  console.log(`[MM-DEBUG] findMatch for ${userName} (${socketId}). Current queue for stake ${stake}:`, JSON.stringify(queueForStake.map(p => ({u: p.userName, s: p.socketId}))));
   console.log(`🔍 Checking queue for stake ${stake}: ${queueForStake.length} players waiting`);
   console.log(`🔍 Current player: ${userName || userId} (${socketId}), looking for opponent...`);
   
@@ -1542,6 +1543,7 @@ const findMatch = (stake, socketId, userId, userName) => {
   if (matchIndex !== -1) {
     // Found a match!
     const opponent = queueForStake[matchIndex];
+    console.log(`[MM-DEBUG] Found opponent for ${userName}:`, JSON.stringify(opponent));
     // Remove opponent from queue
     queueForStake.splice(matchIndex, 1);
     if (queueForStake.length === 0) {
@@ -1555,11 +1557,13 @@ const findMatch = (stake, socketId, userId, userName) => {
   }
   
   // No match found, add to queue
+  console.log(`[MM-DEBUG] No opponent found. Adding ${userName} to queue.`);
   const player = { socketId, userId, userName, timestamp: Date.now(), stake };
   if (!matchmakingQueue.has(stake)) {
     matchmakingQueue.set(stake, []);
   }
   matchmakingQueue.get(stake).push(player);
+  console.log(`[MM-DEBUG] Queue for stake ${stake} is now:`, JSON.stringify(matchmakingQueue.get(stake).map(p => ({u: p.userName, s: p.socketId}))));
   
   const queueSize = matchmakingQueue.get(stake).length;
   console.log(`⏳ Player ${userName || userId} (${socketId}) added to queue for stake ${stake}. Queue size: ${queueSize}`);

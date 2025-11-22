@@ -97,11 +97,12 @@ const getSocketUrl = () => {
         }
         
         // Auto-detect Render backend URL pattern
-        // If frontend is on Render, use the same origin for the socket
+        // If frontend is on Render, use the *dedicated backend service URL* for the socket
         if (hostname.includes('onrender.com')) {
-          const url = window.location.origin;
-          console.log('🔧 Using same origin Socket URL for Render:', url);
-          return url;
+          // Prefer VITE_RENDER_BACKEND_URL if set, otherwise use a heuristic based on current origin
+          const renderBackendUrl = import.meta.env.VITE_RENDER_BACKEND_URL || window.location.origin.replace('som-bet.onrender.com', 'som-bet-backend.onrender.com');
+          console.log('🔧 Using Render backend service Socket URL:', renderBackendUrl);
+          return renderBackendUrl;
         }
         
         // If accessed via network IP (mobile/remote), use network IP for backend
