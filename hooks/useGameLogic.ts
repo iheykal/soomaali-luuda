@@ -357,26 +357,69 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             rememberUpgrade: false // Don't remember upgrade preference
         });
 
+        // Join helpers: retry join_game until GAME_STATE_UPDATE is received
+        const MAX_JOIN_ATTEMPTS = 3;
+        const JOIN_WAIT_MS = 5000; // wait 5s for GAME_STATE_UPDATE before retrying
+
+        const joinAttemptsRef: { current: number } = { current: 0 };
+        let joinTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const scheduleJoinRetry = (emitJoin: () => void) => {
+            if (joinTimer) {
+                clearTimeout(joinTimer);
+                joinTimer = null;
+            }
+            if (joinAttemptsRef.current >= MAX_JOIN_ATTEMPTS) {
+                console.error('❌ Max join attempts reached for game', multiplayerConfig.gameId);
+                return;
+            }
+            joinTimer = setTimeout(() => {
+                joinAttemptsRef.current += 1;
+                console.log('🔁 Re-attempting join_game (attempt', joinAttemptsRef.current + 1, ')');
+                emitJoin();
+            }, JOIN_WAIT_MS);
+        };
+
+        const clearJoinRetry = () => {
+            if (joinTimer) {
+                clearTimeout(joinTimer);
+                joinTimer = null;
+            }
+            joinAttemptsRef.current = 0;
+        };
+
         socket.on('connect', () => {
             debugService.socket({ event: 'connect', socketId: socket?.id });
-            
+
             if (!socket || !socket.connected) {
                 debugService.error('Socket not connected, cannot join game');
                 return;
             }
-            
-            // Join the specific game room
-            if (multiplayerConfig.isSpectator) {
-                socket.emit('watch_game', {
-                    gameId: multiplayerConfig.gameId
-                });
-            } else {
-                socket.emit('join_game', {
-                    gameId: multiplayerConfig.gameId,
-                    userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
-                    playerColor: multiplayerConfig.localPlayerColor
-                });
-            }
+
+            // Join the specific game room and start a small retry mechanism
+            const emitJoin = () => {
+                if (!socket) return;
+                try {
+                    if (multiplayerConfig.isSpectator) {
+                        socket.emit('watch_game', { gameId: multiplayerConfig.gameId });
+                    } else {
+                        socket.emit('join_game', {
+                            gameId: multiplayerConfig.gameId,
+                            userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
+                            playerColor: multiplayerConfig.localPlayerColor
+                        });
+                    }
+                } catch (e) {
+                    console.error('❌ Error emitting join_game:', e);
+                }
+            };
+
+            // First immediate attempt
+            joinAttemptsRef.current = 0;
+            emitJoin();
+            // Schedule retries if no GAME_STATE_UPDATE arrives
+            scheduleJoinRetry(emitJoin);
+
             debugService.socket({ event: 'emit', type: 'join_game/watch_game', gameId: multiplayerConfig.gameId });
         });
 
@@ -387,17 +430,22 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         socket.on('reconnect', (attemptNumber) => {
             debugService.socket({ event: 'reconnect', attemptNumber });
             if (multiplayerConfig) {
-                if (multiplayerConfig.isSpectator) {
-                    socket?.emit('watch_game', {
-                        gameId: multiplayerConfig.gameId
-                    });
-                } else {
-                    socket?.emit('join_game', {
-                        gameId: multiplayerConfig.gameId,
-                        userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
-                        playerColor: multiplayerConfig.localPlayerColor
-                    });
-                }
+                // On reconnect, re-run the same join + retry logic as on connect
+                const emitJoin = () => {
+                    if (!socket) return;
+                    if (multiplayerConfig.isSpectator) {
+                        socket.emit('watch_game', { gameId: multiplayerConfig.gameId });
+                    } else {
+                        socket.emit('join_game', {
+                            gameId: multiplayerConfig.gameId,
+                            userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
+                            playerColor: multiplayerConfig.localPlayerColor
+                        });
+                    }
+                };
+                joinAttemptsRef.current = 0;
+                emitJoin();
+                scheduleJoinRetry(emitJoin);
             }
         });
 
@@ -416,6 +464,12 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
 
             localDispatchRef.current({ type: 'SET_STATE', state: correctedState });
+            // On receiving authoritative state, clear any join retry timers
+            try {
+                clearJoinRetry();
+            } catch (e) {
+                // ignore
+            }
         });
 
         socket.on('ERROR', (data: { message: string }) => {
