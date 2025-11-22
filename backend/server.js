@@ -30,6 +30,9 @@ app.set('trust proxy', 1); // Trust the first proxy, which is what Render uses
 // Build allowed origins list from env and defaults
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'https://somali-bet.onrender.com',
+  'https://somali-bet.onrender.com/',
+  'http://somali-bet.onrender.com',
+  'https://somali-bet-backend.onrender.com',
   'http://localhost:3000',
   'http://localhost:5173'
 ];
