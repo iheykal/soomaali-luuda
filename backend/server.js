@@ -27,30 +27,11 @@ const server = http.createServer(app);
 // --- GLOBAL CORS SETUP (MUST BE FIRST) ---
 app.set('trust proxy', 1); // Trust the first proxy, which is what Render uses
 
-// Build allowed origins list from env and defaults
-const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://somali-bet.onrender.com',
-  'https://somali-bet.onrender.com/',
-  'http://somali-bet.onrender.com',
-  'https://somali-bet-backend.onrender.com',
-  'http://localhost:3000',
-  'http://localhost:5173'
-];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // allow requests with no origin (e.g. curl, postman) or if origin is in allowedOrigins
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) return callback(null, true);
-    console.warn('CORS blocked origin:', origin);
-    return callback(new Error('Not allowed by CORS'));
-  },
+app.use(cors({
+  origin: '*',
   credentials: true
-};
-// Explicitly handle pre-flight requests for all routes
-app.options('*', cors(corsOptions));
+}));
 
-// Use CORS for all routes
-app.use(cors(corsOptions));
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
@@ -79,7 +60,7 @@ const socketOrigins = process.env.FRONTEND_URL === "*"
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'development' || !process.env.NODE_ENV ? "*" : socketOrigins,
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization']

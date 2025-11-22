@@ -45,22 +45,11 @@ const getApiUrl = () => {
       }
       
       // Auto-detect Render backend URL pattern
-      // If frontend is on Render (soomaali-ludda.onrender.com), try backend (soomaali-luuda-backend.onrender.com)
+      // If frontend is on Render, use the same origin for the API
       if (hostname.includes('onrender.com')) {
-        // Try common backend naming patterns
-        const baseName = hostname.replace('.onrender.com', '');
-        
-        // Special case: handle spelling variations (ludda vs luuda)
-        let backendBaseName = baseName;
-        if (baseName.includes('ludda')) {
-          backendBaseName = baseName.replace('ludda', 'luuda');
-        }
-        
-        // Try: baseName-backend
-        const backendUrl = `https://${backendBaseName}-backend.onrender.com/api`;
-        console.log('🔧 Auto-detected Render backend URL:', backendUrl);
-        console.log('⚠️ If this is wrong, set VITE_API_URL environment variable in Render');
-        return backendUrl;
+        const url = `${window.location.origin}/api`;
+        console.log('🔧 Using same origin API URL for Render:', url);
+        return url;
       }
       
       // If accessed via network IP (mobile/remote), use network IP for backend
@@ -108,21 +97,11 @@ const getSocketUrl = () => {
         }
         
         // Auto-detect Render backend URL pattern
-        // If frontend is on Render (soomaali-ludda.onrender.com), try backend (soomaali-luuda-backend.onrender.com)
+        // If frontend is on Render, use the same origin for the socket
         if (hostname.includes('onrender.com')) {
-          // Try common backend naming patterns
-          const baseName = hostname.replace('.onrender.com', '');
-          
-          // Special case: handle spelling variations (ludda vs luuda)
-          let backendBaseName = baseName;
-          if (baseName.includes('ludda')) {
-            backendBaseName = baseName.replace('ludda', 'luuda');
-          }
-          
-          const backendUrl = `https://${backendBaseName}-backend.onrender.com`;
-          console.log('🔧 Auto-detected Render backend Socket URL:', backendUrl);
-          console.log('⚠️ If this is wrong, set VITE_SOCKET_URL environment variable in Render');
-          return backendUrl;
+          const url = window.location.origin;
+          console.log('🔧 Using same origin Socket URL for Render:', url);
+          return url;
         }
         
         // If accessed via network IP (mobile/remote), use network IP for backend
