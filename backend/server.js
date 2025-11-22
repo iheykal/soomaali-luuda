@@ -50,8 +50,7 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 
-// Handle preflight requests for all routes
-app.options('*', cors());
+
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
