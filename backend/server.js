@@ -94,21 +94,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Serve frontend static build when present (same-domain deployment)
-try {
-  const frontendDist = path.join(__dirname, '..', 'dist');
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(frontendDist, 'index.html'));
-    });
-    console.log('✅ Serving frontend from', frontendDist);
-  } else {
-    console.log('ℹ️ Frontend dist not found at', frontendDist);
-  }
-} catch (e) {
-  console.warn('⚠️ Error checking frontend dist:', e.message);
-}
+
 
 // Basic Rate Limiter Map (IP -> Timestamp)
 const rateLimit = new Map();
@@ -2642,8 +2628,28 @@ io.on('connection', (socket) => {
   });
 });
 
+// ... (all your API routes)
+
+// This must be after all other API routes
+// Serve frontend static build when present (same-domain deployment)
+try {
+  const frontendDist = path.join(__dirname, '..', 'dist');
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+    console.log('✅ Serving frontend from', frontendDist);
+  } else {
+    console.log('ℹ️ Frontend dist not found at', frontendDist);
+  }
+} catch (e) {
+  console.warn('⚠️ Error checking frontend dist:', e.message);
+}
+
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
+
 
 // Startup Cleanup: Mark all players as disconnected in ACTIVE games
 const performStartupCleanup = async () => {
