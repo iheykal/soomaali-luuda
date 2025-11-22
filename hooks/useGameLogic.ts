@@ -3,6 +3,7 @@ import type { GameState, Player, PlayerColor, Token, LegalMove, TokenPosition, M
 import { PLAYER_COLORS, START_POSITIONS, HOME_ENTRANCES, HOME_PATH_LENGTH, SAFE_SQUARES } from '../lib/boardLayout';
 import { SOCKET_URL } from '../lib/apiConfig';
 import { io, Socket } from 'socket.io-client';
+import { debugService } from '../services/debugService';
 
 // --- Constants ---
 const ROLL_TIME_LIMIT = 8;
@@ -38,7 +39,7 @@ const initialState: GameState = {
     stake: 0,
 };
 
-const reducer = (state: GameState, action: Action): GameState => {
+const _reducer = (state: GameState, action: Action): GameState => {
     switch (action.type) {
         case 'START_GAME': {
             if (action.initialState) {
@@ -270,6 +271,14 @@ const reducer = (state: GameState, action: Action): GameState => {
     }
 };
 
+const reducer = (state: GameState, action: Action): GameState => {
+    debugService.game({ action: action.type, payload: action });
+    const newState = _reducer(state, action);
+    debugService.game({ new_state: newState });
+    return newState;
+};
+
+
 const getNextTurnState = (state: GameState, grantExtraTurn: boolean): Partial<GameState> => {
     let nextPlayerIndex = grantExtraTurn ? state.currentPlayerIndex : (state.currentPlayerIndex + 1) % state.players.length;
     
@@ -349,18 +358,15 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         });
 
         socket.on('connect', () => {
-            console.log('✅ Game socket connected, socket ID:', socket?.id);
-            console.log('🎮 Joining game room:', multiplayerConfig.gameId);
+            debugService.socket({ event: 'connect', socketId: socket?.id });
             
-            // Verify socket is connected before emitting
             if (!socket || !socket.connected) {
-                console.error('❌ Socket not connected, cannot join game');
+                debugService.error('Socket not connected, cannot join game');
                 return;
             }
             
             // Join the specific game room
             if (multiplayerConfig.isSpectator) {
-                console.log('👀 Joining game as spectator:', multiplayerConfig.gameId);
                 socket.emit('watch_game', {
                     gameId: multiplayerConfig.gameId
                 });
@@ -371,31 +377,16 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                     playerColor: multiplayerConfig.localPlayerColor
                 });
             }
-            
-            console.log('📤 Join/Watch event emitted for game:', multiplayerConfig.gameId);
+            debugService.socket({ event: 'emit', type: 'join_game/watch_game', gameId: multiplayerConfig.gameId });
         });
 
         socket.on('connect_error', (error) => {
-            console.error('❌ Socket connection error:', error);
-            console.error('❌ Attempted URL:', socketUrl);
-            console.error('❌ Error details:', {
-                message: error.message,
-                type: error.type,
-                description: error.description
-            });
-            
-            // If websocket fails, try to force polling
-            if (error.message && error.message.includes('websocket')) {
-                console.log('🔄 WebSocket failed, attempting to use polling transport...');
-                // Socket.IO will automatically fallback to polling if configured
-            }
+            debugService.error({ event: 'connect_error', error });
         });
 
         socket.on('reconnect', (attemptNumber) => {
-            console.log('🔄 Reconnected to server after', attemptNumber, 'attempt(s)');
-            // Rejoin the game room when reconnected
+            debugService.socket({ event: 'reconnect', attemptNumber });
             if (multiplayerConfig) {
-                console.log('🔄 Rejoining game room:', multiplayerConfig.gameId);
                 if (multiplayerConfig.isSpectator) {
                     socket?.emit('watch_game', {
                         gameId: multiplayerConfig.gameId
@@ -410,77 +401,25 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
         });
 
-        socket.on('reconnect_attempt', (attemptNumber) => {
-            console.log('🔄 Reconnection attempt', attemptNumber);
-        });
-
-        socket.on('reconnect_error', (error) => {
-            console.error('❌ Reconnection error:', error);
-        });
-
-        socket.on('reconnect_failed', () => {
-            console.error('❌ Reconnection failed after all attempts');
-        });
-
         socket.on('disconnect', (reason) => {
-            console.log('❌ Disconnected from server:', reason);
-            if (reason === 'io server disconnect') {
-                // Server disconnected the client, manual reconnect needed
-                console.log('⚠️ Server disconnected, will attempt to reconnect...');
-                socket?.connect();
-            } else if (reason === 'transport close' || reason === 'transport error') {
-                // Transport error - will auto-reconnect with different transport
-                console.log('⚠️ Transport error, will attempt to reconnect...');
-            }
+            debugService.socket({ event: 'disconnect', reason });
         });
 
         socket.on('GAME_STATE_UPDATE', (data: { state: GameState }) => {
-            const disconnectedPlayers = (data.state.players || []).filter((p: any) => p.isDisconnected).map((p: any) => p.color);
-            const currentPlayer = data.state.players?.[data.state.currentPlayerIndex];
-            console.log('📊 GAME_STATE_UPDATE received:', {
-                gameStarted: data.state.gameStarted,
-                currentPlayerIndex: data.state.currentPlayerIndex,
-                currentPlayerColor: currentPlayer?.color,
-                currentPlayerIsAI: currentPlayer?.isAI,
-                turnState: data.state.turnState,
-                playersCount: data.state.players?.length,
-                diceValue: data.state.diceValue,
-                diceValueType: typeof data.state.diceValue,
-                message: data.state.message,
-                disconnectedPlayers: disconnectedPlayers
-            });
-
-            // For multiplayer games, ensure all players are marked as human (not AI)
+            debugService.socket({ event: 'receive', type: 'GAME_STATE_UPDATE', data });
             const correctedState = data.state.players
                 ? { ...data.state, players: data.state.players.map(player => ({ ...player, isAI: false })) }
                 : data.state;
 
-            // Ensure diceValue is properly preserved (can be number or null)
             if (correctedState.diceValue !== undefined && correctedState.diceValue !== null) {
                 correctedState.diceValue = Number(correctedState.diceValue);
-                console.log(`🎲 Preserving diceValue: ${correctedState.diceValue} (type: ${typeof correctedState.diceValue})`);
-            } else {
-                console.log(`🎲 diceValue is ${correctedState.diceValue === null ? 'null' : 'undefined'}`);
             }
 
-            console.log('📊 After correction - players:', correctedState.players?.map(p => `${p.color}(AI:${p.isAI})`).join(', '));
-            console.log('📊 Legal moves received:', correctedState.legalMoves?.length || 0, 'moves');
-            if (correctedState.legalMoves && correctedState.legalMoves.length > 0) {
-                console.log('📊 Legal moves details:', correctedState.legalMoves.map(m => `${m.tokenId} -> ${m.finalPosition.type}:${m.finalPosition.index}`).join(', '));
-            }
-
-            // Server is the source of truth. Override local state.
             localDispatchRef.current({ type: 'SET_STATE', state: correctedState });
         });
 
         socket.on('ERROR', (data: { message: string }) => {
-            console.error("Server Error:", data.message);
-            if (data.message !== "Wait for animation") {
-                // Only show non-animation errors
-                // "Wait for animation" is often a transient state issue that we can ignore 
-                // or let the auto-correction handle
-                // alert(data.message); 
-            }
+            debugService.error({ event: 'receive', type: 'ERROR', data });
         });
 
         return () => {
@@ -539,79 +478,34 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 }
             }
         }
+        debugService.game({ event: 'legal_moves', moves });
         return moves;
     }, []);
 
     const handleRollDice = useCallback(async () => {
-        console.log(`🎲 ========== HANDLE ROLL DICE ==========`);
-        console.log(`🎲 turnState: ${state.turnState}`);
-        console.log(`🎲 isMultiplayer: ${isMultiplayer}`);
-        console.log(`🎲 isMyTurn: ${isMyTurn}`);
-        console.log(`🎲 current diceValue: ${state.diceValue}`);
-        console.log(`🎲 currentPlayer: ${state.players[state.currentPlayerIndex]?.color}`);
-        console.log(`🎲 localPlayerColor: ${multiplayerConfig?.localPlayerColor}`);
-        console.log(`🎲 gameStarted: ${state.gameStarted}`);
-        console.log(`🎲 timer: ${state.timer}`);
-
-        // CRITICAL FIX: Allow rolling even if timer is 0 - backend will handle auto-roll
-        // Only check if it's actually the player's turn and game is started
         if (!state.gameStarted) {
-            console.error(`❌ Cannot roll: game not started`);
-            console.log(`🎲 =======================================`);
             return;
         }
 
-        // Multiplayer: Client does NOT generate random number.
         if (isMultiplayer) {
             if (isMyTurn) {
-                // CRITICAL FIX: Allow roll even if turnState is not exactly ROLLING
-                // The server will validate and fix the state if needed
-                if (state.turnState !== 'ROLLING' && state.diceValue !== null) {
-                    console.warn(`⚠️ Warning: turnState is ${state.turnState} but diceValue is ${state.diceValue}, allowing roll attempt (server will validate)`);
-                }
-                
                 if (!socket || !socket.connected) {
-                    console.error('❌ Cannot roll: Socket not connected');
-                    console.error('❌ Socket:', socket);
-                    console.error('❌ Socket connected:', socket?.connected);
-                    console.log(`🎲 =======================================`);
                     return;
                 }
-                
                 if (!multiplayerConfig || !multiplayerConfig.gameId) {
-                    console.error('❌ Cannot roll: Missing game configuration');
-                    console.error('❌ multiplayerConfig:', multiplayerConfig);
-                    console.log(`🎲 =======================================`);
                     return;
                 }
-                
-                console.log(`✅ Sending roll_dice event to server`);
-                console.log(`✅ gameId: ${multiplayerConfig.gameId}`);
-                console.log(`✅ socket connected: ${socket.connected}`);
-                console.log(`✅ socket ID: ${socket.id}`);
+                debugService.socket({ event: 'emit', type: 'roll_dice', gameId: multiplayerConfig.gameId });
                 socket.emit('roll_dice', { gameId: multiplayerConfig.gameId });
-                console.log(`✅ roll_dice event emitted, waiting for server response...`);
-                console.log(`🎲 =======================================`);
-            } else {
-                console.error(`❌ Cannot roll: not my turn`);
-                console.error(`❌ Current player: ${state.players[state.currentPlayerIndex]?.color}`);
-                console.error(`❌ My color: ${multiplayerConfig?.localPlayerColor}`);
-                console.log(`🎲 =======================================`);
             }
             return;
         }
 
-        // Local game: Check turnState
         if (state.turnState !== 'ROLLING') {
-            console.error(`❌ Cannot roll: not in ROLLING state (current state: ${state.turnState})`);
-            console.log(`🎲 =======================================`);
             return;
         }
 
-        // Local Play Logic:
-        console.log(`🎲 Local game: generating random dice value...`);
         const roll = Math.floor(Math.random() * 6) + 1;
-        console.log(`🎲 Generated roll: ${roll}`);
         dispatch({ type: 'ROLL_DICE', value: roll });
         const moves = calculateLegalMoves(state, roll);
         dispatch({ type: 'SET_LEGAL_MOVES_AND_PROCEED', moves });
@@ -620,21 +514,19 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 dispatch({ type: 'NEXT_TURN', grantExtraTurn: roll === 6 });
             }, 1200);
         }
-        console.log(`🎲 =======================================`);
     }, [state, calculateLegalMoves, isMyTurn, isMultiplayer, multiplayerConfig, socket]);
 
     const handleMoveToken = useCallback((tokenId: string) => {
         if (state.turnState !== 'MOVING') return;
 
-        // Multiplayer: Send intention to server
         if (isMultiplayer) {
             if (isMyTurn) {
+                debugService.socket({ event: 'emit', type: 'move_token', gameId: multiplayerConfig.gameId, tokenId });
                 socket?.emit('move_token', { gameId: multiplayerConfig.gameId, tokenId });
             }
             return;
         }
 
-        // Local Logic:
         const move = state.legalMoves.find(m => m.tokenId === tokenId);
         if (move) {
             dispatch({ type: 'MOVE_TOKEN', move });
@@ -663,15 +555,16 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         let timeoutId: ReturnType<typeof setTimeout>;
 
         if (turnState === 'ROLLING') {
-            // Auto Roll for AI
+            debugService.game({ event: 'ai_thinking', action: 'roll' });
             timeoutId = setTimeout(() => {
                 handleRollDice();
             }, 1000);
         } else if (turnState === 'MOVING') {
-             // Auto Move for AI (Random Selection as requested)
+             debugService.game({ event: 'ai_thinking', action: 'move' });
              timeoutId = setTimeout(() => {
                 if (legalMoves.length > 0) {
                     const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+                    debugService.game({ event: 'ai_move', move: randomMove });
                     handleMoveToken(randomMove.tokenId);
                 }
             }, 1500);

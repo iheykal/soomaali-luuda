@@ -12,6 +12,9 @@ import Register from './components/auth/Register';
 import ResetPassword from './components/auth/ResetPassword';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import type { Player, PlayerColor, MultiplayerGame } from './types';
+import { debugService } from './services/debugService';
+import DebugConsole from './components/DebugConsole';
+
 
 import SuperAdminDashboard from './components/superadmin/SuperAdminDashboard';
 import Wallet from './components/Wallet';
@@ -24,6 +27,27 @@ interface MultiplayerConfig {
   sessionId: string;
   playerId: string;
 }
+
+// --- Global Log Interception ---
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+console.log = (...args) => {
+  originalConsoleLog.apply(console, args);
+  debugService.info(args.length === 1 ? args[0] : args);
+};
+
+console.error = (...args) => {
+  originalConsoleError.apply(console, args);
+  debugService.error(args.length === 1 ? args[0] : args);
+};
+
+console.warn = (...args) => {
+  originalConsoleWarn.apply(console, args);
+  debugService.warn(args.length === 1 ? args[0] : args);
+};
+// --------------------------------
 
 const AppContent: React.FC = () => {
   const [multiplayerConfig, setMultiplayerConfig] = useState<MultiplayerConfig | null>(null);
@@ -425,6 +449,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <AppContent />
+      <DebugConsole />
     </AuthProvider>
   );
 };

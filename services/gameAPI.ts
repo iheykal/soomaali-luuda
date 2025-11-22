@@ -1,4 +1,5 @@
 import { API_URL } from '../lib/apiConfig';
+import { instrumentedFetch } from './api';
 
 interface ActiveGameResponse {
   hasActiveGame: boolean;
@@ -28,30 +29,16 @@ const getGameUrl = () => {
 export const gameAPI = {
   async checkActiveGame(userId: string): Promise<ActiveGameResponse> {
     const url = `${getGameUrl()}/game/check-active/${userId}`;
-    console.log('🔍 Checking for active game:', { userId, url });
-    
-    try {
-      const response = await fetch(url, {
+    const options = {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
-      });
+      };
 
-      if (!response.ok) {
-        let errorMessage = 'Failed to check active game';
-        try {
-          const error = await response.json();
-          errorMessage = error.error || errorMessage;
-        } catch {
-          // Use default error message
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data: ActiveGameResponse = await response.json();
-      console.log('✅ Active game check result:', data);
-      return data;
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
     } catch (error: any) {
       console.error('Error checking active game:', error);
       // Return no active game on error to avoid blocking the user
@@ -61,34 +48,20 @@ export const gameAPI = {
 
   async rejoinGame(gameId: string, userId: string, userName?: string): Promise<RejoinResponse> {
     const url = `${getGameUrl()}/game/rejoin`;
-    console.log('🔄 Rejoining game:', { gameId, userId, userName, url });
-    
-    try {
-      const response = await fetch(url, {
+    const options = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ gameId, userId, userName }),
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to rejoin game';
-        try {
-          const error = await response.json();
-          errorMessage = error.error || errorMessage;
-        } catch {
-          // Use default error message
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data: RejoinResponse = await response.json();
-      console.log('✅ Rejoin successful:', data);
-      return data;
+      };
+    
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
     } catch (error: any) {
-      console.error('Error rejoining game:', error);
-      throw new Error(error.message || 'Failed to rejoin game');
+      const errorMessage = error.responseData?.message || 'Failed to rejoin game';
+      throw new Error(errorMessage);
     }
   },
 };

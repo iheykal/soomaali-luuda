@@ -5,6 +5,8 @@ const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const compression = require('compression');
+const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -25,36 +27,27 @@ const server = http.createServer(app);
 // --- GLOBAL CORS SETUP (MUST BE FIRST) ---
 app.set('trust proxy', 1); // Trust the first proxy, which is what Render uses
 
+// Build allowed origins list from env and defaults
 const allowedOrigins = [
-  'https://somali-bet.onrender.com',      // Your deployed frontend URL
-  'http://localhost:3000',                // Your local development URL
-  'http://localhost:5173',                // Vite default dev URL
+  process.env.FRONTEND_URL || 'https://somali-bet.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:5173'
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Log the origin for every request for debugging purposes.
-    console.log(`[CORS] Request from origin: ${origin}`);
-
-    // Allow requests with no origin (like mobile apps, curl) or from whitelisted domains.
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.error(`[CORS] Blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
+    // allow requests with no origin (e.g. curl, postman) or if origin is in allowedOrigins
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) return callback(null, true);
+    console.warn('CORS blocked origin:', origin);
+    return callback(new Error('Not allowed by CORS'));
   },
-  credentials: true,
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  allowedHeaders: 'Content-Type,Authorization,X-Requested-With',
-  optionsSuccessStatus: 204
+  credentials: true
 };
+// Explicitly handle pre-flight requests for all routes
+app.options('*', cors(corsOptions));
 
 // Use CORS for all routes
 app.use(cors(corsOptions));
-
-// Explicitly handle pre-flight requests for all routes
-app.options('*', cors(corsOptions));
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
@@ -116,6 +109,22 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime()
   });
 });
+
+// Serve frontend static build when present (same-domain deployment)
+try {
+  const frontendDist = path.join(__dirname, '..', 'dist');
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+    console.log('✅ Serving frontend from', frontendDist);
+  } else {
+    console.log('ℹ️ Frontend dist not found at', frontendDist);
+  }
+} catch (e) {
+  console.warn('⚠️ Error checking frontend dist:', e.message);
+}
 
 // Basic Rate Limiter Map (IP -> Timestamp)
 const rateLimit = new Map();
@@ -2014,19 +2023,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
             console.error(`❌ Error in auto-move timer callback for game ${gameId}:`, error);
         }
                 
-                // Turn passed, schedule next player
-                 const nextPlayer = plainState.players[plainState.currentPlayerIndex];
-                 if (nextPlayer.isAI || nextPlayer.isDisconnected) {
-                     scheduleAutoTurn(gameId);
-                 } else {
-                     scheduleHumanPlayerAutoRoll(gameId);
-                 }
-            } else {
-                console.error(`❌ Auto-move failed: ${result.message}`);
-            }
-        } catch (error) {
-            console.error(`❌ Error in auto-move timer callback for game ${gameId}:`, error);
-        }
+    
     }, 20000); // 20 seconds
 
     humanPlayerTimers.set(gameId, timer);
