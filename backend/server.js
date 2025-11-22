@@ -21,29 +21,24 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
-// --- CORS SETUP (MUST BE FIRST) ---
-// Define a whitelist of allowed origins.
+// --- DEBUGGING & CORS SETUP (MUST BE FIRST) ---
+
+// 1. Temporary Logging Middleware to inspect incoming requests
+app.use((req, res, next) => {
+  // Log the origin header of every incoming request
+  console.log(`[CORS DEBUG] Incoming Request Origin: ${req.headers.origin}`);
+  next();
+});
+
+// 2. CORS Configuration
 const allowedOrigins = [
   'https://soomaali-ludda.onrender.com', // Deployed frontend
   'http://localhost:5173',               // Common Vite dev port
   'http://localhost:3000',               // Common React dev port
-  // Add any other origins you need to support
 ];
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-    if (!origin) return callback(null, true);
-
-    // If the origin is in our whitelist, allow it.
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-
-    // Otherwise, block the request.
-    const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-    return callback(new Error(msg), false);
-  },
+  origin: allowedOrigins,
   credentials: true, // Allow cookies and authorization headers
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
