@@ -10,6 +10,7 @@ type LogListener = (log: LogEntry) => void;
 
 class DebugService {
   private listeners: LogListener[] = [];
+  private static nativeConsole: Console;
 
   public subscribe(listener: LogListener) {
     this.listeners.push(listener);
@@ -26,16 +27,19 @@ class DebugService {
     };
     this.listeners.forEach(listener => listener(logEntry));
     
-    // Also log to the browser console for good measure
+    // Also log to the browser console for good measure.
+    // Use the original/native console methods captured at module load
+    // to avoid recursion when the app overrides console.* (e.g. to forward logs to this service).
+    const nativeConsole = DebugService.nativeConsole;
     switch (type) {
       case 'error':
-        console.error(`[DEBUG]`, message);
+        nativeConsole.error(`[DEBUG]`, message);
         break;
       case 'warn':
-        console.warn(`[DEBUG]`, message);
+        nativeConsole.warn(`[DEBUG]`, message);
         break;
       default:
-        console.log(`[DEBUG] ${type.toUpperCase()}:`, message);
+        nativeConsole.log(`[DEBUG] ${type.toUpperCase()}:`, message);
         break;
     }
   }
@@ -64,5 +68,16 @@ class DebugService {
     this.log('game', message);
   }
 }
+
+// Static holder to capture original console methods once (safe to export)
+(function captureNativeConsole() {
+  // Bind original console methods to avoid context issues
+  (DebugService as any).nativeConsole = {
+    log: console.log.bind(console),
+    info: console.info ? console.info.bind(console) : console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+  };
+})();
 
 export const debugService = new DebugService();
