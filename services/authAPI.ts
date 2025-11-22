@@ -126,49 +126,9 @@ export const authAPI = {
   },
 
   async getCurrentUser(): Promise<User> {
-    const token = localStorage.getItem('ludo_token');
     const url = `${getAuthUrl()}/auth/me`;
-    
-    if (!token) {
-      throw new Error('No authentication token');
-    }
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        // Include status code in error message for better error handling
-        if (response.status === 401 || response.status === 403) {
-          throw new Error(`Unauthorized: ${response.status}`);
-        }
-        if (response.status === 404) {
-          throw new Error(`User not found: ${response.status}`);
-        }
-        if (response.status === 0) {
-          throw new Error('Network error: Cannot connect to server');
-        }
-        throw new Error(`Failed to get user info: ${response.status}`);
-      }
-
-      const user: User = await response.json();
-      return user;
-    } catch (error: any) {
-      // Re-throw with more context if it's a network error
-      if (error.message && (error.message.includes('401') || error.message.includes('403'))) {
-        throw error;
-      }
-      // For network errors, throw with a different message so we can distinguish
-      if (error.message && error.message.includes('Failed to fetch')) {
-        throw new Error('Network error: Cannot connect to server. Please ensure the backend is running.');
-      }
-      throw new Error(`Network error: ${error.message || 'Failed to connect to server'}`);
-    }
+    // Use the centralized API client which handles the token and errors
+    return apiClient.get(url);
   },
 
   async requestPasswordReset(phoneOrUsername: string): Promise<void> {

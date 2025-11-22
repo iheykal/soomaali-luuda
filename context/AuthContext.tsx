@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authAPI } from '../services/authAPI';
+import { storage } from '../lib/storage';
 import type { User } from '../types';
 
 interface AuthContextType {
@@ -22,7 +23,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Function to refresh user data from server
   const refreshUser = async () => {
-    const storedToken = localStorage.getItem('ludo_token');
+    const storedToken = storage.getToken();
     if (!storedToken) {
       return; // No token, can't refresh
     }
@@ -32,39 +33,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Update user with fresh data from server
       setUser(currentUser);
       // Update localStorage with fresh user data
-      localStorage.setItem('ludo_user', JSON.stringify(currentUser));
+      storage.setUser(currentUser);
       console.log('✅ User data refreshed from server');
     } catch (error: any) {
-      // NEVER clear storage on refresh - keep user logged in
-      // They have a token and can continue using the app
-      const errorMessage = error?.message || '';
-      console.log('ℹ️ Could not refresh user data, keeping existing session:', errorMessage);
-      // User stays logged in with their existing token and data
+      // If the error is an auth error, logout the user
+      if (error.message.includes('401') || error.message.includes('403')) {
+        console.warn('Auth token is invalid, logging out.');
+        logout();
+      } else {
+        // For other errors (like network), keep the session
+        const errorMessage = error?.message || '';
+        console.log('ℹ️ Could not refresh user data, keeping existing session:', errorMessage);
+      }
     }
   };
 
   useEffect(() => {
     // Check for stored authentication token
-    const storedUser = localStorage.getItem('ludo_user');
-    const storedToken = localStorage.getItem('ludo_token');
+    const storedUser = storage.getUser();
+    const storedToken = storage.getToken();
     
     if (storedUser && storedToken) {
-      try {
-        const userData = JSON.parse(storedUser);
-        // Immediately restore user from localStorage and keep them logged in
-        setUser(userData);
-        setLoading(false);
-        
-        // Refresh user data in the background
-        refreshUser();
-      } catch {
-        // Invalid JSON in localStorage, clear it
-        console.warn('⚠️ Invalid user data in localStorage, clearing');
-        localStorage.removeItem('ludo_user');
-        localStorage.removeItem('ludo_token');
-        setUser(null);
-        setLoading(false);
-      }
+      // Immediately restore user and keep them logged in
+      setUser(storedUser);
+      setLoading(false);
+      
+      // Refresh user data in the background
+      refreshUser();
     } else {
       setLoading(false);
     }
@@ -73,7 +68,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Refresh user data when window gains focus (user returns to tab)
   useEffect(() => {
     const handleFocus = async () => {
-      const storedToken = localStorage.getItem('ludo_token');
+      const storedToken = storage.getToken();
       if (storedToken && user) {
         // Silently refresh user data when user returns to tab
         await refreshUser();
@@ -89,7 +84,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return;
 
     const interval = setInterval(() => {
-      const storedToken = localStorage.getItem('ludo_token');
+      const storedToken = storage.getToken();
       if (storedToken) {
         // Silently refresh user data periodically
         refreshUser();
@@ -102,21 +97,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (phone: string, password: string) => {
     const response = await authAPI.login(phone, password);
     setUser(response.user);
-    localStorage.setItem('ludo_user', JSON.stringify(response.user));
-    localStorage.setItem('ludo_token', response.token);
+    storage.setUser(response.user);
+    storage.setToken(response.token);
   };
 
   const register = async (fullName: string, phone: string, password: string) => {
     const response = await authAPI.register(fullName, phone, password);
     setUser(response.user);
-    localStorage.setItem('ludo_user', JSON.stringify(response.user));
-    localStorage.setItem('ludo_token', response.token);
+    storage.setUser(response.user);
+    storage.setToken(response.token);
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('ludo_user');
-    localStorage.removeItem('ludo_token');
+    storage.clearUser();
+    storage.clearToken();
   };
 
   const requestPasswordReset = async (phoneOrUsername: string) => {

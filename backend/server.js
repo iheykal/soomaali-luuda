@@ -21,71 +21,37 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
-// --- GLOBAL CORS SETUP (MUST BE FIRST) ---
-// Simple CORS configuration that allows Render subdomains
+// --- CORS SETUP (MUST BE FIRST) ---
+// Define a whitelist of allowed origins.
+const allowedOrigins = [
+  'https://soomaali-ludda.onrender.com', // Deployed frontend
+  'http://localhost:5173',               // Common Vite dev port
+  'http://localhost:3000',               // Common React dev port
+  // Add any other origins you need to support
+];
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (like mobile apps, curl, or server-to-server)
     if (!origin) return callback(null, true);
-    
-    // Always allow Render subdomains
-    if (origin.includes('.onrender.com')) {
+
+    // If the origin is in our whitelist, allow it.
+    if (allowedOrigins.indexOf(origin) !== -1) {
       return callback(null, true);
     }
-    
-    // Allow specific frontend URL if set
-    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
-      return callback(null, true);
-    }
-    
-    // In development, allow all
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      return callback(null, true);
-    }
-    
-    // Default: allow (for now to fix deployment)
-    return callback(null, true);
+
+    // Otherwise, block the request.
+    const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
+    return callback(new Error(msg), false);
   },
-  credentials: true,
-  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 204 // Some legacy browsers (IE11, various SmartTVs) choke on 204
+  credentials: true, // Allow cookies and authorization headers
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204
 }));
 
-// Robust CORS header middleware (handles OPTIONS preflight and ensures headers on all responses)
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-
-  // Determine if origin is allowed (same logic as the cors() config above)
-  let allowOrigin = false;
-  if (!origin) {
-    // No origin (curl, mobile apps) - allow
-    allowOrigin = true;
-  } else if (origin.includes('.onrender.com')) {
-    allowOrigin = true;
-  } else if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
-    allowOrigin = true;
-  } else if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-    allowOrigin = true;
-  }
-
-  if (allowOrigin) {
-    // When credentials are used, Access-Control-Allow-Origin must be the exact origin
-    const acao = origin && origin !== 'null' ? origin : '*';
-    res.setHeader('Access-Control-Allow-Origin', acao);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
-  }
-
-  // Log preflight for debugging (only in non-production unless explicitly enabled)
-  if (req.method === 'OPTIONS') {
-    console.log('🧭 CORS preflight:', { origin: req.headers.origin, url: req.originalUrl, allowed: allowOrigin });
-    return res.sendStatus(204);
-  }
-
-  next();
-});
+// Handle preflight requests for all routes
+app.options('*', cors());
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
@@ -1822,8 +1788,148 @@ const createMatch = async (player1, player2, stake) => {
         }
       }, 1000); // Increased delay to allow both players to be ready
     }
+  } catch (error) {
+    console.error(`❌ Error in createMatch for game ${gameId}:`, error);
+  }
+};
+
+io.on('connection', (socket) => {
+  console.log(`✅ User connected: ${socket.id}`);
+
+  // Handle matchmaking
+  socket.on('find_match', async ({ userId, userName, stake }) => {
+    console.log(`🙋 Player ${userName || userId} looking for match with stake: ${stake}`);
+
+    // Validate stake
+    if (!stake || stake <= 0) {
+      socket.emit('ERROR', { message: 'Invalid stake amount' });
+      return;
+    }
+
+    // Use smart sync to prevent duplicate users and get correct user object
+    const syncResult = await smartUserSync(userId, userName, 'find-match');
+    if (!syncResult.success || !syncResult.user) {
+        socket.emit('ERROR', { message: 'User account could not be verified. Please log in again.' });
+        return;
+    }
+    const user = syncResult.user;
+
+    // Check balance
+    if (user.balance < stake) {
+      socket.emit('ERROR', { message: 'Insufficient funds' });
+      return;
+    }
+
+    // Deduct stake from balance immediately
+    try {
+      user.balance -= stake;
+      await user.save();
+      console.log(`💰 Deducted ${stake} from ${user.username}. New balance: ${user.balance}`);
+    } catch (e) {
+      console.error('Error deducting stake:', e);
+      socket.emit('ERROR', { message: 'Could not deduct stake. Please try again.' });
+      return;
+    }
+    
+    // Pass the synced/verified user details to the matchmaking logic
+    const opponent = findMatch(stake, socket.id, user._id, user.username);
+    
+    if (opponent) {
+      // Match found! Create game
+      createMatch(
+        { socketId: socket.id, userId: user._id, userName: user.username },
+        opponent,
+        stake
+      );
+    } else {
+      // No match yet, player is in queue
+      socket.emit('in_queue', { message: 'Finding opponent...', stake });
+    }
   });
 
+  socket.on('cancel_matchmaking', ({ stake }) => {
+    if (matchmakingQueue.has(stake)) {
+      const queue = matchmakingQueue.get(stake);
+      const playerIndex = queue.findIndex(p => p.socketId === socket.id);
+      if (playerIndex > -1) {
+        const player = queue[playerIndex];
+        
+        // Refund stake
+        User.findById(player.userId).then(user => {
+          if (user) {
+            user.balance += stake;
+            user.save().then(() => {
+              console.log(`💰 Refunded ${stake} to ${user.username} after cancelling matchmaking.`);
+            });
+          }
+        });
+
+        queue.splice(playerIndex, 1);
+        if (queue.length === 0) {
+          matchmakingQueue.delete(stake);
+        }
+        console.log(`🚫 Player ${socket.id} cancelled matchmaking for stake ${stake}`);
+        socket.emit(' matchmaking_cancelled', { message: 'Matchmaking cancelled' });
+      }
+    }
+  });
+
+  socket.on('rejoin_game_socket', async ({ gameId, userId, playerColor }) => {
+    try {
+        console.log(`↪️ Player ${userId} attempting to rejoin game ${gameId} with color ${playerColor}`);
+        const Game = require('./models/Game');
+        const game = await Game.findOne({ gameId });
+        
+        if (!game) {
+            socket.emit('ERROR', { message: 'Game not found' });
+            return;
+        }
+
+        const player = game.players.find(p => p.color === playerColor);
+        if (!player) {
+            socket.emit('ERROR', { message: 'Player not found in game' });
+            return;
+        }
+        
+        // Smart user sync: Ensure user exists and prevent duplicate creation
+        const syncResult = await smartUserSync(userId, player.username, 'rejoin-socket');
+        if (!syncResult.success) {
+          socket.emit('ERROR', { message: 'User account could not be verified. Please log in again.' });
+          return;
+        }
+
+        // Update player's socketId and disconnected status
+        player.socketId = socket.id;
+        player.isDisconnected = false;
+        
+        // Find if this player has another old socket connected and disconnect it
+        const oldSocketId = game.players.find(p => p.userId === userId && p.socketId !== socket.id)?.socketId;
+        if (oldSocketId) {
+            const oldSocket = io.sockets.sockets.get(oldSocketId);
+            if (oldSocket) {
+                console.log(`🔌 Disconnecting old socket ${oldSocketId} for user ${userId}`);
+                oldSocket.disconnect();
+            }
+        }
+        
+        await game.save();
+
+        socket.join(gameId);
+        socket.gameId = gameId;
+
+        const plainState = game.toObject ? game.toObject() : game;
+        
+        io.to(gameId).emit('player_reconnected', { color: playerColor, socketId: socket.id });
+        socket.emit('GAME_STATE_UPDATE', { state: plainState });
+        
+        console.log(`✅ Player ${userId} reconnected to game ${gameId} as ${playerColor}`);
+    } catch (error) {
+        console.error('Error rejoining game socket:', error);
+        socket.emit('ERROR', { message: 'Failed to rejoin game' });
+    }
+  });
+
+  // GAME LOGIC LISTENERS
   socket.on('roll_dice', async ({ gameId }) => {
     console.log(`🎲 Player ${socket.id} rolling dice in game ${gameId}`);
     
@@ -1965,7 +2071,8 @@ const createMatch = async (player1, player2, stake) => {
                 }
             }
         }
-      } catch (error) {
+      }
+    } catch (error) {
       console.error(`❌ Error in roll_dice handler:`, error);
       socket.emit('ERROR', { message: 'Error rolling dice: ' + error.message });
     }
