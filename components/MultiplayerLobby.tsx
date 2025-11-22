@@ -116,7 +116,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         socket.on('connect_error', (error) => {
             console.error('❌ Matchmaking socket connection error:', error);
             console.error('❌ Attempted URL:', socketUrl);
-            setStatusMessage('Connection error. Please ensure the backend is running on port 5000.');
+            setStatusMessage(`Connection error to ${socketUrl}. Please ensure the backend is running and accessible.`);
         });
 
         socket.on('reconnect', (attemptNumber) => {
@@ -196,12 +196,15 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         // Listen for errors
         socket.on('ERROR', ({ message }: any) => {
             console.error('Matchmaking error:', message);
-            
-            // Provide user-friendly error messages
+
+            // Provide user-friendly error messages and decide whether the UI should
+            // return to the selection screen or remain (transient) searching.
             let userMessage = message;
+            let resetToSelect = true;
+
             if (message.includes('User not found')) {
                 userMessage = 'Authentication error. Please try logging in again.';
-                // Optionally redirect to login after a delay
+                // After showing the message, return to selection (and clear message shortly)
                 setTimeout(() => {
                     setStatus('SELECT');
                     setStatusMessage('');
@@ -209,11 +212,18 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             } else if (message.includes('Insufficient funds')) {
                 userMessage = 'Insufficient balance. Please deposit funds or choose a lower stake.';
             } else if (message.includes('Failed to enter matchmaking')) {
-                userMessage = 'Connection error. Please try again.';
+                // This looks like a transient network/back-end problem; keep the UI in SEARCHING
+                // and show a retrying message so user knows we are attempting recovery.
+                userMessage = 'Connection issue while entering matchmaking. Retrying...';
+                resetToSelect = false;
+                setStatus('SEARCHING');
+            } else if (message.toLowerCase().includes('super admin')) {
+                // Server-enforced restriction; show message and return to selector
+                userMessage = 'Super Admin accounts cannot participate in matchmaking.';
             }
-            
+
             setStatusMessage(`Error: ${userMessage}`);
-            setStatus('SELECT'); // Reset to selection state on error
+            if (resetToSelect) setStatus('SELECT'); // Only reset for non-transient errors
         });
         
         return () => {
@@ -281,6 +291,15 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         if (!userId) {
             setStatusMessage('Error: Unable to identify user. Please refresh the page.');
             console.error('❌ Cannot start matchmaking: No user ID or session ID available');
+            return;
+        }
+
+        // Prevent special accounts (super admin) from entering matchmaking
+        // Server enforces this and returns an error; handle it earlier in the client to avoid a failed socket round-trip
+        if (user && ((user.role && user.role.toString().toLowerCase().includes('super')) || (user.isSuperAdmin))) {
+            console.warn('⚠️ Super Admin attempted to enter matchmaking - blocked on client');
+            setStatusMessage('Super Admin accounts cannot participate in matchmaking.');
+            setStatus('SELECT');
             return;
         }
 
