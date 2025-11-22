@@ -23,35 +23,38 @@ const app = express();
 const server = http.createServer(app);
 
 // --- GLOBAL CORS SETUP (MUST BE FIRST) ---
-// Simple CORS configuration that allows Render subdomains
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Always allow Render subdomains
-    if (origin.includes('.onrender.com')) {
-      return callback(null, true);
+app.set('trust proxy', 1); // Trust the first proxy, which is what Render uses
+
+const allowedOrigins = [
+  'https://somali-bet.onrender.com',      // Your deployed frontend URL
+  'http://localhost:3000',                // Your local development URL
+  'http://localhost:5173',                // Vite default dev URL
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Log the origin for every request for debugging purposes.
+    console.log(`[CORS] Request from origin: ${origin}`);
+
+    // Allow requests with no origin (like mobile apps, curl) or from whitelisted domains.
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.error(`[CORS] Blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
     }
-    
-    // Allow specific frontend URL if set
-    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
-      return callback(null, true);
-    }
-    
-    // In development, allow all
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      return callback(null, true);
-    }
-    
-    // Default: allow (for now to fix deployment)
-    return callback(null, true);
   },
   credentials: true,
-  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 204 // Some legacy browsers (IE11, various SmartTVs) choke on 204
-}));
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  allowedHeaders: 'Content-Type,Authorization,X-Requested-With',
+  optionsSuccessStatus: 204
+};
+
+// Use CORS for all routes
+app.use(cors(corsOptions));
+
+// Explicitly handle pre-flight requests for all routes
+app.options('*', cors(corsOptions));
 
 // Root endpoint for easy health check
 app.get('/', (req, res) => {
@@ -1990,11 +1993,26 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
             const currentPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
             console.log(`⏰ Timeout: Auto-moving pawn for player ${currentPlayer?.color || 'unknown'} after 20 seconds`);
             
-                const result = await gameEngine.handleAutoMove(gameId, true); // true = force
+            const result = await gameEngine.handleAutoMove(gameId, true); // true = force
             
             if (result.success) {
                 const plainState = result.state.toObject ? result.state.toObject() : result.state;
                 io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+
+                // After auto-move, check if next player needs an auto-turn
+                const nextPlayer = plainState.players[plainState.currentPlayerIndex];
+                if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
+                    scheduleAutoTurn(gameId);
+                } else if (nextPlayer) {
+                    // It's a human player's turn, start their roll timer
+                    scheduleHumanPlayerAutoRoll(gameId);
+                }
+            } else {
+                console.error(`❌ Auto-move failed for game ${gameId}: ${result.message}`);
+            }
+        } catch (error) {
+            console.error(`❌ Error in auto-move timer callback for game ${gameId}:`, error);
+        }
                 
                 // Turn passed, schedule next player
                  const nextPlayer = plainState.players[plainState.currentPlayerIndex];

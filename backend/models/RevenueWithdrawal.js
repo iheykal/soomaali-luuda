@@ -12,3 +12,4 @@ const RevenueWithdrawalSchema = new mongoose.Schema({
 
 module.exports = mongoose.model('RevenueWithdrawal', RevenueWithdrawalSchema);
 
+
