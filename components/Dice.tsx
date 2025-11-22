@@ -153,15 +153,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
                 )}
             </div>
 
-            {/* Pot Amount Display */}
-            {potAmount !== undefined && (
-                <div className="absolute -top-20 left-1/2 -translate-x-1/2 bg-slate-800/90 px-4 py-2 rounded-full border border-green-500/50 shadow-[0_0_15px_rgba(34,197,94,0.3)] backdrop-blur-sm animate-in fade-in zoom-in duration-500 whitespace-nowrap">
-                    <div className="text-xl font-black text-green-400 font-mono flex items-center gap-0.5">
-                        <span>$</span>
-                        <span>{Math.floor(potAmount * 0.9)}</span>
-                    </div>
-                </div>
-            )}
+            
 
             <div 
                 className={`scene ${clickableClass} touch-manipulation z-20`}

@@ -115,12 +115,12 @@ const getSocketUrl = () => {
       }
     
     // Default: localhost for development
-    const defaultUrl = 'http://localhost:5000';
+    const defaultUrl = 'ws://localhost:5000';
     console.log('🔧 Using default Socket URL:', defaultUrl);
     return defaultUrl;
   } catch (error) {
     console.error('❌ Error determining Socket URL, using default:', error);
-    return 'http://localhost:5000';
+    return 'ws://localhost:5000';
   }
 };
 

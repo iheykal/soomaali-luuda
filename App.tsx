@@ -37,6 +37,7 @@ const AppContent: React.FC = () => {
   const { user, isAuthenticated, loading: authLoading, refreshUser } = useAuth();
   const [view, setView] = useState<View>('login');
   const [showSuperAdminOverlay, setShowSuperAdminOverlay] = useState(false);
+  const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
 
   // Render Super Admin Overlay
   const renderSuperAdminOverlay = () => {
@@ -80,6 +81,13 @@ const AppContent: React.FC = () => {
     };
   }, [multiplayerConfig]);
 
+
+  useEffect(() => {
+    if (isRejoining && gameStarted) {
+      console.log('✅ Game state received after rejoin, setting isRejoining to false');
+      setIsRejoining(false);
+    }
+  }, [isRejoining, gameStarted]);
 
   const handleStartGame = useCallback((gamePlayers: Player[], mpConfig?: MultiplayerConfig) => {
     console.log('🎮 handleStartGame called with:', { gamePlayers: gamePlayers?.length, mpConfig });
@@ -173,6 +181,7 @@ const AppContent: React.FC = () => {
       return;
     }
 
+    setIsRejoining(true); // Set rejoining state
     // Generate a session ID for this rejoin
     const sessionId = Math.random().toString(36).substring(2, 10);
     const playerId = user.id || user._id || user.username;
@@ -192,21 +201,15 @@ const AppContent: React.FC = () => {
     // Set the multiplayer config and switch to game view
     setMultiplayerConfig(mpConfig);
     
-    // Initialize game state with a basic structure
     // The actual state will be updated when we receive GAME_STATE_UPDATE from server
-    const placeholderPlayers: Player[] = [
-      { color: 'green', isAI: false },
-      { color: 'blue', isAI: false },
-    ];
-    
-    console.log(`🎲 Starting game with placeholder players...`);
-    startGame(placeholderPlayers);
+    // startGame(placeholderPlayers) is removed as it's no longer needed;
+    // the UI will display a loading state until the real game state arrives.
     
     console.log(`🖼️ Switching to game view...`);
     setView('game');
     
     console.log('✅ Rejoin complete, game view set, view is now:', 'game');
-  }, [user, startGame]);
+  }, [user, setIsRejoining]);
 
   // Show loading while checking authentication
   if (authLoading) {
@@ -278,7 +281,24 @@ const AppContent: React.FC = () => {
 
   // --- Game View ---
   // Show game view if view is 'game' and we have players (don't strictly require gameStarted for multiplayer)
-  if (view === 'game' && (gameStarted || (multiplayerConfig && players.length >= 2))) {
+  if (view === 'game') {
+    if (isRejoining) {
+      return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+          <div className="text-white text-xl animate-pulse">Rejoining Game...</div>
+        </div>
+      );
+    }
+    
+    // Only render the game board if the game has started
+    if (!gameStarted && (!multiplayerConfig || players.length < 2)) {
+        return (
+            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+                <div className="text-white text-xl">Waiting for game to start...</div>
+            </div>
+        );
+    }
+
     const currentPlayer = players[currentPlayerIndex];
     
     // Helper to find specific players
