@@ -24,6 +24,12 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
+// Simple request logger middleware
+app.use((req, res, next) => {
+  console.log(`[INCOMING REQUEST] Method: ${req.method}, URL: ${req.originalUrl}, IP: ${req.ip}`);
+  next();
+});
+
 // --- GLOBAL CORS SETUP (MUST BE FIRST) ---
 app.set('trust proxy', 1); // Trust the first proxy, which is what Render uses
 
@@ -175,10 +181,12 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+const apiRouter = express.Router();
+
 // --- GAME REJOIN ROUTES ---
 
 // GET: Check if user has an active game
-app.get('/api/game/check-active/:userId', async (req, res) => {
+apiRouter.get('/game/check-active/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     
