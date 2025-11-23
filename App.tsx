@@ -163,7 +163,14 @@ const AppContent: React.FC = () => {
   
   const handleLoginSuccess = () => {
     // Check if user is Super Admin and redirect to dashboard
-    const userStr = localStorage.getItem('ludo_user');
+    let userStr = localStorage.getItem('ludo_user');
+    // Defensive: handle legacy/broken storage where the string "undefined" was stored
+    if (userStr === 'undefined') {
+      console.warn('⚠️ Found invalid ludo_user value in localStorage, clearing');
+      localStorage.removeItem('ludo_user');
+      localStorage.removeItem('ludo_token');
+      userStr = null;
+    }
     if (userStr) {
       try {
         const userData = JSON.parse(userStr);

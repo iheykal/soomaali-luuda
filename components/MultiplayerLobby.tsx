@@ -172,7 +172,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
                 startCountdown(() => {
                     console.log('🎯 Calling onStartGame with multiplayer config');
-                    onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId });
+                    const playerId = user?.id || sessionId; // prefer authenticated user id
+                    onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId, playerId });
                 });
             }, 1000); // 1 second delay to allow both players to receive the match_found event
         });

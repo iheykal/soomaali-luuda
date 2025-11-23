@@ -27,7 +27,17 @@ export const authAPI = {
     
     try {
       const { responseData } = await instrumentedFetch(url, options);
-      return responseData;
+
+      // Validate response shape. If server returned plain text or empty body,
+      // avoid returning an invalid LoginResponse which would lead to storing
+      // `undefined` in localStorage and JSON.parse errors later.
+      if (!responseData || typeof responseData !== 'object' || !responseData.user || !responseData.token) {
+        // Provide helpful debug information when possible
+        const debugVal = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
+        throw new Error('Invalid login response from server: ' + debugVal);
+      }
+
+      return responseData as LoginResponse;
     } catch (error: any) {
       if(error.responseData) {
         const { response, responseData } = error;
@@ -69,7 +79,13 @@ export const authAPI = {
 
     try {
       const { responseData } = await instrumentedFetch(url, options);
-      return responseData;
+
+      if (!responseData || typeof responseData !== 'object' || !responseData.user || !responseData.token) {
+        const debugVal = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
+        throw new Error('Invalid register response from server: ' + debugVal);
+      }
+
+      return responseData as LoginResponse;
     } catch (error: any) {
        if(error.responseData) {
         const { response, responseData } = error;
