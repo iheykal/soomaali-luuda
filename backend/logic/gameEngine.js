@@ -63,7 +63,7 @@ const processGameSettlement = async (game) => {
         }
 
         if (!game.stake || game.stake <= 0) {
-            console.log(`⚠️ No stake set for game ${game.gameId}, skipping settlement`);
+            console.log(`⚠️ No stake set for game ${game.gameId}, skipping settlement.`);
             game.settlementProcessed = true;
             return;
         }
@@ -75,42 +75,55 @@ const processGameSettlement = async (game) => {
 
         const winnerColor = game.winners[0];
         const winnerPlayer = game.players.find(p => p.color === winnerColor);
-        const loserPlayer = game.players.find(p => p.color !== winnerColor);
+        const loserPlayer = game.players.find(p => p.color !== winnerColor && !p.isAI);
 
         if (!winnerPlayer || !loserPlayer) {
-            console.log(`⚠️ Could not find winner or loser in game ${game.gameId}`);
+            console.log(`⚠️ Could not find winner or loser for settlement in game ${game.gameId}`);
             return;
         }
 
-        console.log(`💰 Processing settlement for game ${game.gameId}: Winner=${winnerPlayer.userId} (${winnerColor}), Loser=${loserPlayer.userId}, Stake=${game.stake}`);
+        console.log(`💰 Processing settlement for game ${game.gameId}: Winner=${winnerPlayer.userId}, Loser=${loserPlayer.userId}, Stake=${game.stake}`);
 
-        // Update balances in database
         const winner = await User.findById(winnerPlayer.userId);
         const loser = await User.findById(loserPlayer.userId);
+        const stake = game.stake;
 
         if (winner) {
-            // Calculate Pot and Commission
-            const totalPot = game.stake * 2;
+            const totalPot = stake * 2;
             const commission = totalPot * 0.10;
-            const winnings = totalPot - commission;
+            const winnings = totalPot - commission; // Winner gets 1.8 * stake
+            const profit = winnings - stake; // Winner's net profit is 0.8 * stake
 
-            // Winner gets pot minus commission
             winner.balance += winnings;
+            winner.reservedBalance -= stake;
             
-            if (!winner.stats) {
-                winner.stats = { gamesPlayed: 0, wins: 0 };
-            }
+            if (!winner.stats) winner.stats = {};
             winner.stats.gamesPlayed = (winner.stats.gamesPlayed || 0) + 1;
             winner.stats.wins = (winner.stats.wins || 0) + 1;
+            winner.stats.gamesWon = (winner.stats.gamesWon || 0) + 1;
+            winner.stats.totalWinnings = (winner.stats.totalWinnings || 0) + profit;
+
+            winner.transactions.push({
+                type: 'game_win',
+                amount: profit,
+                matchId: game.gameId,
+                description: `Winnings from game ${game.gameId}`
+            });
+            winner.transactions.push({
+                type: 'match_unstake',
+                amount: stake,
+                matchId: game.gameId,
+                description: `Stake returned and settled from winning game ${game.gameId}`
+            });
+            
             await winner.save();
 
-            // Record Platform Revenue
             try {
                 const revenue = new Revenue({
                     gameId: game.gameId,
                     amount: commission,
                     totalPot: totalPot,
-                    winnerId: winner._id, // Use actual User ID from database
+                    winnerId: winner._id,
                     timestamp: new Date()
                 });
                 await revenue.save();
@@ -119,22 +132,33 @@ const processGameSettlement = async (game) => {
                 console.error(`❌ Error recording revenue for game ${game.gameId}:`, revError);
             }
 
-            console.log(`✅ Winner ${winner.username} credited with $${winnings} (Pot: $${totalPot} - Comm: $${commission}), new balance: ${winner.balance}`);
+            console.log(`✅ Winner ${winner.username} credited with $${winnings}. New balance: ${winner.balance}`);
         }
 
         if (loser) {
-            // Loser's bet was already reserved/deducted at matchmaking, so NO additional deduction
-            // The funds stay with the system and are given to the winner above
-            if (!loser.stats) {
-                loser.stats = { gamesPlayed: 0, wins: 0 };
-            }
+            loser.reservedBalance -= stake;
+            
+            if (!loser.stats) loser.stats = {};
             loser.stats.gamesPlayed = (loser.stats.gamesPlayed || 0) + 1;
+            loser.stats.gamesLost = (loser.stats.gamesLost || 0) + 1;
+            loser.stats.totalLosses = (loser.stats.totalLosses || 0) + stake;
+
+            loser.transactions.push({
+                type: 'game_loss',
+                amount: -stake,
+                matchId: game.gameId,
+                description: `Stake consumed from loss in game ${game.gameId}`
+            });
+            
             await loser.save();
-            console.log(`✅ Loser ${loser.username} - bet already deducted at matchmaking, final balance: ${loser.balance}`);
+            console.log(`✅ Loser ${loser.username} stake of ${stake} consumed from reserved balance. New balance: ${loser.balance}`);
         }
 
         game.settlementProcessed = true;
-        game.message = `${winnerColor} wins! Settlement complete. Winner receives ${game.stake * 2} coins.`;
+        if(winner) {
+            const profit = (stake * 2 * 0.9) - stake;
+            game.message = `${winner.username} won ${profit.toFixed(2)} dollars`;
+        }
         console.log(`✅ Settlement complete for game ${game.gameId}`);
     } catch (error) {
         console.error(`❌ Error processing settlement for game ${game.gameId}:`, error);
@@ -341,6 +365,7 @@ exports.handleRollDice = async (gameId, socketId) => {
     }
     
     console.log(`🎲 Current player check: player=${player.color}, playerSocket=${player.socketId}, requestSocket=${socketId}, turnState=${game.turnState}, gameStarted=${game.gameStarted}`);
+    console.log(`🎲 [DICE-AUTH] Current Player: ${player.color}, Stored SocketID: ${player.socketId}, Request SocketID: ${socketId}`);
 
     // Check if socket matches (allow if socketId matches or player is disconnected)
     if (player.socketId !== socketId && !player.isDisconnected) {
@@ -475,20 +500,18 @@ async function executeRollDice(game) {
     console.log(`🎲 Calculated ${moves.length} legal moves for roll ${roll}`);
     if (moves.length > 0) {
         console.log(`🎲 Available moves: ${moves.map(m => `${m.tokenId} -> ${m.finalPosition.type}:${m.finalPosition.index}`).join(', ')}`);
-    }
-
-    if (moves.length === 0) {
+        const currentPlayer = game.players[game.currentPlayerIndex];
+        if (currentPlayer && !currentPlayer.isAI && !currentPlayer.isDisconnected) {
+            game.timer = 18; // Set 18-second timer for human to make a move
+        } else {
+            game.timer = null; // No timer for AI
+        }
+    } else {
         console.log(`🎲 No moves available, passing turn`);
         game.message = `No legal moves. Passing turn.`;
-        // Keep diceValue and turnState as MOVING (same as local game)
-        // The server will handle the turn transition after a delay
         game.turnState = 'MOVING';
         game.legalMoves = [];
-        // Don't change currentPlayerIndex yet - we'll do that after showing the dice (like local game does with setTimeout)
-    } else {
-        console.log(`🎲 Moves available: ${moves.map(m => `${m.tokenId} -> ${m.finalPosition.type}:${m.finalPosition.index}`).join(', ')}`);
-        // Ensure diceValue is preserved when moves are available
-        console.log(`🎲 Preserving diceValue: ${game.diceValue} for player ${player.color}`);
+        game.timer = null; // No timer since turn will pass automatically
     }
 
     await game.save();
@@ -551,6 +574,11 @@ async function executeMoveToken(game, tokenId) {
             
             // Process automatic wallet settlement
             await processGameSettlement(game);
+            
+            // Set turn state to GAMEOVER and return immediately
+            game.turnState = 'GAMEOVER';
+            await game.save();
+            return { success: true, state: game.toObject ? game.toObject() : game };
         }
     }
 
@@ -570,6 +598,12 @@ async function executeMoveToken(game, tokenId) {
     
     const nextPlayer = game.players[nextPlayerIndex];
     game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color || 'player'}...`;
+
+    if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
+        game.timer = 7; // Set 7-second timer for human player to roll
+    } else {
+        game.timer = null; // No timer for AI or disconnected players
+    }
 
     console.log(`🎯 After turn transition: currentPlayerIndex=${nextPlayerIndex}, currentPlayer=${nextPlayer?.color}, turnState=${game.turnState}, diceValue=${game.diceValue}, message="${game.message}"`);
 

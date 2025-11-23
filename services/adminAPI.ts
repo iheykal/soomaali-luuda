@@ -101,6 +101,22 @@ export const adminAPI = {
     }
   },
 
+  async forceRejoin(gameId: string): Promise<GameState> {
+    const url = `${getApiUrl()}/admin/games/force-rejoin/${gameId}`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData.game;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to force rejoin';
+      throw new Error(errorMessage);
+    }
+  },
+
   async deleteGame(gameId: string): Promise<void> {
     const url = `${getApiUrl()}/admin/matches/${gameId}`;
     const options = {

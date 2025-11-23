@@ -687,6 +687,21 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                     >
                                         <span>👀</span> Watch
                                     </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (!confirm('Invite players to rejoin this game?')) return;
+                                        try {
+                                          await adminAPI.forceRejoin(game.gameId!);
+                                          alert('Invite sent. Players will see the active game when they refresh.');
+                                        } catch (err: any) {
+                                          alert('Failed to invite rejoin: ' + (err.message || err));
+                                        }
+                                      }}
+                                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
+                                      title="Invite Players to Rejoin"
+                                    >
+                                      <span>🔔</span> Invite Rejoin
+                                    </button>
                                     <button 
                                         onClick={() => handleDeleteGame(game.gameId!)}
                                         className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"

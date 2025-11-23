@@ -7,7 +7,7 @@ import { debugService } from '../services/debugService';
 
 // --- Constants ---
 const ROLL_TIME_LIMIT = 8;
-const MOVE_TIME_LIMIT = 20;
+const MOVE_TIME_LIMIT = 3;
 
 // --- Socket Service Wrapper ---
 let socket: Socket | null = null;
@@ -566,7 +566,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         if (moves.length === 0) {
             setTimeout(() => {
                 dispatch({ type: 'NEXT_TURN', grantExtraTurn: roll === 6 });
-            }, 1200);
+            }, 300);
         }
     }, [state, calculateLegalMoves, isMyTurn, isMultiplayer, multiplayerConfig, socket]);
 
@@ -612,7 +612,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             debugService.game({ event: 'ai_thinking', action: 'roll' });
             timeoutId = setTimeout(() => {
                 handleRollDice();
-            }, 1000);
+            }, 300);
         } else if (turnState === 'MOVING') {
              debugService.game({ event: 'ai_thinking', action: 'move' });
              timeoutId = setTimeout(() => {
@@ -621,7 +621,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                     debugService.game({ event: 'ai_move', move: randomMove });
                     handleMoveToken(randomMove.tokenId);
                 }
-            }, 1500);
+            }, 500);
         }
 
         return () => clearTimeout(timeoutId);

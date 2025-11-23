@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { Player, PlayerColor } from '../types';
 import { PLAYER_TAILWIND_COLORS, PLAYER_COLORS } from '../lib/boardLayout';
 import { useAuth } from '../context/AuthContext';
@@ -32,118 +32,73 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
   
   const [mode, setMode] = useState<'choice' | 'local_setup'>('choice');
 
+  const checkForActiveGame = useCallback(async () => {
+    setCheckingActiveGame(true);
+    if (!user || !user.id) {
+      setCheckingActiveGame(false);
+      return;
+    }
+
+    const userId = user.id || user._id;
+    if (!userId) {
+      console.warn('⚠️ User object missing both id and _id');
+      setCheckingActiveGame(false);
+      return;
+    }
+
+    try {
+      console.log('🔍 Checking for active game for user:', userId);
+      const result = await gameAPI.checkActiveGame(userId);
+      console.log('✅ API response for checkActiveGame:', JSON.stringify(result, null, 2));
+
+      if (result.hasActiveGame && result.game) {
+        console.log('✅ Active game found:', result.game);
+        setActiveGameInfo(result.game);
+        setShowRejoinBanner(true);
+      } else {
+        console.log('ℹ️ No active game found');
+        setActiveGameInfo(null);
+        setShowRejoinBanner(false);
+        // Fallback: if API returned nothing, check localStorage for a saved rejoin blob
+        try {
+          const saved = localStorage.getItem('ludo_rejoin');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            // Only show rejoin if the saved playerId matches the current user (or no user id available)
+            const savedPlayerMatch = !parsed.playerId || parsed.playerId === userId || parsed.sessionId;
+            if (parsed.gameId && savedPlayerMatch) {
+              console.log('🔁 Found local rejoin info, showing rejoin banner', parsed);
+              setActiveGameInfo({
+                gameId: parsed.gameId,
+                playerColor: parsed.playerColor || 'green',
+                isDisconnected: true,
+                status: 'ACTIVE',
+                stake: parsed.stake || 0,
+                allPawnsHome: false,
+                winners: []
+              });
+              setShowRejoinBanner(true);
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Failed to parse local rejoin info', e);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for active game:', error);
+      alert('Error checking for an active game. Please check your connection and try refreshing the page.');
+      setShowRejoinBanner(false);
+      setActiveGameInfo(null);
+    } finally {
+      setCheckingActiveGame(false);
+    }
+  }, [user]);
+
   // Check for active game when component mounts
   useEffect(() => {
     let isMounted = true;
     let autoRejoinTimer: NodeJS.Timeout | null = null;
     
-    const checkForActiveGame = async () => {
-      if (!user || !user.id) {
-        setCheckingActiveGame(false);
-        return;
-      }
-
-      // Use either id or _id, whichever is available
-      const userId = user.id || user._id;
-      
-      if (!userId) {
-        console.warn('⚠️ User object missing both id and _id');
-        setCheckingActiveGame(false);
-        return;
-      }
-
-      try {
-        console.log('🔍 Checking for active game for user:', userId);
-        const result = await gameAPI.checkActiveGame(userId);
-        
-        if (!isMounted) return; // Component unmounted, don't update state
-        
-        if (result.hasActiveGame && result.game) {
-          console.log('✅ Active game found:', result.game);
-          const gameInfo = result.game;
-          setActiveGameInfo(gameInfo);
-          setShowRejoinBanner(true);
-          
-          // Auto-rejoin after 2 seconds - better UX
-          // Clear any existing timer first
-          if (autoRejoinTimer) {
-            clearTimeout(autoRejoinTimer);
-          }
-          
-          autoRejoinTimer = setTimeout(async () => {
-            if (!isMounted) return; // Component unmounted, don't proceed
-            
-            console.log('⏰ Auto-rejoining game after 2 seconds...');
-            console.log('📋 Checking prerequisites:', { 
-              hasUser: !!user, 
-              hasGameInfo: !!gameInfo, 
-              hasHandler: !!onRejoinGame,
-              userId: user?.id || user?._id 
-            });
-            
-            if (user && gameInfo && onRejoinGame) {
-              try {
-                const currentUserId = user.id || user._id;
-                if (currentUserId) {
-                  console.log('🔄 Auto-rejoin: Calling rejoin API...');
-                  const rejoinResult = await gameAPI.rejoinGame(gameInfo.gameId, currentUserId, user.username);
-                  
-                  if (!isMounted) return; // Component unmounted during API call
-                  
-                  if (rejoinResult.success) {
-                    console.log('✅ Auto-rejoin API successful!');
-                    console.log('🎯 Attempting to call onRejoinGame...');
-                    console.log('📋 Handler check:', { 
-                      hasHandler: !!onRejoinGame,
-                      handlerType: typeof onRejoinGame,
-                      gameId: rejoinResult.gameId, 
-                      playerColor: rejoinResult.playerColor 
-                    });
-                    
-                    setShowRejoinBanner(false);
-                    
-                    if (onRejoinGame) {
-                      console.log('✅ Calling onRejoinGame handler...');
-                      try {
-                        onRejoinGame(rejoinResult.gameId, rejoinResult.playerColor);
-                        console.log('✅ onRejoinGame called successfully!');
-                      } catch (error) {
-                        console.error('❌ Error calling onRejoinGame:', error);
-                      }
-                    } else {
-                      console.error('❌ onRejoinGame handler is undefined!');
-                      console.log('💡 Tip: Make sure onRejoinGame prop is passed from parent component');
-                    }
-                  } else {
-                    console.error('❌ Auto-rejoin API returned unsuccessful');
-                  }
-                } else {
-                  console.error('❌ No user ID available for auto-rejoin');
-                }
-              } catch (error) {
-                console.error('❌ Auto-rejoin failed:', error);
-                // Keep banner visible so user can manually retry
-              }
-            } else {
-              console.error('❌ Cannot auto-rejoin: missing prerequisites');
-            }
-          }, 2000);
-        } else {
-          console.log('ℹ️ No active game found');
-        }
-      } catch (error) {
-        console.error('Error checking for active game:', error);
-        // Don't show banner if there's an error
-        if (isMounted) {
-          setShowRejoinBanner(false);
-        }
-      } finally {
-        if (isMounted) {
-          setCheckingActiveGame(false);
-        }
-      }
-    };
-
     checkForActiveGame();
     
     // Cleanup function
@@ -153,7 +108,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         clearTimeout(autoRejoinTimer);
       }
     };
-  }, [user, onRejoinGame]);
+  }, [user, checkForActiveGame]);
 
   const handleRejoin = async () => {
     console.log('🎯 handleRejoin called!');
@@ -187,6 +142,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         console.log('✅ Rejoin successful, notifying parent component');
         console.log('📋 Rejoin result:', result);
         setShowRejoinBanner(false);
+        // Clear persisted rejoin info (we just rejoined)
+        try { localStorage.removeItem('ludo_rejoin'); } catch (e) { /* ignore */ }
         
         // Call the parent's rejoin handler if provided
         if (onRejoinGame) {
@@ -202,17 +159,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
       }
     } catch (error) {
       console.error('❌ Error rejoining game:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      
-      // If user doesn't exist in database, offer to re-login
-      if (errorMessage.includes('not found') || errorMessage.includes('404')) {
-        alert('Your user account was not found in the database. Please login again to continue.');
-        setShowRejoinBanner(false);
-        // Could trigger logout here if desired
-        // logout();
-      } else {
-        alert('Failed to rejoin game: ' + errorMessage);
-      }
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+      alert(`Failed to rejoin game: ${errorMessage}\nPlease check your connection and try again.`);
     }
   };
 
@@ -388,29 +336,19 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
   // --- Main Menu View ---
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-800 p-4 relative">
-      {/* Rejoin Game Banner */}
+      {/* Conditionally render the Rejoin Game Banner */}
       {showRejoinBanner && activeGameInfo && (
-        <>
-          <RejoinGameBanner
-            gameId={activeGameInfo.gameId}
-            playerColor={activeGameInfo.playerColor}
-            stake={activeGameInfo.stake || 0}
-            allPawnsHome={activeGameInfo.allPawnsHome || false}
-            winners={activeGameInfo.winners || []}
-            onRejoin={handleRejoin}
-            onDismiss={handleDismissBanner}
-          />
-          {/* Also show a prominent button in the main menu */}
-          <div className="mt-4 mb-8 w-full max-w-md">
-            <button
-              onClick={handleRejoin}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold text-xl py-4 px-6 rounded-lg shadow-2xl transition-all transform hover:scale-105 border-2 border-green-400"
-            >
-              🎮 Rejoin Active Game ({activeGameInfo.gameId.toUpperCase()})
-            </button>
-          </div>
-        </>
+        <RejoinGameBanner
+          gameId={activeGameInfo.gameId}
+          playerColor={activeGameInfo.playerColor}
+          stake={activeGameInfo.stake || 0}
+          allPawnsHome={activeGameInfo.allPawnsHome}
+          winners={activeGameInfo.winners}
+          onRejoin={handleRejoin}
+          onDismiss={handleDismissBanner}
+        />
       )}
+      
       {/* Header with Admin Button and User Info */}
       <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm z-10 shadow-sm">
            <div className="flex items-center gap-2">
@@ -498,6 +436,15 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
       <div className="bg-slate-700 p-8 rounded-xl shadow-2xl w-full max-w-md text-center border border-slate-600">
         <p className="text-slate-300 mb-8 text-lg">Choose how you want to play.</p>
         <div className="space-y-4">
+          {/* Always-visible Rejoin Button */}
+          <button
+            onClick={checkForActiveGame}
+            disabled={checkingActiveGame}
+            className="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-bold text-xl py-4 px-6 rounded-lg shadow-2xl transition-all transform hover:scale-105 border-2 border-orange-400 disabled:opacity-50"
+          >
+            {checkingActiveGame ? 'Checking for Game...' : '🔎 Check for Active Game to Rejoin'}
+          </button>
+
           <button
             onClick={onEnterLobby}
             disabled={user?.balance === undefined || user.balance <= 0}

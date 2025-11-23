@@ -333,7 +333,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
     const handleCancel = () => {
         if (socketRef.current && socketRef.current.connected) {
-            socketRef.current.emit('cancel_search');
+            socketRef.current.emit('cancel_search', { userId: user?.id || getSessionId(), stake: selectedStake });
         }
         setStatus('SELECT');
         setSelectedStake(null);

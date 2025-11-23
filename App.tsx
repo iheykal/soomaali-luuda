@@ -107,6 +107,20 @@ const AppContent: React.FC = () => {
         });
         // For multiplayer, initialize with the provided players
         startGame(gamePlayers);
+        // Persist a small rejoin blob so the user can return after refresh/disconnect
+        try {
+          const savedPlayerId = mpConfig.playerId || user?.id || user?._id || mpConfig.sessionId;
+          const rejoinBlob = {
+            gameId: mpConfig.gameId,
+            playerId: savedPlayerId,
+            playerColor: mpConfig.localPlayerColor,
+            sessionId: mpConfig.sessionId
+          };
+          localStorage.setItem('ludo_rejoin', JSON.stringify(rejoinBlob));
+          console.log('✅ Saved rejoin info to localStorage', rejoinBlob);
+        } catch (e) {
+          console.warn('⚠️ Failed to persist rejoin info', e);
+        }
       } else {
         console.log('🎲 Setting up local game');
         // For local games
@@ -200,6 +214,18 @@ const AppContent: React.FC = () => {
 
     // Set the multiplayer config and switch to game view
     setMultiplayerConfig(mpConfig);
+    // Persist rejoin info for dashboard fallback (in case of refresh/disconnect)
+    try {
+      localStorage.setItem('ludo_rejoin', JSON.stringify({
+        gameId: mpConfig.gameId,
+        playerId: mpConfig.playerId,
+        playerColor: mpConfig.localPlayerColor,
+        sessionId: mpConfig.sessionId
+      }));
+      console.log('✅ Persisted rejoin blob for rejoin flow');
+    } catch (e) {
+      console.warn('⚠️ Failed to persist rejoin blob during rejoin', e);
+    }
     
     // The actual state will be updated when we receive GAME_STATE_UPDATE from server
     // startGame(placeholderPlayers) is removed as it's no longer needed;
@@ -348,7 +374,7 @@ const AppContent: React.FC = () => {
             return null;
         })()}
 
-        {turnState === 'GAMEOVER' && <GameOverModal winners={winners} onRestart={handleRestart} />}
+        {turnState === 'GAMEOVER' && <GameOverModal winners={winners} onRestart={handleRestart} message={state.message}/>}
         
         {/* Top Left: Green - Hidden */}
         {/* <div className="w-full lg:w-auto order-2 lg:order-none lg:row-start-1 lg:col-start-1 flex justify-center lg:justify-start lg:items-start p-2">
@@ -364,16 +390,8 @@ const AppContent: React.FC = () => {
         </div> */}
 
         {/* Top Right: Yellow */}
-        <div className="w-full lg:w-auto order-2 lg:order-none lg:row-start-1 lg:col-start-3 flex justify-center lg:justify-end lg:items-start p-2">
-             {pYellow && (
-                <PlayerInfo
-                    player={pYellow}
-                    tokens={state.tokens}
-                    isCurrentPlayer={currentPlayer.color === pYellow.color}
-                    winners={winners}
-                    message={currentPlayer.color === pYellow.color ? state.message : undefined}
-                />
-            )}
+        <div className="lg:w-auto order-2 lg:order-none lg:row-start-1 lg:col-start-3 flex justify-center lg:justify-end lg:items-start p-2">
+
         </div>
 
         {/* Center: Board */}
@@ -402,16 +420,8 @@ const AppContent: React.FC = () => {
         </div>
 
         {/* Bottom Left: Red */}
-        <div className="w-full lg:w-auto order-4 lg:order-none lg:row-start-3 lg:col-start-1 flex justify-center lg:justify-start lg:items-end p-2">
-             {pRed && (
-                <PlayerInfo
-                    player={pRed}
-                    tokens={state.tokens}
-                    isCurrentPlayer={currentPlayer.color === pRed.color}
-                    winners={winners}
-                    message={currentPlayer.color === pRed.color ? state.message : undefined}
-                />
-            )}
+        <div className="lg:w-auto order-4 lg:order-none lg:row-start-3 lg:col-start-1 flex justify-center lg:justify-start lg:items-end p-2">
+
         </div>
 
         {/* Bottom Right: Blue - Hidden */}

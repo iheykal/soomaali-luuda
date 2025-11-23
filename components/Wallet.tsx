@@ -9,6 +9,20 @@ interface WalletProps {
     onUpdateUser: () => void;
 }
 
+const SuccessMessage: React.FC = () => (
+    <div className="bg-green-500/10 border-2 border-green-500/30 rounded-lg p-4 flex items-center space-x-3 animate-in fade-in slide-in-from-bottom-4 duration-500 mb-4">
+        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+        </div>
+        <div>
+            <h4 className="font-bold text-green-400">Request Submitted!</h4>
+            <p className="text-sm text-slate-300">Your request will be processed shortly.</p>
+        </div>
+    </div>
+);
+
 const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [amount, setAmount] = useState('');
     const [myRequests, setMyRequests] = useState<FinancialRequest[]>([]);
@@ -16,6 +30,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [loading, setLoading] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [userLoading, setUserLoading] = useState(true);
+    const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
     // Deposit-specific fields
     const [fullName, setFullName] = useState(user.username || '');
@@ -131,7 +146,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
 
             const data = await response.json();
             if (data.success) {
-                alert('Request submitted successfully! Your request will be processed shortly.');
+                setShowSuccessMessage(true);
+                setTimeout(() => setShowSuccessMessage(false), 4000);
                 setAmount('');
                 // Refresh requests list
                 const refreshResponse = await fetch(`${API_URL}/wallet/my-requests`, {
@@ -195,6 +211,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 </div>
 
                 <div className="p-6 min-h-[250px]">
+                    {showSuccessMessage && <SuccessMessage />}
                     {tab === 'action' ? (
                         <div className="space-y-6">
                             <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700/50 mb-4">

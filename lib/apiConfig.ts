@@ -39,7 +39,7 @@ const getApiUrl = () => {
       
       // In production mode, use same origin
       if (import.meta.env.VITE_USE_REAL_API === 'true') {
-        const url = `${window.location.origin}/api`;
+        const url = `${window.location.origin}`;
         console.log('🔧 Using same origin API URL:', url);
         return url;
       }
@@ -94,15 +94,6 @@ const getSocketUrl = () => {
           const url = window.location.origin;
           console.log('🔧 Using same origin Socket URL:', url);
           return url;
-        }
-        
-        // Auto-detect Render backend URL pattern
-        // If frontend is on Render, use the *dedicated backend service URL* for the socket
-        if (hostname.includes('onrender.com')) {
-          // Prefer VITE_RENDER_BACKEND_URL if set, otherwise use a heuristic based on current origin
-          const renderBackendUrl = import.meta.env.VITE_RENDER_BACKEND_URL || window.location.origin.replace('som-bet.onrender.com', 'som-bet-backend.onrender.com');
-          console.log('🔧 Using Render backend service Socket URL:', renderBackendUrl);
-          return renderBackendUrl;
         }
         
         // If accessed via network IP (mobile/remote), use network IP for backend
