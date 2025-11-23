@@ -85,9 +85,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             return;
         }
 
-        const socketUrl = import.meta.env.VITE_USE_REAL_API === 'true'
-            ? window.location.origin
-            : SOCKET_URL;
+        const socketUrl = SOCKET_URL;
 
         console.log('🔌 Creating new Socket.IO connection for matchmaking:', socketUrl);
         socketRef.current = io(socketUrl, {

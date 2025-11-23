@@ -72,47 +72,15 @@ const getApiUrl = () => {
 };
 
 const getSocketUrl = () => {
-  try {
-    // If explicitly set in environment variable, use it
-    if (import.meta.env.VITE_SOCKET_URL && import.meta.env.VITE_SOCKET_URL.trim() !== '') {
-      const envUrl = import.meta.env.VITE_SOCKET_URL.trim();
-      
-      // If it's a full URL, use it as-is
-      if (envUrl.startsWith('http://') || envUrl.startsWith('https://') || envUrl.startsWith('ws://') || envUrl.startsWith('wss://')) {
-        console.log('🔧 Using VITE_SOCKET_URL from env:', envUrl);
-        return envUrl;
-      }
-    }
-    
-      // Auto-detect based on current hostname
-      if (typeof window !== 'undefined') {
-        const hostname = window.location.hostname;
-        const protocol = window.location.protocol;
-        
-        // In production mode, use same origin
-        if (import.meta.env.VITE_USE_REAL_API === 'true') {
-          const url = window.location.origin;
-          console.log('🔧 Using same origin Socket URL:', url);
-          return url;
-        }
-        
-        // If accessed via network IP (mobile/remote), use network IP for backend
-        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-          // Use same hostname but port 5000 for backend
-          const url = `${protocol}//${hostname}:5000`;
-          console.log('🔧 Auto-detected network Socket URL:', url);
-          return url;
-        }
-      }
-    
-    // Default: localhost for development
-    const defaultUrl = 'ws://localhost:5000';
-    console.log('🔧 Using default Socket URL:', defaultUrl);
-    return defaultUrl;
-  } catch (error) {
-    console.error('❌ Error determining Socket URL, using default:', error);
-    return 'ws://localhost:5000';
+  // For production builds, the socket should connect to the same server that serves the frontend.
+  if (import.meta.env.PROD) {
+    console.log('🔧 Using origin for production Socket URL:', window.location.origin);
+    return window.location.origin;
   }
+  // For development, connect to the local backend server on port 5000.
+  const defaultUrl = 'http://localhost:5000';
+  console.log('🔧 Using default development Socket URL:', defaultUrl);
+  return defaultUrl;
 };
 
 export const API_URL = getApiUrl();
