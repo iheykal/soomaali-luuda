@@ -74,6 +74,12 @@ const getApiUrl = () => {
 const getSocketUrl = () => {
   // For production builds, the socket should connect to the same server that serves the frontend.
   if (import.meta.env.PROD) {
+    // If explicitly set in environment variable, use it
+    if (import.meta.env.VITE_SOCKET_URL && import.meta.env.VITE_SOCKET_URL.trim() !== '') {
+      const envUrl = import.meta.env.VITE_SOCKET_URL.trim();
+      console.log('🔧 Using VITE_SOCKET_URL from env for production:', envUrl);
+      return envUrl;
+    }
     console.log('🔧 Using origin for production Socket URL:', window.location.origin);
     return window.location.origin;
   }
