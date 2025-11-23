@@ -508,10 +508,26 @@ async function executeRollDice(game) {
         }
     } else {
         console.log(`🎲 No moves available, passing turn`);
-        game.message = `No legal moves. Passing turn.`;
-        game.turnState = 'MOVING';
-        game.legalMoves = [];
-        game.timer = null; // No timer since turn will pass automatically
+        game.message = `No legal moves for ${player.username || player.color} with a roll of ${roll}. Passing turn.`;
+        
+        // --- Full Turn Transition Logic when no legal moves ---
+        const grantExtraTurn = false; // No extra turn if no moves
+        const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
+        game.currentPlayerIndex = nextPlayerIndex;
+        
+        game.diceValue = null; // Clear diceValue for the next player
+        game.turnState = 'ROLLING'; // Set turnState to ROLLING for the next player
+        game.legalMoves = []; // Clear legal moves
+        
+        const nextPlayer = game.players[nextPlayerIndex];
+        game.message += ` Waiting for ${nextPlayer?.username || nextPlayer?.color || 'player'} to roll.`;
+
+        if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
+            game.timer = 7; // Set 7-second timer for human player to roll
+        } else {
+            game.timer = null; // No timer for AI or disconnected players
+        }
+        // --- End of Turn Transition Logic ---
     }
 
     await game.save();
