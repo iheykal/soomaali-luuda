@@ -14,7 +14,7 @@ const getApiUrl = () => {
       // If it's a relative URL, check if we should convert it
       if (envUrl.startsWith('/')) {
         // In production mode, use relative URL
-        if (import.meta.env.VITE_USE_REAL_API === 'true') {
+        if (import.meta.env.PROD) { // Use PROD for production checks
           console.log('🔧 Using relative API URL:', envUrl);
           return envUrl;
         }
@@ -32,13 +32,13 @@ const getApiUrl = () => {
       }
     }
     
-    // Auto-detect based on current hostname
+    // Auto-detect based on current hostname (only if VITE_API_URL not set)
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const protocol = window.location.protocol;
       
       // In production mode, use same origin
-      if (import.meta.env.VITE_USE_REAL_API === 'true') {
+      if (import.meta.env.PROD) { // Use PROD for production checks
         const url = `${window.location.origin}`;
         console.log('🔧 Using same origin API URL:', url);
         return url;
