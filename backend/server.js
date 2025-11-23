@@ -65,16 +65,23 @@ const socketOrigins = process.env.FRONTEND_URL === "*"
     : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://192.168.100.32:3000', 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.100.32:5173'];
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  },
-  transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
-  allowEIO3: true, // Allow Engine.IO v3 clients
-  pingTimeout: 60000, // Increase ping timeout for network connections
-  pingInterval: 25000, // Increase ping interval
-  upgradeTimeout: 10000, // Timeout for transport upgrade
-  maxHttpBufferSize: 1e6 // 1MB max buffer size
+    cors: {
+        origin: [
+            "https://som-bet.onrender.com",
+            "http://localhost:3000",
+            "http://localhost:5173"
+        ],
+        methods: ["GET", "POST"],
+        credentials: true,
+        allowedHeaders: ["Content-Type", "Authorization"]
+    },
+    transports: ['websocket', 'polling'],
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    connectTimeout: 45000,
+    maxHttpBufferSize: 1e8,
+    allowUpgrades: true,
+    cookie: false
 });
 
 app.use(express.json());
