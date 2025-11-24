@@ -249,7 +249,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                     placeholder="Enter amount..."
                                     className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 text-white text-xl font-bold focus:ring-2 focus:ring-cyan-500 outline-none"
                                 />
-                                <p className="text-[10px] text-slate-500 mt-1 text-right">Min: $1 | Max Deposit: $300</p>
+                                <p className="text-[10px] text-slate-500 mt-1 text-right">Min: $0.01 | Max Deposit: $300</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">

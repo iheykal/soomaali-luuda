@@ -1,66 +1,79 @@
 // API Configuration
+const ensureApiPath = (url: string) => {
+  if (!url) return url;
+  // If the URL already contains '/api' return as-is
+  if (url.includes('/api')) return url.replace(/\/+$/g, '');
+  // Otherwise append '/api' without duplicating slashes
+  return url.replace(/\/+$/g, '') + '/api';
+};
+
 const getApiUrl = () => {
   try {
     // If explicitly set in environment variable, use it
     if (import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL.trim() !== '') {
-      const envUrl = import.meta.env.VITE_API_URL.trim();
-      
-      // If it's a full URL, use it as-is
+      let envUrl = import.meta.env.VITE_API_URL.trim();
+
+      // If it's a full URL, ensure it includes '/api'
       if (envUrl.startsWith('http://') || envUrl.startsWith('https://')) {
-        console.log('🔧 Using VITE_API_URL from env:', envUrl);
-        return envUrl;
+        const finalUrl = ensureApiPath(envUrl);
+        console.log('🔧 Using VITE_API_URL from env:', finalUrl);
+        return finalUrl;
       }
-      
+
       // If it's a relative URL, check if we should convert it
       if (envUrl.startsWith('/')) {
-        // In production mode, use relative URL
-        if (import.meta.env.PROD) { // Use PROD for production checks
-          console.log('🔧 Using relative API URL:', envUrl);
-          return envUrl;
+        // In production mode, use relative URL (ensure /api present)
+        if (import.meta.env.PROD) {
+          const finalUrl = ensureApiPath(envUrl);
+          console.log('🔧 Using relative API URL (prod):', finalUrl);
+          return finalUrl;
         }
         // In development, if accessed via network IP, convert to full URL
         if (typeof window !== 'undefined') {
           const hostname = window.location.hostname;
           if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
             const fullUrl = `http://${hostname}:5000${envUrl}`;
-            console.log('🔧 Using network IP API URL:', fullUrl);
-            return fullUrl;
+            const finalUrl = ensureApiPath(fullUrl);
+            console.log('🔧 Using network IP API URL:', finalUrl);
+            return finalUrl;
           }
         }
-        console.log('🔧 Using relative API URL (localhost):', envUrl);
-        return envUrl;
+        const finalUrl = ensureApiPath(envUrl);
+        console.log('🔧 Using relative API URL (localhost):', finalUrl);
+        return finalUrl;
       }
     }
-    
+
     // Auto-detect based on current hostname (only if VITE_API_URL not set)
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const protocol = window.location.protocol;
-      
-      // In production mode, use same origin
-      if (import.meta.env.PROD) { // Use PROD for production checks
-        const url = `${window.location.origin}`;
+
+      // In production mode, use same origin and ensure '/api'
+      if (import.meta.env.PROD) {
+        const url = ensureApiPath(`${window.location.origin}`);
         console.log('🔧 Using same origin API URL:', url);
         return url;
       }
-      
+
       // Auto-detect Render backend URL pattern
       // If frontend is on Render, use the same origin for the API
       if (hostname.includes('onrender.com')) {
-        const url = `${window.location.origin}/api`;
+        const url = ensureApiPath(`${window.location.origin}`);
         console.log('🔧 Using same origin API URL for Render:', url);
         return url;
       }
-      
+
       // If accessed via network IP (mobile/remote), use network IP for backend
       if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
         // Use same hostname but port 5000 for backend
-        const url = `${protocol}//${hostname}:5000/api`;
-        console.log('🔧 Auto-detected network API URL:', url);
-        return url;
+        const url = `${protocol}//${hostname}:5000`;
+        const finalUrl = ensureApiPath(url);
+        console.log('🔧 Auto-detected network API URL:', finalUrl);
+        return finalUrl;
       }
     }
-    
+
     // Default: localhost for development
     const defaultUrl = 'http://localhost:5000/api';
     console.log('🔧 Using default API URL:', defaultUrl);

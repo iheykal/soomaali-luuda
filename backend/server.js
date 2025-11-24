@@ -2402,7 +2402,7 @@ io.on('connection', (socket) => {
           console.log(`🧹 Cleared pending auto-roll timer for game ${gameId} (player rolling manually)`);
       }
 
-      const result = await gameEngine.handleRollDice(gameId, socket.id);
+      const result = await gameEngine.handleRollDice(io, gameId, socket.id);
       
       if (!result) {
         console.error(`❌ roll_dice: handleRollDice returned null/undefined for game ${gameId}`);
