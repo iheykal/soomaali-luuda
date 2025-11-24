@@ -518,10 +518,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                     }
                 } else {
                     const finalIndex = (currentPos.index + diceValue) % 52;
-                    const tokensAtDest = tokens.filter(t => t.position.type === 'PATH' && t.position.index === finalIndex && t.color === currentPlayer.color);
-                    if (tokensAtDest.length < 2) {
-                        moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: finalIndex } });
-                    }
+                    moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: finalIndex } });
                 }
             } else if (currentPos.type === 'HOME_PATH') {
                 const newHomeIndex = currentPos.index + diceValue;
@@ -544,9 +541,13 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         if (isMultiplayer) {
             if (isMyTurn) {
                 if (!socket || !socket.connected) {
+                    debugService.error('Cannot roll dice: Socket not connected');
+                    alert('Socket not connected. Please check your internet connection and try again.');
                     return;
                 }
                 if (!multiplayerConfig || !multiplayerConfig.gameId) {
+                    debugService.error('Cannot roll dice: Missing multiplayer config or gameId');
+                    alert('Cannot roll dice: Missing game configuration.');
                     return;
                 }
                 debugService.socket({ event: 'emit', type: 'roll_dice', gameId: multiplayerConfig.gameId });

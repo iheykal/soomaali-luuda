@@ -10,6 +10,7 @@ interface DiceProps {
   isMyTurn: boolean;
   playerColor: PlayerColor;
   timer: number;
+  turnState: 'ROLLING' | 'MOVING' | 'ANIMATING' | 'GAMEOVER';
   potAmount?: number;
 }
 
@@ -23,17 +24,19 @@ const Dot: React.FC<{ style: React.CSSProperties; color: string }> = ({ style, c
 const DiceFace: React.FC<{ value: number; dotColor: string }> = ({ value, dotColor }) => {
     // Use numbers instead of dots for better visibility
     return (
-        <div className="dice-number" style={{ color: dotColor }}>
+        <div className="dice-number" style={{ color: dotColor, visibility: dotColor === 'transparent' ? 'hidden' : 'visible' }}>
             {value}
         </div>
     );
 };
 
-const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer, potAmount }) => {
+const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer, turnState, potAmount }) => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [cubeClass, setCubeClass] = useState('');
   const prevValueRef = useRef<number | null>(null); // Use ref for lastValue to prevent re-render loop
   const animationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [showNumber, setShowNumber] = useState(value !== null);
+
 
   useEffect(() => {
     const lastValue = prevValueRef.current;
@@ -42,6 +45,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
 
     // Handle valid dice values (1-6) - ALWAYS animate on new roll
     if (value !== null && value !== undefined && typeof value === 'number' && value >= 1 && value <= 6) {
+      setShowNumber(true);
       // Check if this is a new roll (value changed from null/undefined/different number)
       const isNewRoll = lastValue === null || lastValue === undefined || lastValue !== value;
       
@@ -77,6 +81,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
     } 
     // Handle null value (new turn starting)
     else if (value === null) {
+      setShowNumber(false);
       console.log(`🎲 Dice value is null (new turn), resetting to neutral state for ${playerColor}`);
       setIsAnimating(false);
       setCubeClass('');
@@ -88,6 +93,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
     } 
     // Handle invalid values
     else {
+      setShowNumber(false);
       console.error(`❌ Invalid dice value: ${value}, resetting to default for ${playerColor}`);
       setCubeClass('');
       setIsAnimating(false);
@@ -128,6 +134,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
   }
 
   const clickableClass = isMyTurn ? 'dice-clickable' : '';
+  const blinkingClass = isMyTurn && turnState === 'ROLLING' ? 'animate-fast-pulse' : '';
   const colors = PLAYER_TAILWIND_COLORS[playerColor];
 
   // Determine dot color for contrast (Yellow needs dark text/dots)
@@ -156,7 +163,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
             
 
             <div 
-                className={`scene ${clickableClass} touch-manipulation z-20`}
+                className={`scene ${clickableClass} ${blinkingClass} touch-manipulation z-20`}
                 onClick={handleClick}
                 onTouchEnd={(e) => {
                     // Prevent default to avoid double-firing with onClick if supported, 
@@ -173,7 +180,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
                 <div className={`cube ${isAnimating ? 'is-rolling' : ''} ${!isAnimating && cubeClass ? cubeClass : ''}`}>
                     {[1, 2, 3, 4, 5, 6].map(num => (
                         <div key={num} className={`face face-${num}`} style={faceStyle}>
-                            <DiceFace value={num} dotColor={dotColor} />
+                            <DiceFace value={num} dotColor={showNumber ? dotColor : 'transparent'} />
                         </div>
                     ))}
                 </div>

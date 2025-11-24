@@ -1235,6 +1235,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                               <p className="text-xs text-gray-400 font-mono mt-1">ID: {req.userId}</p>
                             </div>
                             
+                            {/* Payment Method */}
+                            {req.paymentMethod && (
+                              <div className="mb-4 pb-4 border-b border-gray-200">
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Payment Method</p>
+                                <p className="text-sm font-semibold text-gray-900">{req.paymentMethod}</p>
+                              </div>
+                            )}
+
                             {/* Details */}
                             {req.details && (
                               <div className="mb-4">

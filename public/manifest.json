@@ -1,0 +1,20 @@
+{
+  "short_name": "Ludo Game",
+  "name": "Ludo Multiplayer Game",
+  "icons": [
+    {
+      "src": "/icons/laddea.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icons/laddea.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a"
+}

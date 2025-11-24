@@ -335,13 +335,8 @@ app.post('/api/auth/register', async (req, res) => {
     // Normalize phone number (remove +252 if present, store consistently)
     const normalizedPhone = normalizePhone(phone);
     
-    // Validate phone number starts with 61
-    if (!normalizedPhone.startsWith('61')) {
-      return res.status(400).json({ error: 'Phone number must start with 61' });
-    }
-
-    if (normalizedPhone.length < 9) {
-      return res.status(400).json({ error: 'Phone number must be at least 9 digits (61xxxxxxx)' });
+    if (normalizedPhone.length < 7) {
+      return res.status(400).json({ error: 'Phone number must be at least 7 digits' });
     }
 
     // Check if user already exists (by username or phone - check both formats)
@@ -1154,7 +1149,7 @@ app.get('/api/wallet/my-requests', authenticateToken, async (req, res) => {
 app.post('/api/wallet/request', authenticateToken, async (req, res) => {
     // Use userId from token (more secure) or fallback to body
     const userId = req.user?.userId || req.body.userId;
-    const { userName, type, amount, details } = req.body;
+    const { userName, type, amount, details, paymentMethod } = req.body;
     
     if (!userId) {
         return res.status(400).json({ error: "User ID is required" });
@@ -1216,6 +1211,7 @@ app.post('/api/wallet/request', authenticateToken, async (req, res) => {
             type,
             amount,
             details,
+            paymentMethod,
             status: 'PENDING'
         });
         await newRequest.save();
@@ -1234,6 +1230,7 @@ app.post('/api/wallet/request', authenticateToken, async (req, res) => {
             userName: user.username,
             amount: amount,
             status: savedRequest.status,
+            paymentMethod: savedRequest.paymentMethod,
             timestamp: savedRequest.timestamp,
             savedToDB: !!savedRequest
         });
@@ -1251,6 +1248,7 @@ app.post('/api/wallet/request', authenticateToken, async (req, res) => {
                 amount: newRequest.amount,
                 status: newRequest.status,
                 details: newRequest.details || '',
+                paymentMethod: newRequest.paymentMethod || '',
                 timestamp: newRequest.timestamp ? new Date(newRequest.timestamp).toISOString() : new Date().toISOString()
             }
         });
@@ -1393,6 +1391,7 @@ app.get('/api/admin/wallet/requests', authenticateToken, async (req, res) => {
              amount: req.amount,
              status: req.status,
              details: req.details || '',
+             paymentMethod: req.paymentMethod || '',
              timestamp: req.timestamp ? new Date(req.timestamp).toISOString() : new Date().toISOString(),
              adminComment: req.adminComment || ''
          }));
@@ -2136,7 +2135,7 @@ const runAutoTurn = async (gameId) => {
         
         // If we just rolled, we must move
         if (game.turnState === 'MOVING') {
-             scheduleAutoTurn(gameId, 1500); // Wait 1.5s before moving
+             scheduleAutoTurn(gameId, 200); // Wait a very short time before the bot moves
              return;
         }
 
@@ -2260,106 +2259,24 @@ io.on('connection', (socket) => {
     socket.gameId = gameId; // Map socket to game for disconnect handling
 
     const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
-    if (result.success) {
-      const Game = require('./models/Game');
-      const game = await Game.findOne({ gameId });
-      if (game) {
-        // Ensure gameStarted is true if game status is ACTIVE and has 2+ players
-        if (game.status === 'ACTIVE' && game.players.length >= 2 && !game.gameStarted) {
-          game.gameStarted = true;
-          await game.save();
-        }
-        
-        // Find the player who just joined/rejoined
-        const rejoiningPlayer = game.players.find(p => p.userId === userId);
-        const wasDisconnected = rejoiningPlayer && rejoiningPlayer.isDisconnected;
-        
-        // Ensure players are properly marked as not AI and not disconnected
-        // For multiplayer games, ALL players should be human (isAI: false)
-        let playerFlagsUpdated = false;
-        game.players.forEach(player => {
-            // Always set isAI to false for multiplayer games - no bots allowed
-            if (player.isAI !== false) {
-                player.isAI = false;
-                playerFlagsUpdated = true;
-                console.log(`🔧 Forced ${player.color} to be human (isAI: false) in join_game for game ${gameId}`);
-            }
-            // For the rejoining player, force remove disconnected flag
-            if (player.userId === userId) {
-                if (player.isDisconnected === true) {
-                    player.isDisconnected = false;
-                    playerFlagsUpdated = true;
-                    console.log(`🔄 Player ${userId} (${player.color}) REJOINED - removed disconnected flag`);
-                }
-                // Update their socket ID
-                if (player.socketId !== socket.id) {
-                    player.socketId = socket.id;
-                    playerFlagsUpdated = true;
-                }
-            } else {
-                // For other players, only update if they have a socket
-                if (player.isDisconnected === undefined || player.isDisconnected === null || player.isDisconnected === true) {
-                    // Only set isDisconnected to false if they have a socket
-                    if (player.socketId) {
-                        player.isDisconnected = false;
-                        playerFlagsUpdated = true;
-                    }
-                }
-            }
-        });
-        
-        if (playerFlagsUpdated) {
-            await game.save();
-            console.log(`✅ Updated player flags in database for game ${gameId}`);
-        }
-        
-        // If player was disconnected and is now back, update the message
-        if (wasDisconnected && rejoiningPlayer) {
-            game.message = `${rejoiningPlayer.color} reconnected! Welcome back.`;
-            await game.save();
-        }
-        
-        const gameState = game.toObject ? game.toObject() : game;
-        // Always ensure gameStarted is set correctly in the state
-        gameState.gameStarted = game.gameStarted || (game.status === 'ACTIVE' && game.players.length >= 2);
-        
-        // Check if this was a reconnection
-        const reconnectedPlayer = game.players.find(p => p.socketId === socket.id && !p.isDisconnected);
-        const wasReconnection = reconnectedPlayer && game.message && game.message.includes('reconnected');
-        
-        console.log(`📤 Game ${gameId} state:`, {
-          gameStarted: gameState.gameStarted,
-          status: game.status,
-          players: game.players.length,
-          currentPlayerIndex: game.currentPlayerIndex,
-          wasReconnection: wasReconnection,
-          disconnectedPlayers: game.players.filter(p => p.isDisconnected).map(p => p.color),
-          playerDetails: game.players.map(p => ({
-              color: p.color,
-              isAI: p.isAI,
-              isDisconnected: p.isDisconnected,
-              hasSocket: !!p.socketId,
-              socketId: p.socketId ? p.socketId.substring(0, 8) + '...' : 'none'
-          }))
-        });
-        
-        // Always emit state after join_game (for both new joins and reconnections)
-        console.log(`✅ Sending GAME_STATE_UPDATE for game ${gameId} with gameStarted: ${gameState.gameStarted}`);
-        // Ensure state is a plain object
-        const plainState = gameState.toObject ? gameState.toObject() : gameState;
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-        
-        // If game is active and in ROLLING state, start timer for current human player
-        if (game.status === 'ACTIVE' && game.gameStarted && game.turnState === 'ROLLING') {
-            const currentPlayer = game.players[game.currentPlayerIndex];
-            if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
-                console.log(`🤖 Game active, scheduling auto-turn for current player ${currentPlayer.color} (isAI: ${currentPlayer.isAI}, isDisconnected: ${currentPlayer.isDisconnected})`);
-                scheduleAutoTurn(gameId, 1500);
-            } else {
-                console.log(`❓ Game active, human player's turn ${currentPlayer?.color}. No auto-roll timer started.`);
-            }
-        }
+    
+    if (result.success && result.state) {
+      const game = result.state;
+      const plainState = game.toObject ? game.toObject() : game;
+
+      console.log(`✅ Sending GAME_STATE_UPDATE for game ${gameId} after join/rejoin.`);
+      io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+      
+      // After rejoining, check if it's an AI/disconnected player's turn and schedule an auto-turn if needed.
+      if (game.status === 'ACTIVE' && game.gameStarted && game.turnState === 'ROLLING') {
+          const currentPlayer = game.players[game.currentPlayerIndex];
+          if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
+              console.log(`🤖 Post-rejoin check: Current player ${currentPlayer.color} is AI/disconnected. Scheduling auto-turn.`);
+              scheduleAutoTurn(gameId, 1500);
+          }
       }
+    } else {
+      socket.emit('ERROR', { message: result.message || 'Failed to join game.' });
     }
   });
 
@@ -2402,7 +2319,7 @@ io.on('connection', (socket) => {
           console.log(`🧹 Cleared pending auto-roll timer for game ${gameId} (player rolling manually)`);
       }
 
-      const result = await gameEngine.handleRollDice(io, gameId, socket.id);
+      const result = await gameEngine.handleRollDice(gameId, socket.id);
       
       if (!result) {
         console.error(`❌ roll_dice: handleRollDice returned null/undefined for game ${gameId}`);
@@ -2472,7 +2389,7 @@ io.on('connection', (socket) => {
                 scheduleHumanPlayerAutoRoll(gameId);
               }
             }
-          }, 300); // Same delay as local game (1200ms)
+          }, 1200); // Same delay as local game (1200ms)
         }
 
         // Check the next player from database, not from the state object

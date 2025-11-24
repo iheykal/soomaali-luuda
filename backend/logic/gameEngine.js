@@ -218,18 +218,8 @@ const calculateLegalMoves = (gameState, diceValue) => {
                 }
             } else {
                 const finalIndex = (currentPos.index + diceValue) % 52;
-                console.log(`📋 Token ${token.id}: moving ${diceValue} spaces from ${currentPos.index} to ${finalIndex}`);
-                const tokensAtDest = tokens.filter(t => t.position.type === 'PATH' && t.position.index === finalIndex && t.color === currentPlayer.color);
-                const isBlockade = tokensAtDest.length > 1 && tokensAtDest.every(t => t.color === currentPlayer.color);
-
-                console.log(`📋 Token ${token.id}: tokensAtDest=${tokensAtDest.length}, isBlockade=${isBlockade}`);
-
-                if (!isBlockade) {
-                    console.log(`📋 Adding move: ${token.id} to PATH:${finalIndex}`);
-                    moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: finalIndex } });
-                } else {
-                    console.log(`📋 Blocked by blockade`);
-                }
+                console.log(`📋 Adding move: ${token.id} to PATH:${finalIndex}`);
+                moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: finalIndex } });
             }
         } else if (currentPos.type === 'HOME_PATH') {
             const newHomeIndex = currentPos.index + diceValue;
@@ -368,6 +358,7 @@ exports.handleRollDice = async (gameId, socketId) => {
     console.log(`🎲 [DICE-AUTH] Current Player: ${player.color}, Stored SocketID: ${player.socketId}, Request SocketID: ${socketId}`);
 
     // Check if socket matches (allow if socketId matches or player is disconnected)
+    console.log(`[DICE-AUTH] Comparing socket IDs: DB='${player.socketId}', Request='${socketId}'`);
     if (player.socketId !== socketId && !player.isDisconnected) {
         console.log(`❌ Not your turn: expected ${player.socketId}, got ${socketId} (player: ${player.color})`);
         return { success: false, message: 'Not your turn' };
@@ -497,6 +488,14 @@ async function executeRollDice(game) {
     const moves = calculateLegalMoves(game, roll);
     game.legalMoves = moves;
 
+    // If there's only one possible move, execute it automatically for all players to speed up the game.
+    if (moves.length === 1) {
+        console.log(`🎲 Only one legal move found. Executing automatically for player ${player.color}.`);
+        // We can delay this slightly on the server if we want the user to see the dice roll first,
+        // but for now, we execute it immediately for faster gameplay.
+        return executeMoveToken(game, moves[0].tokenId);
+    }
+
     console.log(`🎲 Calculated ${moves.length} legal moves for roll ${roll}`);
     if (moves.length > 0) {
         console.log(`🎲 Available moves: ${moves.map(m => `${m.tokenId} -> ${m.finalPosition.type}:${m.finalPosition.index}`).join(', ')}`);
@@ -507,27 +506,9 @@ async function executeRollDice(game) {
             game.timer = null; // No timer for AI
         }
     } else {
-        console.log(`🎲 No moves available, passing turn`);
-        game.message = `No legal moves for ${player.username || player.color} with a roll of ${roll}. Passing turn.`;
-        
-        // --- Full Turn Transition Logic when no legal moves ---
-        const grantExtraTurn = false; // No extra turn if no moves
-        const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
-        game.currentPlayerIndex = nextPlayerIndex;
-        
-        game.diceValue = null; // Clear diceValue for the next player
-        game.turnState = 'ROLLING'; // Set turnState to ROLLING for the next player
-        game.legalMoves = []; // Clear legal moves
-        
-        const nextPlayer = game.players[nextPlayerIndex];
-        game.message += ` Waiting for ${nextPlayer?.username || nextPlayer?.color || 'player'} to roll.`;
-
-        if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
-            game.timer = 7; // Set 7-second timer for human player to roll
-        } else {
-            game.timer = null; // No timer for AI or disconnected players
-        }
-        // --- End of Turn Transition Logic ---
+        console.log(`🎲 No moves available, the server will pass the turn`);
+        game.message = `No legal moves for ${player.username || player.color} with a roll of ${roll}.`;
+        game.timer = null; // No timer for AI
     }
 
     await game.save();

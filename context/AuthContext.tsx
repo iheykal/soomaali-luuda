@@ -70,11 +70,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  /*
   // Refresh user data when window gains focus (user returns to tab)
   useEffect(() => {
     const handleFocus = async () => {
       const storedToken = localStorage.getItem('ludo_token');
-      if (storedToken && user) {
+      // Do not auto-refresh for super admins to prevent session issues
+      if (storedToken && user && user.role !== 'SUPER_ADMIN' && user.role !== 'ADMIN') {
         // Silently refresh user data when user returns to tab
         await refreshUser();
       }
@@ -83,10 +85,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [user]);
+  */
 
+  /*
   // Periodic refresh of user data (every 5 minutes) to keep it current
   useEffect(() => {
-    if (!user) return;
+    // Do not auto-refresh for super admins to prevent session issues
+    if (!user || user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return;
 
     const interval = setInterval(() => {
       const storedToken = localStorage.getItem('ludo_token');
@@ -98,6 +103,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     return () => clearInterval(interval);
   }, [user]);
+  */
 
   const login = async (phone: string, password: string) => {
     const response = await authAPI.login(phone, password);

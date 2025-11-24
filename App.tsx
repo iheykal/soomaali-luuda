@@ -26,6 +26,7 @@ interface MultiplayerConfig {
   localPlayerColor: PlayerColor;
   sessionId: string;
   playerId: string;
+  stake?: number;
 }
 
 
@@ -38,6 +39,8 @@ const AppContent: React.FC = () => {
   const [view, setView] = useState<View>('login');
   const [showSuperAdminOverlay, setShowSuperAdminOverlay] = useState(false);
   const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
+  const [showWallet, setShowWallet] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any | null>(null);
 
   // Render Super Admin Overlay
   const renderSuperAdminOverlay = () => {
@@ -50,6 +53,21 @@ const AppContent: React.FC = () => {
           </div>
       );
   };
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setInstallPrompt(e);
+    };
+  
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
 
   // Effect to listen for multiplayer game state updates from another tab
   useEffect(() => {
@@ -114,7 +132,8 @@ const AppContent: React.FC = () => {
             gameId: mpConfig.gameId,
             playerId: savedPlayerId,
             playerColor: mpConfig.localPlayerColor,
-            sessionId: mpConfig.sessionId
+            sessionId: mpConfig.sessionId,
+            stake: mpConfig.stake || 0,
           };
           localStorage.setItem('ludo_rejoin', JSON.stringify(rejoinBlob));
           console.log('✅ Saved rejoin info to localStorage', rejoinBlob);
@@ -146,15 +165,25 @@ const AppContent: React.FC = () => {
     }
     setShowSuperAdminOverlay(true);
   };
+  const handleToggleWallet = async () => {
+    if (!showWallet) {
+        if (refreshUser) {
+            await refreshUser();
+        }
+    }
+    setShowWallet(prev => !prev);
+  }
+
   const handleEnterWallet = async () => {
     // Refresh user data before showing wallet
     if (refreshUser) {
       await refreshUser();
     }
-    setView('wallet');
+    setShowWallet(true);
   };
+
   const handleExitWallet = () => {
-    setView('setup');
+    setShowWallet(false);
     // Refresh user data after wallet operations
     if (refreshUser) {
       refreshUser();
@@ -244,6 +273,24 @@ const AppContent: React.FC = () => {
     console.log('✅ Rejoin complete, game view set, view is now:', 'game');
   }, [user, setIsRejoining]);
 
+  const handleInstallClick = () => {
+    if (!installPrompt) {
+      return;
+    }
+    // Show the install prompt
+    installPrompt.prompt();
+    // Wait for the user to respond to the prompt
+    installPrompt.userChoice.then((choiceResult: any) => {
+      if (choiceResult.outcome === 'accepted') {
+        console.log('User accepted the install prompt');
+      } else {
+        console.log('User dismissed the install prompt');
+      }
+      // We can't use the prompt again, so clear it
+      setInstallPrompt(null);
+    });
+  };
+
   // Show loading while checking authentication
   if (authLoading) {
     return (
@@ -279,27 +326,21 @@ const AppContent: React.FC = () => {
             onRejoinGame={handleRejoinGame}
             onEnterSuperAdmin={handleEnterSuperAdmin}
             onEnterWallet={handleEnterWallet}
+            onInstall={handleInstallClick}
+            showInstallButton={!!installPrompt}
         />
+        {showWallet && user && (
+            <Wallet 
+                user={user} 
+                onClose={handleExitWallet}
+                onUpdateUser={() => {
+                    if (refreshUser) {
+                        refreshUser();
+                    }
+                }}
+            />
+        )}
       </>
-    );
-  }
-
-  if (view === 'wallet') {
-    if (!user) {
-      setView('setup');
-      return null;
-    }
-    return (
-      <Wallet 
-        user={user} 
-        onClose={handleExitWallet}
-        onUpdateUser={() => {
-          // Refresh user data after wallet operations
-          if (refreshUser) {
-            refreshUser();
-          }
-        }}
-      />
     );
   }
 
@@ -351,36 +392,40 @@ const AppContent: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-900 p-2 sm:p-4 flex flex-col lg:grid lg:h-screen lg:grid-cols-[300px_1fr_300px] lg:grid-rows-[1fr_auto_1fr] gap-4 items-center justify-center overflow-hidden relative">
         {renderSuperAdminOverlay()}
-        
-        {/* Super Admin Button in Game View */}
-        {(() => {
-            // Debug: Log user role
-            if (user) {
-                console.log('🎮 Game View - User role check:', {
-                    role: user.role,
-                    isSuperAdmin: user.role === 'SUPER_ADMIN',
-                    userObject: user
-                });
-            }
-            
-            const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-            
-            if (isSuperAdmin) {
-                return (
-                    <div className="absolute top-4 left-4 z-50">
-                        <button 
-                            onClick={handleEnterSuperAdmin}
-                            className="w-12 h-12 flex items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-700 border-2 border-purple-400 text-white text-xl font-bold transition-all shadow-xl backdrop-blur-sm"
-                            title="Super Admin Dashboard"
-                        >
-                            ⚡
-                        </button>
-                    </div>
-                );
-            }
-            return null;
-        })()}
 
+        {user && (
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+                {user.role === 'SUPER_ADMIN' && (
+                    <button 
+                        onClick={handleEnterSuperAdmin}
+                        className="w-12 h-12 flex items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-700 border-2 border-purple-400 text-white text-xl font-bold transition-all shadow-xl backdrop-blur-sm"
+                        title="Super Admin Dashboard"
+                    >
+                        ⚡
+                    </button>
+                )}
+                <button 
+                    onClick={handleToggleWallet}
+                    className="w-12 h-12 flex items-center justify-center rounded-lg bg-green-600 hover:bg-green-700 border-2 border-green-400 text-white text-xl font-bold transition-all shadow-xl backdrop-blur-sm"
+                    title="My Wallet"
+                >
+                    💰
+                </button>
+            </div>
+        )}
+
+        {showWallet && user && (
+            <Wallet 
+                user={user} 
+                onClose={handleExitWallet}
+                onUpdateUser={() => {
+                    if (refreshUser) {
+                        refreshUser();
+                    }
+                }}
+            />
+        )}
+        
         {turnState === 'GAMEOVER' && <GameOverModal winners={winners} onRestart={handleRestart} message={state.message}/>}
         
         {/* Top Left: Green - Hidden */}
@@ -422,6 +467,7 @@ const AppContent: React.FC = () => {
                 isMyTurn={isMyTurn}
                 playerColor={currentPlayer?.color || 'green'}
                 timer={timer}
+                turnState={state.turnState}
                 potAmount={state.stake ? state.stake * 2 * 0.9 : 0}
             />
         </div>
@@ -459,6 +505,8 @@ const AppContent: React.FC = () => {
         onEnterLobby={handleEnterLobby} 
         onRejoinGame={handleRejoinGame}
         onEnterSuperAdmin={handleEnterSuperAdmin}
+        onInstall={handleInstallClick}
+        showInstallButton={!!installPrompt}
     />
   );
 };

@@ -12,9 +12,11 @@ interface GameSetupProps {
   onRejoinGame?: (gameId: string, playerColor: string) => void;
   onEnterSuperAdmin?: () => void;
   onEnterWallet?: () => void;
+  onInstall?: () => void;
+  showInstallButton?: boolean;
 }
 
-const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterSuperAdmin, onEnterWallet }) => {
+const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterSuperAdmin, onEnterWallet, onInstall, showInstallButton }) => {
   const { user, logout } = useAuth();
   const [activeGameInfo, setActiveGameInfo] = useState<any>(null);
   const [showRejoinBanner, setShowRejoinBanner] = useState(false);
@@ -51,12 +53,16 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
       const result = await gameAPI.checkActiveGame(userId);
       console.log('✅ API response for checkActiveGame:', JSON.stringify(result, null, 2));
 
-      if (result.hasActiveGame && result.game) {
+      if (result.hasActiveGame && result.game && result.game.status === 'ACTIVE') {
         console.log('✅ Active game found:', result.game);
         setActiveGameInfo(result.game);
         setShowRejoinBanner(true);
       } else {
-        console.log('ℹ️ No active game found');
+        if (result.hasActiveGame) {
+          console.log(`ℹ️ Game found, but status is '${result.game.status}'. Not showing rejoin banner.`);
+        } else {
+          console.log('ℹ️ No active game found');
+        }
         setActiveGameInfo(null);
         setShowRejoinBanner(false);
         // Fallback: if API returned nothing, check localStorage for a saved rejoin blob
@@ -341,7 +347,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         <RejoinGameBanner
           gameId={activeGameInfo.gameId}
           playerColor={activeGameInfo.playerColor}
-          stake={activeGameInfo.stake || 0}
+          prize={(activeGameInfo.stake || 0) * 2 * 0.9}
           allPawnsHome={activeGameInfo.allPawnsHome}
           winners={activeGameInfo.winners}
           onRejoin={handleRejoin}
@@ -349,11 +355,9 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         />
       )}
       
-      {/* Header with Admin Button and User Info */}
       <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm z-10 shadow-sm">
            <div className="flex items-center gap-2">
-               <span className="text-2xl">🎲</span>
-               <span className="font-bold text-white hidden sm:inline tracking-tight">LudoMaster</span>
+               <img src="/icons/laddea.png" alt="Ludo Master" className="h-10 w-auto" />
            </div>
            
            {/* User Info Display */}
@@ -431,7 +435,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
            </div>
       </div>
 
-      <h1 className="text-5xl font-bold mb-8 text-cyan-400 mt-20 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">Ludo Master</h1>
+      <img src="/icons/laddea.png" alt="Ludo Master Logo" className="w-48 h-auto mb-8 mt-20" />
       
       <div className="bg-slate-700 p-8 rounded-xl shadow-2xl w-full max-w-md text-center border border-slate-600">
         <p className="text-slate-300 mb-8 text-lg">Choose how you want to play.</p>
@@ -463,6 +467,15 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
           >
             Local Game (2P)
           </button>
+          {showInstallButton && onInstall && (
+            <button
+              onClick={onInstall}
+              className="w-full flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xl py-4 rounded-lg shadow-xl transition transform hover:scale-105 border-2 border-blue-400/50 mt-4"
+            >
+              <span className="text-2xl">⬇️</span>
+              <span>Install App</span>
+            </button>
+          )}
           
           {/* Wallet Button - Available to All Users */}
           {onEnterWallet && (

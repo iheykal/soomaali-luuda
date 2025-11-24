@@ -18,9 +18,7 @@ const TransactionReceipt = forwardRef<HTMLDivElement, TransactionReceiptProps>((
       {/* Header */}
       <div className="text-center mb-10 mt-6">
         <div className="flex justify-center mb-5">
-          <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl text-white shadow-xl ${isDeposit ? 'bg-gradient-to-br from-green-500 to-green-600' : 'bg-gradient-to-br from-red-500 to-red-600'}`}>
-            {isDeposit ? '💰' : '💸'}
-          </div>
+            <img src="/icons/laddea.png" alt="Ludo Master" className="h-24 w-auto" />
         </div>
         <h1 className="text-3xl font-black uppercase tracking-wider mb-2 text-slate-900">Transaction Receipt</h1>
         <p className="text-slate-600 text-sm font-semibold">Somali Ludo</p>

@@ -3,7 +3,7 @@ import React from 'react';
 interface RejoinGameBannerProps {
   gameId: string;
   playerColor: string;
-  stake: number;
+  prize: number;
   allPawnsHome?: boolean;
   winners?: string[];
   onRejoin: () => void;
@@ -13,7 +13,7 @@ interface RejoinGameBannerProps {
 const RejoinGameBanner: React.FC<RejoinGameBannerProps> = ({
   gameId,
   playerColor,
-  stake,
+  prize,
   allPawnsHome = false,
   winners = [],
   onRejoin,
@@ -27,7 +27,7 @@ const RejoinGameBanner: React.FC<RejoinGameBannerProps> = ({
     : '⚠️ Game In Progress';
 
   return (
-    <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] animate-bounce" style={{ pointerEvents: 'auto' }}>
+    <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999]" style={{ pointerEvents: 'auto' }}>
       <div className="bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 rounded-lg shadow-2xl p-4 max-w-md w-full border-4 border-yellow-300" style={{ pointerEvents: 'auto' }}>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-2">
@@ -48,7 +48,7 @@ const RejoinGameBanner: React.FC<RejoinGameBannerProps> = ({
             <p><strong>Status:</strong> {gameStatus}</p>
             <p><strong>Game ID:</strong> {gameId.toUpperCase()}</p>
             <p><strong>Your Color:</strong> <span className="capitalize font-bold" style={{ color: playerColor }}>{playerColor}</span></p>
-            <p><strong>Stake:</strong> 💰 {stake} coins</p>
+            <p><strong>Prize:</strong> 💰 ${prize.toFixed(2)}</p>
             {allPawnsHome && !isWinner && (
               <p className="text-yellow-200 font-semibold">⚠️ All your pawns are home! Rejoin to claim victory!</p>
             )}

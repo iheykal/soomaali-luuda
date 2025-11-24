@@ -32,6 +32,10 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [userLoading, setUserLoading] = useState(true);
     const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
+    // Payment method state
+    const PAYMENT_METHODS = ['EVC-PLUS', 'E-DAHAB', 'GOLIS', 'TELESOM'];
+    const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
+
     // Deposit-specific fields
     const [fullName, setFullName] = useState(user.username || '');
     const [phoneNumber, setPhoneNumber] = useState(user.phone || '');
@@ -138,9 +142,10 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                     userName: currentUser?.username || user.username, // Pass username for auto-sync
                     type,
                     amount: val,
+                    paymentMethod,
                     details: type === 'DEPOSIT' 
-                        ? `Name: ${fullName}, Phone: ${phoneNumber} (Web Request)` 
-                        : 'Manual Withdrawal Request via Web Wallet'
+                        ? `Name: ${fullName}, Phone: ${phoneNumber}, Method: ${paymentMethod} (Web Request)` 
+                        : `Method: ${paymentMethod} (Manual Withdrawal Request via Web Wallet)`
                 })
             });
 
@@ -240,6 +245,19 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                 </div>
                             </div>
                             
+                            <div>
+                                <label className="block text-slate-400 text-xs font-bold uppercase mb-2">Payment Method</label>
+                                <select 
+                                    value={paymentMethod}
+                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 text-white text-l font-bold focus:ring-2 focus:ring-cyan-500 outline-none"
+                                >
+                                    {['EVC-PLUS', 'E-DAHAB', 'GOLIS', 'TELESOM'].map(method => (
+                                        <option key={method} value={method}>{method}</option>
+                                    ))}
+                                </select>
+                            </div>
+
                             <div>
                                 <label className="block text-slate-400 text-xs font-bold uppercase mb-2">Amount ($)</label>
                                 <input 

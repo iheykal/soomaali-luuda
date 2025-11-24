@@ -7,7 +7,7 @@ import type { Player, PlayerColor, MultiplayerGame, GameState, MultiplayerMessag
 import { PLAYER_TAILWIND_COLORS, PLAYER_COLORS } from '../lib/boardLayout';
 
 interface MultiplayerLobbyProps {
-  onStartGame: (players: Player[], config: { gameId: string, localPlayerColor: PlayerColor, sessionId: string }) => void;
+  onStartGame: (players: Player[], config: { gameId: string, localPlayerColor: PlayerColor, sessionId: string, stake: number }) => void;
   onExit: () => void;
 }
 
@@ -45,7 +45,7 @@ const CountdownOverlay: React.FC<{ count: number }> = ({ count }) => (
 
 const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean }> = ({ amount, onClick, disabled }) => (
     <button
-        onClick={onClick}
+        onMouseDown={onClick}
         disabled={disabled}
         className={`
             relative group flex flex-col items-center justify-center p-6 rounded-2xl border-2 transition-all duration-300
@@ -173,7 +173,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
                 startCountdown(() => {
                     console.log('🎯 Calling onStartGame with multiplayer config');
                     const playerId = user?.id || sessionId; // prefer authenticated user id
-                    onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId, playerId });
+                    onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId, playerId, stake });
                 });
             }, 1000); // 1 second delay to allow both players to receive the match_found event
         });
