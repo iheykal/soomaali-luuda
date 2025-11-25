@@ -132,6 +132,70 @@ export const adminAPI = {
     }
   },
 
+  // Delete specific user
+  deleteUser: async (userId: string): Promise<void> => {
+    const url = `${getApiUrl()}/admin/user/${userId}`;
+    const options = {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      await instrumentedFetch(url, options);
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to delete user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Delete specific financial request
+  deleteFinancialRequest: async (requestId: string): Promise<void> => {
+    const url = `${getApiUrl()}/admin/financial-request/${requestId}`;
+    const options = {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      await instrumentedFetch(url, options);
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to delete financial request';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Delete specific revenue entry
+  deleteRevenueEntry: async (revenueId: string): Promise<void> => {
+    const url = `${getApiUrl()}/admin/revenue/${revenueId}`;
+    const options = {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      await instrumentedFetch(url, options);
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to delete revenue entry';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Delete specific withdrawal
+  deleteWithdrawal: async (withdrawalId: string): Promise<void> => {
+    const url = `${getApiUrl()}/admin/withdrawal/${withdrawalId}`;
+    const options = {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      await instrumentedFetch(url, options);
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to delete withdrawal';
+      throw new Error(errorMessage);
+    }
+  },
+
   async getUserDetails(userId: string): Promise<UserDetailsResponse> {
     const url = `${getApiUrl()}/admin/user/${userId}/details`;
     const options = {
@@ -183,6 +247,23 @@ export const adminAPI = {
     } catch (error: any) {
        const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to process wallet request';
        throw new Error(errorMessage);
+    }
+  },
+
+  async updateUserBalance(userId: string, amount: number, type: 'deposit' | 'withdrawal', comment?: string): Promise<{ success: boolean; message: string; user: { id: string; username: string; balance: number } }> {
+    const url = `${getApiUrl()}/admin/user/balance-update`;
+    const options = {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ userId, amount, type, comment }),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to update user balance';
+      throw new Error(errorMessage);
     }
   }
 };

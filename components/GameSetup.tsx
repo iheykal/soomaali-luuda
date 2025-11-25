@@ -116,6 +116,22 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
     };
   }, [user, checkForActiveGame]);
 
+  // Auto-attempt rejoin when an active disconnected game is detected
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (showRejoinBanner && activeGameInfo && activeGameInfo.isDisconnected) {
+      // Delay auto-rejoin a little to allow UI to settle and network to stabilize
+      timer = setTimeout(() => {
+        console.log('🔁 Auto-attempting to rejoin detected active game', activeGameInfo.gameId);
+        handleRejoin();
+      }, 1500);
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [showRejoinBanner, activeGameInfo]);
+
   const handleRejoin = async () => {
     console.log('🎯 handleRejoin called!');
     console.log('📋 activeGameInfo:', activeGameInfo);

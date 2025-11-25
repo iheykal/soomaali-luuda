@@ -107,6 +107,14 @@ export interface Revenue {
   winnerId: string;
   timestamp: string;
   reason: string;
+  gameDetails?: GameDetailsForRevenue; // New field
+}
+
+export interface GameDetailsForRevenue {
+  players: { userId?: string; username?: string; color: PlayerColor }[];
+  winner: { userId?: string; username?: string; color: PlayerColor } | null;
+  stake: number;
+  gameId: string;
 }
 
 export interface RevenueWithdrawal {

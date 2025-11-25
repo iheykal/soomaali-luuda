@@ -306,18 +306,34 @@ exports.handleJoinGame = async (gameId, userId, playerColor, socketId) => {
 };
 
 exports.handleDisconnect = async (gameId, socketId) => {
-    const game = await Game.findOne({ gameId });
-    if (!game) return null;
+    try {
+        const game = await Game.findOne({ gameId });
+        if (!game) {
+            console.warn(`[disconnect] Game not found: ${gameId}`);
+            return null;
+        }
 
-    const player = game.players.find(p => p.socketId === socketId);
-    if (player) {
-        player.isDisconnected = true;
-        player.socketId = null; // Clear socket
-        game.message = `${player.username || player.color} disconnected. Bot taking over...`;
-        await game.save();
-        return { state: game, isCurrentTurn: game.players[game.currentPlayerIndex].color === player.color };
+        const player = game.players.find(p => p.socketId === socketId);
+        if (player) {
+            player.isDisconnected = true;
+            player.socketId = null; // Clear socket
+            game.message = `${player.username || player.color} disconnected. Bot taking over...`;
+            await game.save();
+            
+            console.log(`[disconnect] Player ${player.color} in game ${gameId} marked as disconnected.`);
+            
+            return { 
+                state: game, 
+                isCurrentTurn: game.players[game.currentPlayerIndex].color === player.color 
+            };
+        } else {
+            console.warn(`[disconnect] Player with socketId ${socketId} not found in game ${gameId}. No action taken.`);
+            return null; // Player not found, nothing to do
+        }
+    } catch (error) {
+        console.error(`❌ CRITICAL ERROR in handleDisconnect for game ${gameId}:`, error);
+        return null; // Return null to prevent server crash
     }
-    return null;
 };
 
 // --- Normal Gameplay (Human) ---
@@ -325,63 +341,73 @@ exports.handleDisconnect = async (gameId, socketId) => {
 exports.handleRollDice = async (gameId, socketId) => {
     console.log(`🎲 handleRollDice called: gameId=${gameId}, socketId=${socketId}`);
     
-    const game = await Game.findOne({ gameId });
-    if (!game) {
-        console.log(`❌ Game not found: ${gameId}`);
-        return { success: false, message: 'Game not found' };
+    try {
+        const game = await Game.findOne({ gameId });
+        if (!game) {
+            console.log(`❌ Game not found: ${gameId}`);
+            return { success: false, message: 'Game not found' };
+        }
+
+        if (game.status === 'COMPLETED' || game.turnState === 'GAMEOVER') {
+            return { success: false, message: 'Game is already over' };
+        }
+
+        const player = game.players[game.currentPlayerIndex];
+        if (!player) {
+            return { success: false, message: 'No current player' };
+        }
+
+        if (player.socketId !== socketId && !player.isDisconnected) {
+            return { success: false, message: 'Not your turn' };
+        }
+        
+        if (game.turnState !== 'ROLLING') {
+            return { success: false, message: 'Not in ROLLING state' };
+        }
+
+        // --- Perform the roll and save the intermediate state ---
+        executeRollDice(game); // Modifies 'game' in place. `diceValue` is now set.
+
+        await game.save();
+
+        const plainState = game.toObject ? game.toObject() : game;
+        return { success: true, state: plainState };
+    } catch (error) {
+        console.error(`❌ Error in handleRollDice for game ${gameId}:`, error);
+        return { success: false, message: error.message || 'Error rolling dice' };
     }
-
-    if (game.status === 'COMPLETED' || game.turnState === 'GAMEOVER') {
-        return { success: false, message: 'Game is already over' };
-    }
-
-    const player = game.players[game.currentPlayerIndex];
-    if (!player) {
-        return { success: false, message: 'No current player' };
-    }
-
-    if (player.socketId !== socketId && !player.isDisconnected) {
-        return { success: false, message: 'Not your turn' };
-    }
-    
-    if (game.turnState !== 'ROLLING') {
-        return { success: false, message: 'Not in ROLLING state' };
-    }
-
-    // --- Perform the roll and save the intermediate state ---
-    executeRollDice(game); // Modifies 'game' in place. `diceValue` is now set.
-
-    await game.save();
-
-    const plainState = game.toObject ? game.toObject() : game;
-    return { success: true, state: plainState };
 };
 
 exports.handleMoveToken = async (gameId, socketId, tokenId) => {
-    const game = await Game.findOne({ gameId });
-    if (!game) return { success: false, message: 'Game not found' };
+    try {
+        const game = await Game.findOne({ gameId });
+        if (!game) return { success: false, message: 'Game not found' };
 
-    const player = game.players[game.currentPlayerIndex];
-    if (player.socketId !== socketId) return { success: false, message: 'Not your turn' };
+        const player = game.players[game.currentPlayerIndex];
+        if (player.socketId !== socketId) return { success: false, message: 'Not your turn' };
 
-    // Execute the move in memory
-    const { success, state: updatedGameState, settlementPromise, message } = executeMoveToken(game, tokenId);
+        // Execute the move in memory
+        const { success, state: updatedGameState, settlementPromise, message } = executeMoveToken(game, tokenId);
 
-    if (!success) {
-        return { success: false, message };
+        if (!success) {
+            return { success: false, message };
+        }
+
+        // If there's a settlement promise, await it.
+        if (settlementPromise) {
+            await settlementPromise;
+        }
+        
+        // Now, save the final state to the database
+        await updatedGameState.save();
+        
+        const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
+        
+        return { success: true, state: plainState };
+    } catch (error) {
+        console.error(`❌ Error in handleMoveToken for game ${gameId}:`, error);
+        return { success: false, message: error.message || 'Error moving token' };
     }
-
-    // If there's a settlement promise, await it.
-    if (settlementPromise) {
-        await settlementPromise;
-    }
-    
-    // Now, save the final state to the database
-    await updatedGameState.save();
-    
-    const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
-    
-    return { success: true, state: plainState };
 };
 
 // --- Autopilot / Bot Logic ---

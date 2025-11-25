@@ -694,6 +694,137 @@ app.post('/api/admin/update-role', async (req, res) => {
 
 // --- ADMIN ROUTES (Continued) ---
 
+// DELETE: Admin - Delete specific user
+app.delete('/api/admin/user/:userId', authenticateToken, async (req, res) => {
+    try {
+        const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-user');
+        const adminUser = lookupResult.success ? lookupResult.user : null;
+
+        if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+            return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+        }
+
+        const { userId } = req.params;
+        if (!userId) {
+            return res.status(400).json({ error: 'User ID is required' });
+        }
+
+        const userToDelete = await User.findById(userId);
+
+        if (!userToDelete) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Prevent superadmin from deleting themselves
+        if (userToDelete._id.toString() === adminUser._id.toString()) {
+            return res.status(403).json({ error: 'Cannot delete your own Super Admin account.' });
+        }
+
+        // Prevent superadmin from deleting another superadmin
+        if (userToDelete.role === 'SUPER_ADMIN') {
+            return res.status(403).json({ error: 'Cannot delete another Super Admin account.' });
+        }
+
+        await User.deleteOne({ _id: userId });
+        console.log(`🗑️ Super Admin ${adminUser.username} deleted user ${userToDelete.username} (${userId})`);
+        res.json({ success: true, message: `User ${userToDelete.username} deleted successfully.` });
+
+    } catch (error) {
+        console.error('Delete user error:', error);
+        res.status(500).json({ error: error.message || 'Failed to delete user.' });
+    }
+});
+
+// DELETE: Admin - Delete specific financial request
+app.delete('/api/admin/financial-request/:requestId', authenticateToken, async (req, res) => {
+    try {
+        const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-financial-request');
+        const adminUser = lookupResult.success ? lookupResult.user : null;
+
+        if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+            return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+        }
+
+        const { requestId } = req.params;
+        if (!requestId) {
+            return res.status(400).json({ error: 'Request ID is required' });
+        }
+
+        const deletedRequest = await FinancialRequest.findByIdAndDelete(requestId);
+
+        if (!deletedRequest) {
+            return res.status(404).json({ error: 'Financial request not found' });
+        }
+
+        console.log(`🗑️ Super Admin ${adminUser.username} deleted financial request ${requestId} (Type: ${deletedRequest.type}, Amount: ${deletedRequest.amount})`);
+        res.json({ success: true, message: `Financial request ${requestId} deleted successfully.` });
+
+    } catch (error) {
+        console.error('Delete financial request error:', error);
+        res.status(500).json({ error: error.message || 'Failed to delete financial request.' });
+    }
+});
+
+// DELETE: Admin - Delete specific revenue entry
+app.delete('/api/admin/revenue/:revenueId', authenticateToken, async (req, res) => {
+    try {
+        const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-revenue');
+        const adminUser = lookupResult.success ? lookupResult.user : null;
+
+        if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+            return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+        }
+
+        const { revenueId } = req.params;
+        if (!revenueId) {
+            return res.status(400).json({ error: 'Revenue ID is required' });
+        }
+
+        const deletedRevenue = await Revenue.findByIdAndDelete(revenueId);
+
+        if (!deletedRevenue) {
+            return res.status(404).json({ error: 'Revenue entry not found' });
+        }
+
+        console.log(`🗑️ Super Admin ${adminUser.username} deleted revenue entry ${revenueId} (Amount: ${deletedRevenue.amount}, Game ID: ${deletedRevenue.gameId})`);
+        res.json({ success: true, message: `Revenue entry ${revenueId} deleted successfully.` });
+
+    } catch (error) {
+        console.error('Delete revenue error:', error);
+        res.status(500).json({ error: error.message || 'Failed to delete revenue entry.' });
+    }
+});
+
+// DELETE: Admin - Delete specific revenue withdrawal entry
+app.delete('/api/admin/withdrawal/:withdrawalId', authenticateToken, async (req, res) => {
+    try {
+        const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-withdrawal');
+        const adminUser = lookupResult.success ? lookupResult.user : null;
+
+        if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+            return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+        }
+
+        const { withdrawalId } = req.params;
+        if (!withdrawalId) {
+            return res.status(400).json({ error: 'Withdrawal ID is required' });
+        }
+
+        const deletedWithdrawal = await RevenueWithdrawal.findByIdAndDelete(withdrawalId);
+
+        if (!deletedWithdrawal) {
+            return res.status(404).json({ error: 'Withdrawal entry not found' });
+        }
+
+        console.log(`🗑️ Super Admin ${adminUser.username} deleted withdrawal entry ${withdrawalId} (Amount: ${deletedWithdrawal.amount})`);
+        res.json({ success: true, message: `Withdrawal entry ${withdrawalId} deleted successfully.` });
+
+    } catch (error) {
+        console.error('Delete withdrawal error:', error);
+        res.status(500).json({ error: error.message || 'Failed to delete withdrawal entry.' });
+    }
+});
+
 // GET: Get all users (for Super Admin)
 app.get('/api/admin/users', authenticateToken, async (req, res) => {
   try {
@@ -820,23 +951,61 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
             query.timestamp = { $gte: startDate };
         }
 
-        const revenues = await Revenue.find(query).sort({ timestamp: -1 });
-        const withdrawals = await RevenueWithdrawal.find(query).sort({ timestamp: -1 });
+                const revenues = await Revenue.find(query).sort({ timestamp: -1 });
+                
+                // Enrich revenues with game details
+                const enrichedRevenues = await Promise.all(revenues.map(async (rev) => {
+                    const game = await Game.findOne({ gameId: rev.gameId });
+                    let playersInfo = [];
+                    let winnerInfo = null;
+                    let stake = 0;
         
-        const totalRevenue = revenues.reduce((sum, rev) => sum + rev.amount, 0);
-        const totalWithdrawn = withdrawals.reduce((sum, wd) => sum + wd.amount, 0);
-        const netRevenue = totalRevenue - totalWithdrawn;
-
-        res.json({ 
-            success: true, 
-            totalRevenue,
-            totalWithdrawn,
-            netRevenue,
-            history: revenues,
-            withdrawals: withdrawals,
-            filter: filter
-        });
-    } catch (e) {
+                    if (game) {
+                        playersInfo = game.players.map(p => ({
+                            userId: p.userId,
+                            username: p.username,
+                            color: p.color
+                        }));
+                        const winningPlayer = game.players.find(p => rev.winnerId && p.userId === rev.winnerId);
+                        if (winningPlayer) {
+                            winnerInfo = {
+                                userId: winningPlayer.userId,
+                                username: winningPlayer.username,
+                                color: winningPlayer.color
+                            };
+                        }
+                        stake = game.stake;
+                    }
+        
+                    return {
+                        ...rev.toObject(), // Convert Mongoose document to plain object
+                        players: playersInfo, // Directly include players array
+                        winner: winnerInfo,   // Directly include winner object
+                        stake: stake,         // Directly include stake
+                        gameDetails: {
+                            players: playersInfo,
+                            winner: winnerInfo,
+                            stake: stake,
+                            gameId: rev.gameId // Ensure gameId is present in gameDetails
+                        }
+                    };
+                }));
+        
+                const withdrawals = await RevenueWithdrawal.find(query).sort({ timestamp: -1 });
+                
+                const totalRevenue = revenues.reduce((sum, rev) => sum + rev.amount, 0);
+                const totalWithdrawn = withdrawals.reduce((sum, wd) => sum + wd.amount, 0);
+                const netRevenue = totalRevenue - totalWithdrawn;
+        
+                res.json({
+                    success: true,
+                    totalRevenue,
+                    totalWithdrawn,
+                    netRevenue,
+                    history: enrichedRevenues, // <--- Send the enriched revenues
+                    withdrawals: withdrawals,
+                    filter: filter
+                });    } catch (e) {
         console.error("Revenue Error:", e);
         res.status(500).json({ error: e.message });
     }
@@ -897,6 +1066,76 @@ app.post('/api/admin/revenue/withdraw', authenticateToken, async (req, res) => {
     } catch (e) {
         console.error("Withdrawal Error:", e);
         res.status(500).json({ error: e.message });
+    }
+});
+
+// POST: Admin - Directly update user balance (Deposit/Withdrawal by Super Admin)
+app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) => {
+    try {
+        const { userId, amount, type, comment } = req.body;
+        
+        // 1. Authorization Check (Super Admin only)
+        const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-direct-balance-update');
+        const adminUser = lookupResult.success ? lookupResult.user : null;
+
+        if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+            return res.status(403).json({ error: "Access denied. Super Admin role required." });
+        }
+
+        // 2. Input Validation
+        if (!userId || !amount || amount <= 0 || !type || !['DEPOSIT', 'WITHDRAWAL'].includes(type)) {
+            return res.status(400).json({ error: 'User ID, valid amount, and type (DEPOSIT/WITHDRAWAL) are required.' });
+        }
+
+        // 3. Find User
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        let newBalance = user.balance;
+        let transactionType = '';
+        let transactionDescription = '';
+
+        if (type === 'DEPOSIT') {
+            newBalance += amount;
+            transactionType = 'deposit';
+            transactionDescription = comment || `Admin deposit by ${adminUser.username}`;
+        } else { // WITHDRAWAL
+          if (user.balance < amount) {
+            return res.status(400).json({ error: `Insufficient funds. User balance: $${user.balance}, requested withdrawal: $${amount}.` });
+          }
+          newBalance -= amount;
+          transactionType = 'withdrawal';
+          transactionDescription = comment || `Admin withdrawal by ${adminUser.username}`;
+        }
+
+        // 4. Update User Balance and Log Transaction
+        user.balance = newBalance;
+        user.transactions.push({
+            type: transactionType,
+            amount: type === 'DEPOSIT' ? amount : -amount, // Store withdrawals as negative amounts
+            matchId: null, // No game associated
+            description: transactionDescription,
+            timestamp: new Date()
+        });
+        await user.save();
+
+        console.log(`💰 Super Admin ${adminUser.username} performed ${type} of $${amount} for user ${user.username} (ID: ${user._id}). New balance: $${user.balance}`);
+
+        res.json({
+            success: true,
+            message: `User ${user.username}'s balance updated successfully (${type}: $${amount}). New balance: $${user.balance}.`,
+            user: {
+                id: user._id,
+                username: user.username,
+                balance: user.balance
+            }
+        });
+
+    } catch (e) {
+        console.error('Error during admin direct balance update:', e);
+        res.status(500).json({ error: e.message || 'Failed to update user balance directly.' });
     }
 });
 
@@ -1578,8 +1817,8 @@ const findMatch = (stake, socketId, userId, userName) => {
   console.log(`🔍 Checking queue for stake ${stake}: ${queueForStake.length} players waiting`);
   console.log(`🔍 Current player: ${userName || userId} (${socketId}), looking for opponent...`);
   
-  // Find an opponent with different socketId (can be same userId)
-  const matchIndex = queueForStake.findIndex(p => p.socketId !== socketId && p.socketId);
+  // Find an opponent with a different socketId AND a different userId
+  const matchIndex = queueForStake.findIndex(p => p.socketId !== socketId && p.userId !== userId && p.socketId);
   
   if (matchIndex !== -1) {
     // Found a match!
@@ -1673,6 +1912,16 @@ const createMatch = async (player1, player2, stake) => {
       console.error('❌ CRITICAL: One or both users not found in database for stake reservation.', { p1: player1.userId, p2: player2.userId });
       // Don't create the match
       return;
+    }
+
+    // Explicitly check for 0 balance if stake is involved
+    if (stake > 0 && (user1.balance <= 0 || user2.balance <= 0)) {
+        console.error('❌ Match failed: One or both players have a zero or negative balance for a staked game.');
+        const socket1 = io.sockets.sockets.get(player1.socketId);
+        const socket2 = io.sockets.sockets.get(player2.socketId);
+        if (socket1) socket1.emit('ERROR', { message: 'Match failed: Your opponent has no balance.' });
+        if (socket2) socket2.emit('ERROR', { message: 'Match failed: You have no balance to play a staked game.' });
+        return;
     }
     
     // Check if both have enough balance
@@ -2200,6 +2449,117 @@ const runAutoTurn = async (gameId) => {
     }
 };
 
+const scheduleNextAction = async (gameId) => {
+    try {
+        console.log(`[SCHEDULE] Scheduling next action for game ${gameId}.`);
+        const Game = require('./models/Game');
+        const game = await Game.findOne({ gameId });
+
+        if (!game) {
+            console.log(`[SCHEDULE] Game ${gameId} not found. Aborting.`);
+            return;
+        }
+        if (game.status !== 'ACTIVE') {
+            console.log(`[SCHEDULE] Game ${gameId} is not active. Aborting.`);
+            return;
+        }
+         if (game.turnState !== 'ROLLING') {
+            console.log(`[SCHEDULE] Game ${gameId} is not in ROLLING state. Aborting schedule.`);
+            return;
+        }
+
+        // Clear any existing timers for this game
+        if (humanPlayerTimers.has(gameId)) {
+            clearTimeout(humanPlayerTimers.get(gameId));
+            humanPlayerTimers.delete(gameId);
+        }
+
+        const currentPlayer = game.players[game.currentPlayerIndex];
+        if (!currentPlayer) {
+             console.error(`[SCHEDULE] FATAL: Current player not found at index ${game.currentPlayerIndex} for game ${gameId}.`);
+             return;
+        }
+
+        console.log(`[SCHEDULE] Current player is ${currentPlayer.color}.`);
+
+        // Schedule next action
+        if (currentPlayer.isAI || currentPlayer.isDisconnected) {
+            console.log(`[SCHEDULE] Player is AI/Disconnected. Scheduling auto-turn.`);
+            scheduleAutoTurn(gameId, 1500);
+        } else {
+            console.log(`[SCHEDULE] Player is Human. Scheduling auto-roll timer.`);
+            scheduleHumanPlayerAutoRoll(gameId);
+        }
+
+    } catch (error) {
+        console.error(`[SCHEDULE] CRITICAL ERROR in scheduleNextAction for game ${gameId}:`, error);
+        io.to(gameId).emit('ERROR', { message: 'A critical server error occurred while scheduling the next turn.' });
+    }
+};
+
+// --- State Consistency Checker (Repairs stuck games) ---
+const runStateConsistencyChecker = () => {
+  const CHECK_INTERVAL_MS = 5000; // every 5s
+  setInterval(async () => {
+    try {
+      const Game = require('./models/Game');
+      const now = Date.now();
+      const STALE_THRESHOLD_MS = 5000; // 5 seconds
+
+      const activeGames = await Game.find({ status: 'ACTIVE' });
+      for (const game of activeGames) {
+        let changed = false;
+
+        // Repair: MOVING state with missing diceValue (longer than threshold)
+        if (game.turnState === 'MOVING' && (game.diceValue === null || game.diceValue === undefined)) {
+          const updatedAtMs = new Date(game.updatedAt).getTime();
+          if (updatedAtMs + STALE_THRESHOLD_MS < now) {
+            console.log(`🔧 ConsistencyFix: Game ${game.gameId} stuck in MOVING with null diceValue. Resetting to ROLLING.`);
+            game.turnState = 'ROLLING';
+            game.diceValue = null;
+            game.legalMoves = [];
+            game.message = (game.message || '') + ' | Recovered from stale MOVING state';
+            changed = true;
+          }
+        }
+
+        // Repair: ROLLING state but a stray diceValue exists
+        if (game.turnState === 'ROLLING' && game.diceValue !== null && game.diceValue !== undefined) {
+          console.log(`🔧 ConsistencyFix: Game ${game.gameId} in ROLLING had stray diceValue. Clearing diceValue.`);
+          game.diceValue = null;
+          game.legalMoves = [];
+          game.message = (game.message || '') + ' | Cleared stray diceValue';
+          changed = true;
+        }
+
+        // Repair: player has socketId but flagged disconnected
+        for (const player of game.players) {
+          if (player.socketId && player.isDisconnected) {
+            console.log(`🔧 ConsistencyFix: Player ${player.color} in game ${game.gameId} has socketId but isDisconnected=true. Fixing flag.`);
+            player.isDisconnected = false;
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          await game.save();
+          const plainState = game.toObject ? game.toObject() : game;
+          console.log(`📤 ConsistencyFix: Emitting GAME_STATE_UPDATE for game ${game.gameId}`);
+          try { io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: plainState }); } catch (e) { console.warn('⚠️ Failed to emit GAME_STATE_UPDATE during consistency fix', e); }
+
+          // Re-evaluate scheduling for this game
+          try { scheduleNextAction(game.gameId); } catch (e) { console.warn('⚠️ Failed to scheduleNextAction after consistency fix', e); }
+        }
+      }
+    } catch (err) {
+      console.error('❌ State consistency checker error:', err);
+    }
+  }, CHECK_INTERVAL_MS);
+};
+
+// Start the consistency checker
+runStateConsistencyChecker();
+
 io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
 
@@ -2312,8 +2672,21 @@ io.on('connection', (socket) => {
       // After rejoining, check if it's an AI/disconnected player's turn and schedule an auto-turn if needed.
       if (game.status === 'ACTIVE' && game.gameStarted && game.turnState === 'ROLLING') {
           const currentPlayer = game.players[game.currentPlayerIndex];
-          if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
-              console.log(`🤖 Post-rejoin check: Current player ${currentPlayer.color} is AI/disconnected. Scheduling auto-turn.`);
+          
+          // Check if the rejoining player is the current player
+          if (currentPlayer && currentPlayer.userId === userId) {
+              // If the current player is the rejoining player, and they are now human and connected
+              if (!currentPlayer.isAI && !currentPlayer.isDisconnected) {
+                  console.log(`✅ Post-rejoin check: Reconnected human player ${currentPlayer.color} is current player. Scheduling auto-roll timer.`);
+                  scheduleHumanPlayerAutoRoll(gameId);
+              } else if (currentPlayer.isAI || currentPlayer.isDisconnected) {
+                  // If it's the rejoining player's turn but they are still AI/disconnected (shouldn't happen after handleJoinGame)
+                  console.log(`🤖 Post-rejoin check: Reconnected player ${currentPlayer.color} is current player, but still AI/disconnected. Scheduling auto-turn.`);
+                  scheduleAutoTurn(gameId, 1500);
+              }
+          } else if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
+              // If it's another player's turn and they are AI/disconnected
+              console.log(`🤖 Post-rejoin check: Current player ${currentPlayer.color} is AI/disconnected (not the rejoining player). Scheduling auto-turn.`);
               scheduleAutoTurn(gameId, 1500);
           }
       }
@@ -2555,6 +2928,13 @@ io.on('connection', (socket) => {
     
     // Handle game disconnect
     if (socket.gameId) {
+        // CRITICAL: Clear any pending timers for this game to prevent memory leaks and dangling actions
+        if (humanPlayerTimers.has(socket.gameId)) {
+            clearTimeout(humanPlayerTimers.get(socket.gameId));
+            humanPlayerTimers.delete(socket.gameId);
+            console.log(`🧹 Cleared pending timer for game ${socket.gameId} due to player disconnect.`);
+        }
+
         const result = await gameEngine.handleDisconnect(socket.gameId, socket.id);
         if (result) {
             // Ensure state is a plain object

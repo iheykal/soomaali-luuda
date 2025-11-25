@@ -173,6 +173,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   // User Modal State
   const [selectedUser, setSelectedUser] = useState<UserDetailsResponse | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  // Admin balance adjustment state
+  const [balanceAmount, setBalanceAmount] = useState<string>('');
+  const [balanceType, setBalanceType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [balanceComment, setBalanceComment] = useState<string>('');
 
   // Receipt Generation State
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -182,6 +186,16 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
   const [phoneSearchQuery, setPhoneSearchQuery] = useState<string>('');
+
+  // Notification State
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationType, setNotificationType] = useState<'success' | 'error' | null>(null);
+
+  // Confirmation Modal State
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState('');
+  const [confirmationAction, setConfirmationAction] = useState<(() => void) | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -227,9 +241,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       setWithdrawDestination('');
       setWithdrawReference('');
       fetchRevenue(revenueFilter); // Refresh stats
-      alert('Withdrawal successful!');
+      showNotificationMessage('Withdrawal successful!', 'success');
     } catch (err: any) {
-      alert('Withdrawal failed: ' + err.message);
+      showNotificationMessage('Withdrawal failed: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -266,31 +280,149 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
           const details = await adminAPI.getUserDetails(userId);
           setSelectedUser(details);
           setShowUserModal(true);
+        // reset balance adjust fields
+        setBalanceAmount('');
+        setBalanceType('DEPOSIT');
+        setBalanceComment('');
       } catch (err: any) {
-          alert('Failed to fetch user details: ' + err.message);
+          showNotificationMessage('Failed to fetch user details: ' + err.message, 'error');
       } finally {
           setLoading(false);
       }
   };
 
   const handleDeleteGame = async (gameId: string) => {
-    if (!confirm('Are you sure you want to delete this game? This action cannot be undone.')) return;
-    
+    showConfirmationDialog(`Are you sure you want to delete game #${gameId}? This action cannot be undone.`, async () => {
+      setLoading(true);
+      try {
+        await adminAPI.deleteGame(gameId);
+        showNotificationMessage(`Game #${gameId} deleted successfully`, 'success');
+        fetchActiveGames();
+      } catch (err: any) {
+        showNotificationMessage('Error deleting game: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
+  };
+
+  const handleDeleteUser = async (userId: string, username: string) => {
+    showConfirmationDialog(`Are you sure you want to delete user "${username}" (ID: ${userId})? This action cannot be undone.`, async () => {
+      setLoading(true);
+      try {
+        await adminAPI.deleteUser(userId);
+        showNotificationMessage(`User "${username}" deleted successfully`, 'success');
+        fetchUsers();
+      } catch (err: any) {
+        showNotificationMessage('Error deleting user: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
+  };
+
+  const handleDeleteFinancialRequest = async (requestId: string, userName: string) => {
+    showConfirmationDialog(`Are you sure you want to delete this financial request (ID: ${requestId}) from "${userName}"? This action cannot be undone.`, async () => {
+      setLoading(true);
+      try {
+        await adminAPI.deleteFinancialRequest(requestId);
+        showNotificationMessage('Financial request deleted successfully', 'success');
+        fetchRequests();
+      } catch (err: any) {
+        showNotificationMessage('Error deleting financial request: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
+  };
+
+  // Admin: Update user balance (DEPOSIT or WITHDRAWAL)
+  const performUpdateBalance = async (userId: string, amount: number, type: 'DEPOSIT' | 'WITHDRAWAL', comment?: string) => {
     setLoading(true);
     try {
-      await adminAPI.deleteGame(gameId);
-      alert('Game deleted successfully');
-      fetchActiveGames();
+      const result = await adminAPI.updateUserBalance(userId, amount, type, comment);
+      showNotificationMessage(result.message || 'Balance updated', 'success');
+      // Refresh lists and selected user details
+      await fetchUsers();
+      if (selectedUser) {
+        try {
+          const refreshed = await adminAPI.getUserDetails(selectedUser.user.id || selectedUser.user._id);
+          setSelectedUser(refreshed);
+        } catch (e) {
+          console.warn('Failed to refresh selected user after balance update', e);
+        }
+      }
     } catch (err: any) {
-      alert('Error deleting game: ' + err.message);
+      console.error('Admin balance update failed:', err);
+      showNotificationMessage('Failed to update balance: ' + (err.message || err), 'error');
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
+  const confirmAndUpdateBalance = (userId: string) => {
+    const amount = parseFloat(balanceAmount || '0');
+    if (!amount || amount <= 0) {
+      showNotificationMessage('Please enter a valid amount', 'error');
+      return;
+    }
+
+    // For withdrawals, check client-side balance to avoid unnecessary calls
+    if (balanceType === 'WITHDRAWAL' && selectedUser && typeof selectedUser.user.balance === 'number') {
+      if (amount > selectedUser.user.balance) {
+        showNotificationMessage('Insufficient user balance for withdrawal', 'error');
+        return;
+      }
+    }
+
+    showConfirmationDialog(
+      `Are you sure you want to ${balanceType === 'DEPOSIT' ? 'deposit' : 'withdraw'} $${amount.toFixed(2)} ${balanceType === 'DEPOSIT' ? 'to' : 'from'} user ${selectedUser?.user.username || ''}?`,
+      async () => {
+        try {
+          await performUpdateBalance(userId, amount, balanceType, balanceComment);
+          // Clear inputs on success
+          setBalanceAmount('');
+          setBalanceComment('');
+        } catch (e) {
+          // Error already handled in performUpdateBalance
+        }
+      }
+    );
+  };
+
+  const handleDeleteRevenueEntry = async (revenueId: string) => {
+    showConfirmationDialog(`Are you sure you want to delete this revenue entry (ID: ${revenueId})? This action cannot be undone.`, async () => {
+      setLoading(true);
+      try {
+        await adminAPI.deleteRevenueEntry(revenueId);
+        showNotificationMessage('Revenue entry deleted successfully', 'success');
+        fetchRevenue(revenueFilter);
+      } catch (err: any) {
+        showNotificationMessage('Error deleting revenue entry: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
+  };
+
+  const handleDeleteWithdrawal = async (withdrawalId: string) => {
+    showConfirmationDialog(`Are you sure you want to delete this withdrawal entry (ID: ${withdrawalId})? This action cannot be undone.`, async () => {
+      setLoading(true);
+      try {
+        await adminAPI.deleteWithdrawal(withdrawalId);
+        showNotificationMessage('Withdrawal entry deleted successfully', 'success');
+        fetchRevenue(revenueFilter);
+      } catch (err: any) {
+        showNotificationMessage('Error deleting withdrawal entry: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
+  };
+
   const handleProcessRequest = async (requestId: string, action: 'APPROVE' | 'REJECT') => {
-      if (!confirm(`Are you sure you want to ${action} this request?`)) return;
-      
+    showConfirmationDialog(`Are you sure you want to ${action} this request (ID: ${requestId})?`, async () => {
       try {
           const result = await adminAPI.processWalletRequest(requestId, action, `Admin ${action}D`);
           
@@ -311,10 +443,11 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
           // Refresh data
           fetchRequests();
           fetchUsers(); // Balance might change
-          alert(`Request ${action}D successfully`);
+          showNotificationMessage(`Request ${action}D successfully`, 'success');
       } catch (err: any) {
-          alert(`Failed to process: ${err.message}`);
+          showNotificationMessage(`Failed to process: ${err.message}`, 'error');
       }
+    });
   };
 
   const downloadReceipt = async (req: FinancialRequest, userPhone?: string) => {
@@ -357,6 +490,25 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               }
           }
       }, 100);
+  };
+
+  // Helper to show custom notification
+  const showNotificationMessage = (message: string, type: 'success' | 'error') => {
+    setNotificationMessage(message);
+    setNotificationType(type);
+    setShowNotification(true);
+    setTimeout(() => {
+      setShowNotification(false);
+      setNotificationMessage('');
+      setNotificationType(null);
+    }, 3000); // Notification disappears after 3 seconds
+  };
+
+  // Helper to show custom confirmation dialog
+  const showConfirmationDialog = (message: string, onConfirm: () => void) => {
+    setConfirmationMessage(message);
+    setConfirmationAction(() => onConfirm); // Use a closure to store the action
+    setShowConfirmationModal(true);
   };
 
   // Fetch data based on active tab
@@ -547,10 +699,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                      {filteredUsers.map((user) => (
-                        <div
-                          key={user.id || user._id}
-                          onClick={() => handleUserClick(user.id || user._id!)}
+                      {filteredUsers.map((user, idx) => (
+                                <div
+                                  key={`${user.id || user._id}-${idx}`}
+                                  onClick={() => handleUserClick(user.id || user._id!)}
                           className="bg-white border-2 border-gray-200 rounded-xl p-5 hover:border-green-400 hover:shadow-lg transition-all duration-200 cursor-pointer group"
                         >
                           {/* Avatar and Name */}
@@ -567,9 +719,24 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                               </div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <h3 className="text-base font-bold text-gray-900 truncate group-hover:text-green-600 transition-colors">
-                                {user.username || 'Unknown User'}
-                              </h3>
+                              <div className="flex justify-between items-center">
+                                <h3 className="text-base font-bold text-gray-900 truncate group-hover:text-green-600 transition-colors">
+                                  {user.username || 'Unknown User'}
+                                </h3>
+                                {/* Delete Button */}
+                                {user.role !== 'SUPER_ADMIN' && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // Prevent card click
+                                      handleDeleteUser(user.id || user._id!, user.username || 'Unknown User');
+                                    }}
+                                    className="p-1.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                    title={`Delete user ${user.username}`}
+                                  >
+                                    <span className="text-sm">🗑️</span>
+                                  </button>
+                                )}
+                              </div>
                               {user.phone && (
                                 <p className="text-sm text-gray-600 mt-1 flex items-center gap-1">
                                   <span>📞</span>
@@ -688,15 +855,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                         <span>👀</span> Watch
                                     </button>
                                     <button
-                                      onClick={async () => {
-                                        if (!confirm('Invite players to rejoin this game?')) return;
+                                      onClick={() => showConfirmationDialog('Invite players to rejoin this game? They will see the game when they refresh.', async () => {
                                         try {
                                           await adminAPI.forceRejoin(game.gameId!);
-                                          alert('Invite sent. Players will see the active game when they refresh.');
+                                          showNotificationMessage('Invite sent. Players will see the active game when they refresh.', 'success');
                                         } catch (err: any) {
-                                          alert('Failed to invite rejoin: ' + (err.message || err));
+                                          showNotificationMessage('Failed to invite rejoin: ' + (err.message || err), 'error');
                                         }
-                                      }}
+                                      })}
                                       className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
                                       title="Invite Players to Rejoin"
                                     >
@@ -839,8 +1005,11 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                 <thead className="bg-gray-50">
                                     <tr>
                                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
-                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Game</th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Players</th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Winner</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Stake/Pot</th>
                                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amt</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 bg-white text-sm">
@@ -849,13 +1018,54 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                             <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                                                 {new Date(rev.timestamp).toLocaleDateString()}
                                             </td>
-                                            <td className="px-3 py-2 font-mono text-gray-500 text-xs">{rev.gameId}</td>
+                                            <td className="px-3 py-2">
+                                                {rev.gameDetails?.players.length > 0 ? (
+                                                    <div className="flex flex-col">
+                                                        {rev.gameDetails.players.map(p => (
+                                                            <span key={p.userId} className="text-xs text-gray-700 capitalize">{p.username || `Player ${p.color}`}</span>
+                                                        ))}
+                                                        <span className="text-[10px] text-gray-500 font-mono mt-1">ID: {rev.gameDetails.gameId}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">N/A</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                {rev.gameDetails?.winner ? (
+                                                    <span className="text-xs font-bold text-green-600 capitalize">{rev.gameDetails.winner.username || rev.gameDetails.winner.color}</span>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">N/A</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                {rev.gameDetails?.stake ? (
+                                                    <span className="text-xs font-bold text-blue-600">${rev.gameDetails.stake.toFixed(2)}</span>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">N/A</span>
+                                                )}
+                                                <br/>
+                                                {rev.gameDetails?.stake ? (
+                                                    <span className="text-[10px] text-blue-400">Pot: ${(rev.gameDetails.stake * 2).toFixed(2)}</span>
+                                                ) : null}
+                                            </td>
                                             <td className="px-3 py-2 text-green-600 font-bold text-right">+${rev.amount.toFixed(2)}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteRevenueEntry(rev._id || rev.id);
+                                                  }}
+                                                  className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                                  title="Delete Revenue Entry"
+                                                >
+                                                  <span className="text-sm">🗑️</span>
+                                                </button>
+                                            </td>
                                         </tr>
                                     ))}
                                     {(!revenueStats?.history || revenueStats.history.length === 0) && (
                                         <tr>
-                                            <td colSpan={3} className="px-4 py-8 text-center text-gray-500">No revenue yet.</td>
+                                            <td colSpan={6} className="px-4 py-8 text-center text-gray-500">No revenue yet.</td>
                                         </tr>
                                     )}
                                 </tbody>
@@ -894,6 +1104,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date / Admin</th>
                                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Details</th>
                                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 bg-white text-sm">
@@ -924,6 +1135,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                             </td>
                                             <td className="px-3 py-3 text-right align-top">
                                                 <span className="text-red-600 font-bold text-sm">-${wd.amount.toFixed(2)}</span>
+                                            </td>
+                                            <td className="px-3 py-3 text-right align-top">
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteWithdrawal(wd._id || wd.id);
+                                                  }}
+                                                  className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                                  title="Delete Withdrawal Entry"
+                                                >
+                                                  <span className="text-sm">🗑️</span>
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
@@ -1201,10 +1424,23 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                   </p>
                                 </div>
                               </div>
-                              <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusStyle.badge} flex items-center gap-1`}>
-                                <span>{statusStyle.icon}</span>
-                                {req.status}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusStyle.badge} flex items-center gap-1`}>
+                                  <span>{statusStyle.icon}</span>
+                                  {req.status}
+                                </span>
+                                {/* Delete Button */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // Prevent card click
+                                    handleDeleteFinancialRequest(req.id || req._id!, req.userName || 'Unknown User');
+                                  }}
+                                  className="p-1.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                  title={`Delete request ${req.shortId}`}
+                                >
+                                  <span className="text-sm">🗑️</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                           
@@ -1435,6 +1671,85 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                             </div>
                         </div>
 
+                        {/* Admin Balance Adjustment */}
+                        <div className="mb-8 p-4 bg-white border border-gray-200 rounded-xl">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-lg font-bold text-gray-800">Admin Balance Adjustment</h4>
+                            <span className="text-xs text-gray-500">Adjust a user's wallet directly</span>
+                          </div>
+
+                          <div className="flex gap-2 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => setBalanceType('DEPOSIT')}
+                              className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'DEPOSIT' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              Deposit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBalanceType('WITHDRAWAL')}
+                              className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'WITHDRAWAL' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              Withdraw
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                            <div className="md:col-span-1">
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Amount ($)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={balanceAmount}
+                                onChange={(e) => setBalanceAmount(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded-lg"
+                                placeholder="0.00"
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Comment (optional)</label>
+                              <input
+                                type="text"
+                                value={balanceComment}
+                                onChange={(e) => setBalanceComment(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded-lg"
+                                placeholder="Reason or note for this adjustment"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm text-gray-600">
+                              <div>Current Balance: <span className="font-bold text-green-700">${selectedUser?.user.balance?.toFixed(2) || '0.00'}</span></div>
+                              {balanceType === 'WITHDRAWAL' && (
+                                <div className="text-xs text-red-600">Withdrawals cannot exceed current balance.</div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!selectedUser) return;
+                                  confirmAndUpdateBalance(selectedUser.user.id || selectedUser.user._id!);
+                                }}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setBalanceAmount(''); setBalanceComment(''); setBalanceType('DEPOSIT'); }}
+                                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-semibold"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
                         {/* Match History */}
                         <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                             <span>📜</span> Match History
@@ -1507,6 +1822,50 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               />
           )}
       </div>
+
+      {/* Notification Component */}
+      {showNotification && (
+        <div className={`fixed bottom-8 right-8 z-[70] p-4 rounded-lg shadow-xl text-white max-w-sm transition-all duration-300 transform ${
+          notificationType === 'success' ? 'bg-green-500' : 'bg-red-500'
+        }`}>
+          <div className="flex items-center gap-3">
+            <span className="text-xl">
+              {notificationType === 'success' ? '✅' : '❌'}
+            </span>
+            <p className="font-semibold">{notificationMessage}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal Component */}
+      {showConfirmationModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[80] p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 text-center">
+              <span className="text-5xl mb-4 block">⚠️</span>
+              <h3 className="text-xl font-bold text-gray-900 mb-3">Confirm Action</h3>
+              <p className="text-gray-600 mb-6">{confirmationMessage}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    if (confirmationAction) confirmationAction();
+                    setShowConfirmationModal(false);
+                  }}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md transform hover:scale-105 active:scale-95"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setShowConfirmationModal(false)}
+                  className="flex-1 px-4 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
