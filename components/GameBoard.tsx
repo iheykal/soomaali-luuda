@@ -32,7 +32,7 @@ function usePrevious<T>(value: T): T | undefined {
 }
 
 
-const Board: React.FC<BoardProps> = ({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red' }) => {
+const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red' }) => {
   const { tokens, legalMoves, diceValue, turnState } = gameState;
 
   console.log(`🎯 Board render: legalMoves=${legalMoves?.length || 0}, diceValue=${diceValue}, turnState=${turnState}, isMyTurn=${isMyTurn}`);
@@ -312,7 +312,7 @@ const Board: React.FC<BoardProps> = ({ gameState, onMoveToken, onAnimationComple
         </svg>
     </div>
   );
-};
+});
 
 export default Board;
 

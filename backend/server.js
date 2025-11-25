@@ -1922,24 +1922,55 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
     console.log(`🕒 Scheduling auto-roll for human player in game ${gameId} in 7 seconds.`);
 
     const timer = setTimeout(async () => {
-        console.log(`⏰ 7s Timer expired for game ${gameId}. Attempting auto-roll for human player.`);
+        console.log(`⏰ 7s Timer expired for game ${gameId}. Checking state before auto-roll.`);
         humanPlayerTimers.delete(gameId); // Remove timer from map once it executes
 
+        const Game = require('./models/Game');
+        const game = await Game.findOne({ gameId });
+
+        if (!game || game.status !== 'ACTIVE' || game.turnState !== 'ROLLING') {
+            console.log(`🏃 Skipping auto-roll. Game state is no longer valid (Status: ${game?.status}, Turn State: ${game?.turnState}).`);
+            return;
+        }
+
         try {
-            // Use the existing auto-roll logic, but force it for idle human players
-            const result = await gameEngine.handleAutoRoll(gameId, true);
+            console.log(`✅ Player is idle. Forcing auto-roll for game ${gameId}.`);
+            const result = await gameEngine.handleAutoRoll(gameId, true); // force=true
         
             if (result && result.success) {
-                console.log(`✅ Auto-rolled for idle human in game ${gameId}.`);
-                const plainState = result.state.toObject ? result.state.toObject() : result.state;
-                io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+                const gameState = result.state;
+                console.log(`✅ Auto-rolled for idle human in game ${gameId}. Dice: ${gameState.diceValue}`);
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
 
-                if (plainState.turnState === 'MOVING' && plainState.legalMoves && plainState.legalMoves.length > 0) {
-                    // If there are moves, schedule an auto-move
+                // If no legal moves OR only one legal move, wait for animation, then take the next step.
+                if (gameState.legalMoves.length === 0) {
+                    console.log(`⏱️ No moves for auto-roll. Passing turn in 1.2s.`);
+                    setTimeout(async () => {
+                        const passTurnResult = await gameEngine.handlePassTurn(gameId);
+                        if (passTurnResult.success) {
+                            io.to(gameId).emit('GAME_STATE_UPDATE', { state: passTurnResult.state });
+                            const nextPlayer = passTurnResult.state.players[passTurnResult.state.currentPlayerIndex];
+                            if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
+                                scheduleHumanPlayerAutoRoll(gameId);
+                            }
+                        }
+                    }, 1200);
+                } else if (gameState.legalMoves.length === 1) {
+                    console.log(`⏱️ One legal move for auto-roll. Moving automatically in 1.2s.`);
+                     setTimeout(async () => {
+                        const moveResult = await gameEngine.handleAutoMove(gameId);
+                        if (moveResult.success) {
+                            io.to(gameId).emit('GAME_STATE_UPDATE', { state: moveResult.state });
+                             const nextPlayer = moveResult.state.players[moveResult.state.currentPlayerIndex];
+                             if (moveResult.state.turnState === 'ROLLING' && nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
+                                 scheduleHumanPlayerAutoRoll(gameId);
+                             }
+                        }
+                    }, 1200);
+                }
+                // If there are multiple moves, the 18s auto-move timer will handle it
+                else {
                     scheduleHumanPlayerAutoMove(gameId);
-                } else if (plainState.turnState === 'MOVING' && plainState.legalMoves && plainState.legalMoves.length === 0) {
-                     console.log(`🤖 No legal moves after auto-roll for human. Scheduling a follow-up auto-turn to pass the turn.`);
-                     scheduleAutoTurn(gameId, 1200);
                 }
             } else {
                 console.warn(`⚠️ Auto-roll for idle human in game ${gameId} failed:`, result?.message);
@@ -1961,28 +1992,39 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
     console.log(`🕒 Scheduling auto-move for human player in game ${gameId} in 18 seconds.`);
 
     const timer = setTimeout(async () => {
-        console.log(`⏰ 18s Timer expired for game ${gameId}. Attempting auto-move for human player.`);
+        console.log(`⏰ 18s Timer expired for game ${gameId}. Checking state before auto-move.`);
         humanPlayerTimers.delete(gameId);
 
+        const Game = require('./models/Game');
+        const game = await Game.findOne({ gameId });
+
+        // If game is over, or it's not the player's turn, or the player already moved, do nothing.
+        if (!game || game.status !== 'ACTIVE' || game.turnState !== 'MOVING') {
+            console.log(`🏃 Skipping auto-move for game ${gameId}. Game state is no longer valid for this action (Status: ${game?.status}, Turn State: ${game?.turnState}).`);
+            return;
+        }
+        
         try {
+            console.log(`✅ Player is idle. Forcing auto-move for game ${gameId}.`);
             const result = await gameEngine.handleAutoMove(gameId);
         
             if (result && result.success) {
                 console.log(`✅ Auto-moved for idle human in game ${gameId}.`);
-                const plainState = result.state.toObject ? result.state.toObject() : result.state;
+                const plainState = result.state; // Already a plain object
                 io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
 
-                const Game = require('./models/Game');
-                const gameRecord = await Game.findOne({ gameId });
-                 if (gameRecord && plainState.turnState === 'ROLLING') {
-                     const nextPlayerIndex = gameRecord.currentPlayerIndex;
-                     const nextPlayerFromDb = gameRecord.players[nextPlayerIndex];
-                     if (nextPlayerFromDb && (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected)) {
-                         scheduleAutoTurn(gameId, 1500);
-                     } else if (nextPlayerFromDb) {
-                         scheduleHumanPlayerAutoRoll(gameId);
-                     }
-                 }
+                // After the auto-move, the game state will have transitioned to the next turn.
+                // Schedule the next timer.
+                const nextPlayer = plainState.players[plainState.currentPlayerIndex];
+                if (plainState.turnState === 'ROLLING') {
+                    if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
+                        console.log(`🤖 Auto-move passed turn to human ${nextPlayer.color}. Scheduling new auto-roll timer.`);
+                        scheduleHumanPlayerAutoRoll(gameId);
+                    } else if (nextPlayer) {
+                        console.log(`🤖 Auto-move passed turn to AI/bot ${nextPlayer.color}. Scheduling auto-turn.`);
+                        scheduleAutoTurn(gameId, 1200);
+                    }
+                }
             } else {
                 console.warn(`⚠️ Auto-move for idle human in game ${gameId} failed.`, result?.message);
             }
@@ -2385,7 +2427,7 @@ io.on('connection', (socket) => {
               // Schedule next player's turn if needed (use nextPlayer from above)
               if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
                 scheduleAutoTurn(gameId, 1500);
-              } else if (nextPlayer) {
+              } else if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
                 scheduleHumanPlayerAutoRoll(gameId);
               }
             }
@@ -2411,7 +2453,7 @@ io.on('connection', (socket) => {
                 if (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected) {
                     console.log(`🤖 Scheduling auto turn for ${nextPlayerFromDb.color} (isAI: ${nextPlayerFromDb.isAI}, isDisconnected: ${nextPlayerFromDb.isDisconnected})`);
                     scheduleAutoTurn(gameId);
-                } else if (nextPlayerFromDb) {
+                } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
                     // This handles the "roll again" case for humans
                     console.log(`✅ Human player ${nextPlayerFromDb.color} gets to roll again. Starting 7s auto-roll timer.`);
                     scheduleHumanPlayerAutoRoll(gameId);
@@ -2490,9 +2532,12 @@ io.on('connection', (socket) => {
                 if (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected) {
                     console.log(`🤖 Scheduling auto turn for ${nextPlayerFromDb.color} (isAI: ${nextPlayerFromDb.isAI}, isDisconnected: ${nextPlayerFromDb.isDisconnected})`);
                     scheduleAutoTurn(gameId);
-                } else if (nextPlayerFromDb) {
+                } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
+                    // This handles the "roll again" case for humans
                     console.log(`✅ Next player ${nextPlayerFromDb.color} is human. Starting 7s auto-roll timer.`);
                     scheduleHumanPlayerAutoRoll(gameId);
+                } else {
+                    console.log(`❓ Unexpected state for next player ${nextPlayerFromDb?.color} (isAI: ${nextPlayerFromDb?.isAI}, isDisconnected: ${nextPlayerFromDb?.isDisconnected})`);
                 }
             }
         }

@@ -309,6 +309,9 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     const [state, dispatch] = useReducer(reducer, initialState);
     const isMultiplayer = !!multiplayerConfig;
 
+    // The timer is now separated from the main state object to prevent re-rendering the entire board on each tick.
+    const timer = state.timer;
+
     console.log('🎲 Game logic state:', {
         isMultiplayer,
         gameStarted: state.gameStarted,
@@ -350,7 +353,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
             reconnectionAttempts: Infinity,
-            transports: ['polling', 'websocket'], // Try polling first, then websocket
+            transports: ['websocket', 'polling'], // Prioritize websocket for faster connection
             timeout: 20000, // 20 second connection timeout
             forceNew: true, // Force new connection for game (separate from matchmaking)
             upgrade: true, // Allow transport upgrade
@@ -642,5 +645,5 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         }
     }, [isMultiplayer]);
 
-    return { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn };
+    return { state, timer, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn };
 };

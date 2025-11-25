@@ -49,6 +49,9 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
       <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md">
+        <div className="flex justify-center mb-6">
+          <img src="/icons/laddea.png" alt="Ludo Game Logo" className="h-20 w-auto" />
+        </div>
         <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">
           Welcome Back
         </h2>
