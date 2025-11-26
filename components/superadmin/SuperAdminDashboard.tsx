@@ -5,7 +5,6 @@ import Board from '../GameBoard';
 import { useGameLogic } from '../../hooks/useGameLogic';
 import html2canvas from 'html2canvas';
 import TransactionReceipt from '../TransactionReceipt';
-import Fuse from 'fuse.js';
 
 // --- Spectator Modal Component ---
 const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gameId, onClose }) => {
@@ -29,95 +28,98 @@ const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gam
             <span className="text-2xl leading-none">&times;</span>
           </button>
         </div>
-
+        
         <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col md:flex-row">
-          {/* Game Board Area */}
-          <div className="flex-1 flex items-center justify-center p-4 overflow-auto relative">
-            {/* Status Overlay */}
-            <div className="absolute top-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg z-10 backdrop-blur-sm border border-white/20 max-w-xs">
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-3 h-3 rounded-full ${state.players[state.currentPlayerIndex]?.color === 'red' ? 'bg-red-500' :
-                  state.players[state.currentPlayerIndex]?.color === 'green' ? 'bg-green-500' :
-                    state.players[state.currentPlayerIndex]?.color === 'yellow' ? 'bg-yellow-500' :
-                      'bg-blue-500'
-                  }`}></div>
-                <p className="font-bold text-gray-800 uppercase text-sm">Current Turn</p>
-              </div>
-              <p className="text-sm text-gray-600 mb-2">{state.message || 'Waiting for move...'}</p>
-
-              {state.diceValue && (
-                <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
-                  <span className="text-2xl">🎲</span>
-                  <span className="text-xl font-black text-slate-800">{state.diceValue}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="w-full max-w-[600px] aspect-square shadow-2xl rounded-full overflow-hidden border-4 border-slate-700">
-              <Board
-                gameState={state}
-                onMoveToken={() => { }} // Spectators can't move
-                onAnimationComplete={handleAnimationComplete}
-                isMyTurn={false} // Always false for spectators
-                perspectiveColor={state.players[state.currentPlayerIndex]?.color || 'red'}
-              />
-            </div>
-          </div>
-
-          {/* Sidebar Info */}
-          <div className="w-full md:w-80 bg-slate-900 text-white p-6 border-l border-slate-700 overflow-y-auto">
-            <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Players</h4>
-            <div className="space-y-3">
-              {state.players.map((p, i) => (
-                <div key={i} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${i === state.currentPlayerIndex
-                  ? 'bg-slate-800 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                  : 'bg-slate-800/50 border-slate-700'
-                  }`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${p.color === 'green' ? 'bg-green-500 text-white' :
-                      p.color === 'blue' ? 'bg-blue-500 text-white' :
-                        p.color === 'red' ? 'bg-red-500 text-white' :
-                          'bg-yellow-500 text-black'
-                      }`}>
-                      {p.color.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-200 capitalize">{p.color}</p>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        {p.isAI ? (
-                          <span className="text-purple-400">🤖 Bot</span>
-                        ) : (
-                          <span className="text-blue-400">👤 Human</span>
-                        )}
-                        {p.isDisconnected && <span className="text-red-400 ml-1">⚠️ Offline</span>}
-                      </div>
-                    </div>
+           {/* Game Board Area */}
+           <div className="flex-1 flex items-center justify-center p-4 overflow-auto relative">
+               {/* Status Overlay */}
+               <div className="absolute top-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg z-10 backdrop-blur-sm border border-white/20 max-w-xs">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-3 h-3 rounded-full ${
+                        state.players[state.currentPlayerIndex]?.color === 'red' ? 'bg-red-500' :
+                        state.players[state.currentPlayerIndex]?.color === 'green' ? 'bg-green-500' :
+                        state.players[state.currentPlayerIndex]?.color === 'yellow' ? 'bg-yellow-500' :
+                        'bg-blue-500'
+                    }`}></div>
+                    <p className="font-bold text-gray-800 uppercase text-sm">Current Turn</p>
                   </div>
-                  {i === state.currentPlayerIndex && (
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                  <p className="text-sm text-gray-600 mb-2">{state.message || 'Waiting for move...'}</p>
+                  
+                  {state.diceValue && (
+                    <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
+                        <span className="text-2xl">🎲</span>
+                        <span className="text-xl font-black text-slate-800">{state.diceValue}</span>
+                    </div>
                   )}
-                </div>
-              ))}
-            </div>
+               </div>
 
-            <div className="mt-8 pt-8 border-t border-slate-800">
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Game Info</h4>
-              <div className="space-y-2 text-sm text-slate-400">
-                <div className="flex justify-between">
-                  <span>State:</span>
-                  <span className="text-white">{state.turnState}</span>
+               <div className="w-full max-w-[600px] aspect-square shadow-2xl rounded-full overflow-hidden border-4 border-slate-700">
+                 <Board 
+                    gameState={state}
+                    onMoveToken={() => {}} // Spectators can't move
+                    onAnimationComplete={handleAnimationComplete}
+                    isMyTurn={false} // Always false for spectators
+                    perspectiveColor={state.players[state.currentPlayerIndex]?.color || 'red'}
+                 />
+               </div>
+           </div>
+           
+           {/* Sidebar Info */}
+           <div className="w-full md:w-80 bg-slate-900 text-white p-6 border-l border-slate-700 overflow-y-auto">
+                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Players</h4>
+                <div className="space-y-3">
+                    {state.players.map((p, i) => (
+                        <div key={i} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                            i === state.currentPlayerIndex 
+                                ? 'bg-slate-800 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]' 
+                                : 'bg-slate-800/50 border-slate-700'
+                        }`}>
+                            <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${
+                                    p.color === 'green' ? 'bg-green-500 text-white' : 
+                                    p.color === 'blue' ? 'bg-blue-500 text-white' : 
+                                    p.color === 'red' ? 'bg-red-500 text-white' : 
+                                    'bg-yellow-500 text-black'
+                                }`}>
+                                    {p.color.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-200 capitalize">{p.color}</p>
+                                    <div className="flex items-center gap-1 text-[10px]">
+                                        {p.isAI ? (
+                                            <span className="text-purple-400">🤖 Bot</span>
+                                        ) : (
+                                            <span className="text-blue-400">👤 Human</span>
+                                        )}
+                                        {p.isDisconnected && <span className="text-red-400 ml-1">⚠️ Offline</span>}
+                                    </div>
+                                </div>
+                            </div>
+                            {i === state.currentPlayerIndex && (
+                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                            )}
+                        </div>
+                    ))}
                 </div>
-                <div className="flex justify-between">
-                  <span>Status:</span>
-                  <span className="text-white">{state.gameStarted ? 'In Progress' : 'Waiting'}</span>
+                
+                <div className="mt-8 pt-8 border-t border-slate-800">
+                    <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Game Info</h4>
+                    <div className="space-y-2 text-sm text-slate-400">
+                        <div className="flex justify-between">
+                            <span>State:</span>
+                            <span className="text-white">{state.turnState}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Status:</span>
+                            <span className="text-white">{state.gameStarted ? 'In Progress' : 'Waiting'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span>Pot:</span>
+                            <span className="text-green-400 font-mono">${((state.stake || 0) * 2).toFixed(2)}</span>
+                        </div>
+                    </div>
                 </div>
-                <div className="flex justify-between">
-                  <span>Pot:</span>
-                  <span className="text-green-400 font-mono">${((state.stake || 0) * 2).toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+           </div>
         </div>
       </div>
     </div>
@@ -141,12 +143,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [withdrawDestination, setWithdrawDestination] = useState('');
   const [withdrawReference, setWithdrawReference] = useState('');
   const [activeGames, setActiveGames] = useState<GameState[]>([]);
-  const [userFilterQuery, setUserFilterQuery] = useState('');
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
-  const [sortOption, setSortOption] = useState('balance_desc');
+  
   // Spectator State
   const [watchingGameId, setWatchingGameId] = useState<string | null>(null);
-
+  
   // Live Duration State
   const [currentTime, setCurrentTime] = useState(Date.now());
 
@@ -162,7 +162,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     const start = new Date(createdAt).getTime();
     const diff = currentTime - start;
     const minutes = Math.floor(diff / 60000);
-
+    
     if (minutes < 1) return 'Just started';
     if (minutes < 60) return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
@@ -185,6 +185,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
+  const [phoneSearchQuery, setPhoneSearchQuery] = useState<string>('');
 
   // Notification State
   const [showNotification, setShowNotification] = useState(false);
@@ -196,46 +197,12 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [confirmationAction, setConfirmationAction] = useState<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (users.length > 0) {
-      // Initialize Fuse.js
-      const fuse = new Fuse(users, {
-        keys: ['username', 'phone'],
-        threshold: 0.3,
-      });
-
-      // Filter based on search query
-      const filtered = userFilterQuery
-        ? fuse.search(userFilterQuery).map((result) => result.item)
-        : users;
-
-      // Sort based on sort option
-      const sorted = [...filtered].sort((a, b) => {
-        switch (sortOption) {
-          case 'balance_desc':
-            return (b.balance || 0) - (a.balance || 0);
-          case 'balance_asc':
-            return (a.balance || 0) - (b.balance || 0);
-          case 'wins_desc':
-            return (b.stats?.wins || 0) - (a.stats?.wins || 0);
-          case 'wins_asc':
-            return (a.stats?.wins || 0) - (b.stats?.wins || 0);
-          default:
-            return 0;
-        }
-      });
-
-      setFilteredUsers(sorted);
-    }
-  }, [users, userFilterQuery, sortOption]);
-
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const usersData = await adminAPI.getAllUsers();
       setUsers(usersData);
-      setFilteredUsers(usersData); // Initialize filtered users
     } catch (err: any) {
       console.error('Error fetching users:', err);
       setError(err.message || 'Failed to load users');
@@ -265,7 +232,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!withdrawAmount || !withdrawDestination) return;
-
+    
     setLoading(true);
     try {
       await adminAPI.withdrawRevenue(parseFloat(withdrawAmount), withdrawDestination, withdrawReference);
@@ -285,43 +252,43 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const fetchRevenue = useCallback(async (filter: string = revenueFilter) => {
     setLoading(true);
     try {
-      const stats = await adminAPI.getRevenueStats(filter);
-      setRevenueStats(stats);
-      setRevenueFilter(filter);
+        const stats = await adminAPI.getRevenueStats(filter);
+        setRevenueStats(stats);
+        setRevenueFilter(filter);
     } catch (err: any) {
-      console.error('Error fetching revenue:', err);
+        console.error('Error fetching revenue:', err);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   }, [revenueFilter]);
 
   const fetchActiveGames = useCallback(async () => {
     setLoading(true);
     try {
-      const games = await adminAPI.getActiveGames();
-      setActiveGames(games);
+        const games = await adminAPI.getActiveGames();
+        setActiveGames(games);
     } catch (err: any) {
-      console.error('Error fetching active games:', err);
+        console.error('Error fetching active games:', err);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   }, []);
 
   const handleUserClick = async (userId: string) => {
-    setLoading(true);
-    try {
-      const details = await adminAPI.getUserDetails(userId);
-      setSelectedUser(details);
-      setShowUserModal(true);
-      // reset balance adjust fields
-      setBalanceAmount('');
-      setBalanceType('DEPOSIT');
-      setBalanceComment('');
-    } catch (err: any) {
-      showNotificationMessage('Failed to fetch user details: ' + err.message, 'error');
-    } finally {
-      setLoading(false);
-    }
+      setLoading(true);
+      try {
+          const details = await adminAPI.getUserDetails(userId);
+          setSelectedUser(details);
+          setShowUserModal(true);
+        // reset balance adjust fields
+        setBalanceAmount('');
+        setBalanceType('DEPOSIT');
+        setBalanceComment('');
+      } catch (err: any) {
+          showNotificationMessage('Failed to fetch user details: ' + err.message, 'error');
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleDeleteGame = async (gameId: string) => {
@@ -457,72 +424,72 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const handleProcessRequest = async (requestId: string, action: 'APPROVE' | 'REJECT') => {
     showConfirmationDialog(`Are you sure you want to ${action} this request (ID: ${requestId})?`, async () => {
       try {
-        const result = await adminAPI.processWalletRequest(requestId, action, `Admin ${action}D`);
-
-        // Auto-generate receipt on APPROVE
-        if (action === 'APPROVE' && result) {
-          // Find the original request to get user details
-          const originalReq = requests.find(r => (r.id || r._id) === requestId);
-          if (originalReq) {
-            // Use the phone number from the API response (user's actual registered phone)
-            // Fallback to users list if not in response
-            const userPhone = result.user?.phone || users.find(u => u.id === originalReq.userId || u._id === originalReq.userId)?.phone;
-
-            // Trigger receipt download with actual user phone number
-            downloadReceipt(originalReq, userPhone || undefined);
+          const result = await adminAPI.processWalletRequest(requestId, action, `Admin ${action}D`);
+          
+          // Auto-generate receipt on APPROVE
+          if (action === 'APPROVE' && result) {
+              // Find the original request to get user details
+              const originalReq = requests.find(r => (r.id || r._id) === requestId);
+              if (originalReq) {
+                  // Use the phone number from the API response (user's actual registered phone)
+                  // Fallback to users list if not in response
+                  const userPhone = result.user?.phone || users.find(u => u.id === originalReq.userId || u._id === originalReq.userId)?.phone;
+                  
+                  // Trigger receipt download with actual user phone number
+                  downloadReceipt(originalReq, userPhone || undefined);
+              }
           }
-        }
 
-        // Refresh data
-        fetchRequests();
-        fetchUsers(); // Balance might change
-        showNotificationMessage(`Request ${action}D successfully`, 'success');
+          // Refresh data
+          fetchRequests();
+          fetchUsers(); // Balance might change
+          showNotificationMessage(`Request ${action}D successfully`, 'success');
       } catch (err: any) {
-        showNotificationMessage(`Failed to process: ${err.message}`, 'error');
+          showNotificationMessage(`Failed to process: ${err.message}`, 'error');
       }
     });
   };
 
   const downloadReceipt = async (req: FinancialRequest, userPhone?: string) => {
-    // If phone is not provided, try to find it in the loaded users list
-    let phone = userPhone;
-    if (!phone) {
-      const user = users.find(u => u.id === req.userId || u._id === req.userId);
-      phone = user?.phone;
-    }
-
-    // Temporarily render the receipt
-    setReceiptData({
-      req,
-      user: {
-        username: req.userName,
-        phone: phone
+      // If phone is not provided, try to find it in the loaded users list
+      let phone = userPhone;
+      if (!phone) {
+          const user = users.find(u => u.id === req.userId || u._id === req.userId);
+          phone = user?.phone;
       }
-    });
 
-    // Wait for render
-    setTimeout(async () => {
-      if (receiptRef.current) {
-        try {
-          const canvas = await html2canvas(receiptRef.current, {
-            scale: 2, // Higher quality
-            backgroundColor: '#ffffff',
-            logging: false
-          });
-
-          const image = canvas.toDataURL("image/png");
-          const link = document.createElement('a');
-          link.href = image;
-          link.download = `Ludo-Receipt-${req.type}-${req.id || Date.now()}.png`;
-          link.click();
-        } catch (err) {
-          console.error('Receipt generation failed:', err);
-          alert('Failed to generate receipt image');
-        } finally {
-          setReceiptData(null); // Hide receipt template
-        }
-      }
-    }, 100);
+      // Temporarily render the receipt
+      setReceiptData({ 
+          req, 
+          user: { 
+              username: req.userName, 
+              phone: phone 
+          } 
+      });
+      
+      // Wait for render
+      setTimeout(async () => {
+          if (receiptRef.current) {
+              try {
+                  const canvas = await html2canvas(receiptRef.current, {
+                      scale: 2, // Higher quality
+                      backgroundColor: '#ffffff',
+                      logging: false
+                  });
+                  
+                  const image = canvas.toDataURL("image/png");
+                  const link = document.createElement('a');
+                  link.href = image;
+                  link.download = `Ludo-Receipt-${req.type}-${req.id || Date.now()}.png`;
+                  link.click();
+              } catch (err) {
+                  console.error('Receipt generation failed:', err);
+                  alert('Failed to generate receipt image');
+              } finally {
+                  setReceiptData(null); // Hide receipt template
+              }
+          }
+      }, 100);
   };
 
   // Helper to show custom notification
@@ -550,13 +517,13 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       fetchUsers();
     }
     if (activeTab === 'wallet' || activeTab === 'dashboard') {
-      fetchRequests();
+        fetchRequests();
     }
     if (activeTab === 'revenue' || activeTab === 'dashboard') {
-      fetchRevenue();
+        fetchRevenue();
     }
     if (activeTab === 'games' || activeTab === 'dashboard') {
-      fetchActiveGames();
+        fetchActiveGames();
     }
   }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames]);
 
@@ -629,74 +596,49 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 <span>Refresh</span>
               </button>
             </div>
-
+            
+            {/* Search Box */}
             <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
-              <div className="flex flex-col md:flex-row md:items-center gap-4">
-                <div className="flex-grow">
-                  <label htmlFor="user-search" className="block text-sm font-semibold text-gray-700 mb-2">
-                    🔍 Search Users
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="user-search"
-                      type="text"
-                      value={userFilterQuery}
-                      onChange={(e) => setUserFilterQuery(e.target.value)}
-                      placeholder="Fuzzy search by name or phone..."
-                      className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm shadow-sm transition-all"
-                    />
-                    {userFilterQuery && (
-                      <button
-                        onClick={() => setUserFilterQuery('')}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
-                      >
-                        <span className="text-xl font-bold">×</span>
-                      </button>
-                    )}
+              <div className="max-w-md w-full">
+                <label htmlFor="phone-search" className="block text-sm font-semibold text-gray-700 mb-2">
+                  🔍 Search Users
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 text-lg">📞</span>
                   </div>
+                  <input
+                    id="phone-search"
+                    type="text"
+                    value={phoneSearchQuery}
+                    onChange={(e) => setPhoneSearchQuery(e.target.value)}
+                    placeholder="Search by name or phone number..."
+                    className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm shadow-sm transition-all"
+                  />
+                  {phoneSearchQuery && (
+                    <button
+                      onClick={() => setPhoneSearchQuery('')}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <span className="text-xl font-bold">×</span>
+                    </button>
+                  )}
                 </div>
-                <div className="flex-shrink-0">
-                  <label htmlFor="user-sort" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Sort by
-                  </label>
-                  <select
-                    id="user-sort"
-                    value={sortOption}
-                    onChange={(e) => setSortOption(e.target.value)}
-                    className="block w-full py-3 border border-gray-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-green-500 text-sm shadow-sm transition-all"
-                  >
-                    <option value="balance_desc">Balance: High to Low</option>
-                    <option value="balance_asc">Balance: Low to High</option>
-                    <option value="wins_desc">Wins: High to Low</option>
-                    <option value="wins_asc">Wins: Low to High</option>
-                  </select>
-                </div>
-                <div className="flex-shrink-0 self-end">
-                  <button
-                    onClick={() => setSortOption('balance_desc')}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
-                  >
-                    Sort by Most Balance
-                  </button>
-                </div>
-                <div className="flex-shrink-0 self-end">
-                  <button
-                    onClick={() => setSortOption('wins_desc')}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
-                  >
-                    Sort by Most Wins
-                  </button>
-                </div>
+                {phoneSearchQuery && (
+                  <p className="mt-2 text-xs text-gray-600">
+                    Showing results matching: <span className="font-semibold text-green-600">{phoneSearchQuery}</span>
+                  </p>
+                )}
               </div>
             </div>
-
+            
             {loading && (
               <div className="p-12 text-center">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mb-4"></div>
                 <p className="text-gray-500 font-medium">Loading users...</p>
               </div>
             )}
-
+            
             {error && (
               <div className="p-4 sm:p-6 m-4 sm:m-6 bg-red-50 border-l-4 border-red-500 rounded-lg">
                 <p className="text-red-700 font-semibold mb-2">{error}</p>
@@ -709,19 +651,47 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 )}
               </div>
             )}
-
+            
             {!loading && !error && (() => {
+              // Fuzzy search function for phone numbers and names
+              const fuzzyMatch = (phone: string | undefined, username: string | undefined, query: string): boolean => {
+                if (!query) return true;
+                
+                const queryLower = query.toLowerCase();
+                
+                // Check phone number
+                if (phone) {
+                  const phoneDigits = phone.replace(/\D/g, '');
+                  const queryDigits = query.replace(/\D/g, '');
+                  if (phoneDigits.includes(queryDigits) || phone.toLowerCase().includes(queryLower)) {
+                    return true;
+                  }
+                }
+                
+                // Check username
+                if (username && username.toLowerCase().includes(queryLower)) {
+                  return true;
+                }
+                
+                return false;
+              };
+              
+              // Filter users based on search
+              const filteredUsers = phoneSearchQuery.trim()
+                ? users.filter(user => fuzzyMatch(user.phone, user.username, phoneSearchQuery))
+                : users;
+              
               return (
                 <div className="p-4 sm:p-6">
                   {filteredUsers.length === 0 ? (
                     <div className="p-12 text-center bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
                       <p className="text-5xl mb-4">👤</p>
                       <p className="text-gray-600 font-semibold text-lg mb-2">
-                        {userFilterQuery.trim()
-                          ? `No users found matching "${userFilterQuery}"`
+                        {phoneSearchQuery.trim() 
+                          ? `No users found matching "${phoneSearchQuery}"` 
                           : 'No users found.'}
                       </p>
-                      {userFilterQuery.trim() && users.length > 0 && (
+                      {phoneSearchQuery.trim() && users.length > 0 && (
                         <p className="text-sm text-gray-400 mt-2">
                           Try a different search term or clear the search to see all {users.length} users.
                         </p>
@@ -730,9 +700,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                       {filteredUsers.map((user, idx) => (
-                        <div
-                          key={`${user.id || user._id}-${idx}`}
-                          onClick={() => handleUserClick(user.id || user._id!)}
+                                <div
+                                  key={`${user.id || user._id}-${idx}`}
+                                  onClick={() => handleUserClick(user.id || user._id!)}
                           className="bg-white border-2 border-gray-200 rounded-xl p-5 hover:border-green-400 hover:shadow-lg transition-all duration-200 cursor-pointer group"
                         >
                           {/* Avatar and Name */}
@@ -798,18 +768,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
 
                           {/* Role and Status */}
                           <div className="flex flex-wrap gap-2 mb-3">
-                            <span className={`px-3 py-1 text-xs font-bold rounded-full ${user.role === 'SUPER_ADMIN'
-                              ? 'bg-purple-100 text-purple-800'
-                              : user.role === 'ADMIN'
+                            <span className={`px-3 py-1 text-xs font-bold rounded-full ${
+                              user.role === 'SUPER_ADMIN' 
+                                ? 'bg-purple-100 text-purple-800'
+                                : user.role === 'ADMIN'
                                 ? 'bg-blue-100 text-blue-800'
                                 : 'bg-gray-100 text-gray-800'
-                              }`}>
+                            }`}>
                               {user.role || 'USER'}
                             </span>
-                            <span className={`px-3 py-1 text-xs font-bold rounded-full ${user.status === 'Active'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                              }`}>
+                            <span className={`px-3 py-1 text-xs font-bold rounded-full ${
+                              user.status === 'Active'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
                               {user.status || 'Active'}
                             </span>
                           </div>
@@ -817,18 +789,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                           {/* Joined Date */}
                           <div className="pt-3 border-t border-gray-100">
                             <p className="text-xs text-gray-500">
-                              Joined: {user.createdAt
+                              Joined: {user.createdAt 
                                 ? new Date(user.createdAt).toLocaleDateString()
                                 : user.joined
-                                  ? new Date(user.joined).toLocaleDateString()
-                                  : 'N/A'}
+                                ? new Date(user.joined).toLocaleDateString()
+                                : 'N/A'}
                             </p>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
-
+                  
                   {/* Results Count */}
                   {filteredUsers.length > 0 && (
                     <div className="mt-6 text-center">
@@ -846,111 +818,111 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         return (
           <div className="bg-white p-6 rounded-lg border border-gray-200 shadow">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Active Games</h2>
-              <button onClick={fetchActiveGames} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
-                Refresh
-              </button>
+                <h2 className="text-xl font-semibold text-gray-900">Active Games</h2>
+                <button onClick={fetchActiveGames} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
+                    Refresh
+                </button>
             </div>
-
+            
             {activeGames.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-xl border border-gray-100 border-dashed">
-                <p className="text-5xl mb-4">🎮</p>
-                <p className="text-gray-500 font-medium">No active games currently.</p>
-                <p className="text-sm text-gray-400 mt-1">Live matches will appear here</p>
-              </div>
+                <div className="text-center py-12 bg-gray-50 rounded-xl border border-gray-100 border-dashed">
+                    <p className="text-5xl mb-4">🎮</p>
+                    <p className="text-gray-500 font-medium">No active games currently.</p>
+                    <p className="text-sm text-gray-400 mt-1">Live matches will appear here</p>
+                </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {activeGames.map(game => (
-                  <div key={game.gameId} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-                    {/* Card Header */}
-                    <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-4 border-b border-gray-200 flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <span className="relative flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                        </span>
-                        <span className="font-bold text-gray-800">Game #{game.gameId}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-xs font-mono text-gray-600 flex items-center gap-1 bg-white px-2 py-1 rounded-md shadow-sm border border-gray-100">
-                          <span>⏱️</span>
-                          {getDuration(game.createdAt)}
-                        </div>
-                        <button
-                          onClick={() => setWatchingGameId(game.gameId!)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
-                        >
-                          <span>👀</span> Watch
-                        </button>
-                        <button
-                          onClick={() => showConfirmationDialog('Invite players to rejoin this game? They will see the game when they refresh.', async () => {
-                            try {
-                              await adminAPI.forceRejoin(game.gameId!);
-                              showNotificationMessage('Invite sent. Players will see the active game when they refresh.', 'success');
-                            } catch (err: any) {
-                              showNotificationMessage('Failed to invite rejoin: ' + (err.message || err), 'error');
-                            }
-                          })}
-                          className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
-                          title="Invite Players to Rejoin"
-                        >
-                          <span>🔔</span> Invite Rejoin
-                        </button>
-                        <button
-                          onClick={() => handleDeleteGame(game.gameId!)}
-                          className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
-                          title="Delete Game"
-                        >
-                          <span>🗑️</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="p-4 space-y-4">
-                      {/* Financials */}
-                      <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
-                        <div>
-                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Total Pot</p>
-                          <p className="text-xl font-black text-green-600">${((game.stake || 0) * 2).toFixed(2)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Platform Fee (10%)</p>
-                          <p className="text-xl font-black text-purple-600">${((game.stake || 0) * 2 * 0.10).toFixed(2)}</p>
-                        </div>
-                      </div>
-
-                      {/* Players List */}
-                      <div className="space-y-2">
-                        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Players</p>
-                        {game.players.map((p, i) => {
-                          const bgColor = p.color === 'green' ? 'bg-green-500' : p.color === 'blue' ? 'bg-blue-500' : p.color === 'red' ? 'bg-red-500' : 'bg-yellow-500';
-                          return (
-                            <div key={i} className={`flex items-center justify-between p-2 rounded-lg border transition-colors ${i === game.currentPlayerIndex ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200' : 'bg-white border-gray-100'}`}>
-                              <div className="flex items-center gap-3">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ${bgColor}`}>
-                                  {p.color.charAt(0).toUpperCase()}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {activeGames.map(game => (
+                        <div key={game.gameId} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+                            {/* Card Header */}
+                            <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-4 border-b border-gray-200 flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                    <span className="relative flex h-3 w-3">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                                    </span>
+                                    <span className="font-bold text-gray-800">Game #{game.gameId}</span>
                                 </div>
-                                <div>
-                                  <p className="text-sm font-bold text-gray-700">{p.username || p.color}</p>
-                                  <p className="text-[10px] text-gray-400 capitalize flex items-center gap-1">
-                                    {p.isAI ? '🤖 Bot' : '👤 Human'}
-                                  </p>
+                                <div className="flex items-center gap-2">
+                                    <div className="text-xs font-mono text-gray-600 flex items-center gap-1 bg-white px-2 py-1 rounded-md shadow-sm border border-gray-100">
+                                        <span>⏱️</span>
+                                        {getDuration(game.createdAt)}
+                                    </div>
+                                    <button 
+                                        onClick={() => setWatchingGameId(game.gameId!)}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
+                                    >
+                                        <span>👀</span> Watch
+                                    </button>
+                                    <button
+                                      onClick={() => showConfirmationDialog('Invite players to rejoin this game? They will see the game when they refresh.', async () => {
+                                        try {
+                                          await adminAPI.forceRejoin(game.gameId!);
+                                          showNotificationMessage('Invite sent. Players will see the active game when they refresh.', 'success');
+                                        } catch (err: any) {
+                                          showNotificationMessage('Failed to invite rejoin: ' + (err.message || err), 'error');
+                                        }
+                                      })}
+                                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
+                                      title="Invite Players to Rejoin"
+                                    >
+                                      <span>🔔</span> Invite Rejoin
+                                    </button>
+                                    <button 
+                                        onClick={() => handleDeleteGame(game.gameId!)}
+                                        className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1 rounded-lg shadow-sm transition-colors flex items-center gap-1"
+                                        title="Delete Game"
+                                    >
+                                        <span>🗑️</span>
+                                    </button>
                                 </div>
-                              </div>
-                              {i === game.currentPlayerIndex && (
-                                <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full animate-pulse">
-                                  Active Turn
-                                </span>
-                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                            
+                            {/* Card Body */}
+                            <div className="p-4 space-y-4">
+                                {/* Financials */}
+                                <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <div>
+                                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Total Pot</p>
+                                        <p className="text-xl font-black text-green-600">${((game.stake || 0) * 2).toFixed(2)}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Platform Fee (10%)</p>
+                                        <p className="text-xl font-black text-purple-600">${((game.stake || 0) * 2 * 0.10).toFixed(2)}</p>
+                                    </div>
+                                </div>
+                                
+                                {/* Players List */}
+                                <div className="space-y-2">
+                                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Players</p>
+                                    {game.players.map((p, i) => {
+                                        const bgColor = p.color === 'green' ? 'bg-green-500' : p.color === 'blue' ? 'bg-blue-500' : p.color === 'red' ? 'bg-red-500' : 'bg-yellow-500';
+                                        return (
+                                            <div key={i} className={`flex items-center justify-between p-2 rounded-lg border transition-colors ${i === game.currentPlayerIndex ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200' : 'bg-white border-gray-100'}`}>
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ${bgColor}`}>
+                                                        {p.color.charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-gray-700">{p.username || p.color}</p>
+                                                        <p className="text-[10px] text-gray-400 capitalize flex items-center gap-1">
+                                                            {p.isAI ? '🤖 Bot' : '👤 Human'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                {i === game.currentPlayerIndex && (
+                                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full animate-pulse">
+                                                        Active Turn
+                                                    </span>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             )}
           </div>
         );
@@ -970,297 +942,309 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         };
 
         return (
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <div className="p-4 sm:p-6 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Platform Revenue</h2>
-                <p className="text-sm text-gray-500 mt-1">Track platform earnings & withdrawals</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowWithdrawModal(true)}
-                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-2"
-                >
-                  <span>💸</span> Withdraw
-                </button>
-                <button onClick={() => fetchRevenue(revenueFilter)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">🔄 Refresh</button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-br from-purple-50 to-purple-100">
-              <div className="bg-white/50 p-4 rounded-xl border border-purple-100">
-                <p className="text-xs text-purple-600 uppercase font-bold mb-1">Total Revenue</p>
-                <p className="text-2xl sm:text-3xl font-black text-purple-900">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
-              </div>
-              <div className="bg-white/50 p-4 rounded-xl border border-red-100">
-                <p className="text-xs text-red-600 uppercase font-bold mb-1">Total Withdrawn</p>
-                <p className="text-2xl sm:text-3xl font-black text-red-900">${revenueStats?.totalWithdrawn?.toFixed(2) || '0.00'}</p>
-              </div>
-              <div className="bg-white/50 p-4 rounded-xl border border-green-100">
-                <p className="text-xs text-green-600 uppercase font-bold mb-1">Net Available</p>
-                <p className="text-2xl sm:text-3xl font-black text-green-900">${revenueStats?.netRevenue?.toFixed(2) || '0.00'}</p>
-              </div>
-            </div>
-
-            <div className="p-4 sm:p-6 border-b border-gray-200">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-                <p className="text-sm text-gray-600 font-semibold">Filter Range</p>
-                <div className="flex gap-2 flex-wrap w-full sm:w-auto">
-                  {filterOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => fetchRevenue(option.value)}
-                      className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg transition-all ${revenueFilter === option.value
-                        ? 'bg-purple-600 text-white font-semibold shadow-md'
-                        : 'bg-white text-purple-600 hover:bg-purple-100 border border-purple-300'
-                        }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <div className="p-4 sm:p-6 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Platform Revenue</h2>
+                        <p className="text-sm text-gray-500 mt-1">Track platform earnings & withdrawals</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={() => setShowWithdrawModal(true)}
+                            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-2"
+                        >
+                            <span>💸</span> Withdraw
+                        </button>
+                        <button onClick={() => fetchRevenue(revenueFilter)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-all">🔄 Refresh</button>
+                    </div>
                 </div>
-              </div>
-              <p className="text-xs sm:text-sm text-gray-500 text-right">Showing data for: {getFilterLabel(revenueFilter)}</p>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 sm:p-6">
-              {/* Revenue History */}
-              {/* Revenue History Ledger */}
-              <div className="bg-white border border-gray-300 shadow-sm rounded-sm overflow-hidden mb-8">
-                <div className="bg-gray-100 px-4 py-3 border-b border-gray-300 flex justify-between items-center">
-                  <h3 className="font-mono font-bold text-gray-800 uppercase tracking-widest text-sm">Incoming Revenue Ledger</h3>
-                  <div className="text-xs text-gray-500 font-mono">CREDIT RECORD</div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-br from-purple-50 to-purple-100">
+                    <div className="bg-white/50 p-4 rounded-xl border border-purple-100">
+                        <p className="text-xs text-purple-600 uppercase font-bold mb-1">Total Revenue</p>
+                        <p className="text-2xl sm:text-3xl font-black text-purple-900">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
+                    </div>
+                    <div className="bg-white/50 p-4 rounded-xl border border-red-100">
+                        <p className="text-xs text-red-600 uppercase font-bold mb-1">Total Withdrawn</p>
+                        <p className="text-2xl sm:text-3xl font-black text-red-900">${revenueStats?.totalWithdrawn?.toFixed(2) || '0.00'}</p>
+                    </div>
+                    <div className="bg-white/50 p-4 rounded-xl border border-green-100">
+                        <p className="text-xs text-green-600 uppercase font-bold mb-1">Net Available</p>
+                        <p className="text-2xl sm:text-3xl font-black text-green-900">${revenueStats?.netRevenue?.toFixed(2) || '0.00'}</p>
+                    </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-300 border-collapse">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Date</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Description / Game ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Winner</th>
-                        <th className="px-4 py-2 text-right text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Total Pot</th>
-                        <th className="px-4 py-2 text-right text-xs font-bold text-green-700 uppercase tracking-wider font-mono">Revenue (CR)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white text-sm font-mono">
-                      {revenueStats?.history.slice(0, 15).map((rev, index) => (
-                        <tr key={rev._id || rev.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors border-b border-gray-200`}>
-                          <td className="px-4 py-2 text-gray-600 whitespace-nowrap border-r border-gray-200">
-                            {new Date(rev.timestamp).toLocaleDateString()} <span className="text-gray-400 text-xs ml-1">{new Date(rev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          </td>
-                          <td className="px-4 py-2 border-r border-gray-200">
-                            <div className="flex flex-col">
-                              <span className="text-xs text-gray-800">Game Commission</span>
-                              <span className="text-[10px] text-gray-400">REF: {rev.gameDetails?.gameId || 'N/A'}</span>
+
+                <div className="p-4 sm:p-6 border-b border-gray-200">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                        <p className="text-sm text-gray-600 font-semibold">Filter Range</p>
+                        <div className="flex gap-2 flex-wrap w-full sm:w-auto">
+                            {filterOptions.map((option) => (
+                                <button
+                                    key={option.value}
+                                    onClick={() => fetchRevenue(option.value)}
+                                    className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg transition-all ${
+                                        revenueFilter === option.value
+                                            ? 'bg-purple-600 text-white font-semibold shadow-md'
+                                            : 'bg-white text-purple-600 hover:bg-purple-100 border border-purple-300'
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-500 text-right">Showing data for: {getFilterLabel(revenueFilter)}</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 sm:p-6">
+                    {/* Revenue History */}
+                    <div>
+                        <h3 className="font-bold text-gray-700 mb-4 text-lg border-b pb-2">Incoming Revenue</h3>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-300">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Players</th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Winner</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Stake/Pot</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amt</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 bg-white text-sm">
+                                    {revenueStats?.history.slice(0, 10).map((rev) => (
+                                        <tr key={rev._id || rev.id} className="hover:bg-gray-50">
+                                            <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                                                {new Date(rev.timestamp).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                {rev.gameDetails?.players.length > 0 ? (
+                                                    <div className="flex flex-col">
+                                                        {rev.gameDetails.players.map(p => (
+                                                            <span key={p.userId} className="text-xs text-gray-700 capitalize">{p.username || `Player ${p.color}`}</span>
+                                                        ))}
+                                                        <span className="text-[10px] text-gray-500 font-mono mt-1">ID: {rev.gameDetails.gameId}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">N/A</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                {rev.gameDetails?.winner ? (
+                                                    <span className="text-xs font-bold text-green-600 capitalize">{rev.gameDetails.winner.username || rev.gameDetails.winner.color}</span>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">N/A</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                {rev.gameDetails?.stake ? (
+                                                    <span className="text-xs font-bold text-blue-600">${rev.gameDetails.stake.toFixed(2)}</span>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">N/A</span>
+                                                )}
+                                                <br/>
+                                                {rev.gameDetails?.stake ? (
+                                                    <span className="text-[10px] text-blue-400">Pot: ${(rev.gameDetails.stake * 2).toFixed(2)}</span>
+                                                ) : null}
+                                            </td>
+                                            <td className="px-3 py-2 text-green-600 font-bold text-right">+${rev.amount.toFixed(2)}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteRevenueEntry(rev._id || rev.id);
+                                                  }}
+                                                  className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                                  title="Delete Revenue Entry"
+                                                >
+                                                  <span className="text-sm">🗑️</span>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(!revenueStats?.history || revenueStats.history.length === 0) && (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-8 text-center text-gray-500">No revenue yet.</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Withdrawal History */}
+                    <div>
+                        <div className="flex justify-between items-center mb-4 border-b pb-2">
+                            <h3 className="font-bold text-gray-700 text-lg">Withdrawals Ledger</h3>
+                            <button 
+                                onClick={() => {
+                                    const csvContent = "data:text/csv;charset=utf-8," 
+                                        + "Date,Admin,Destination,Reference,Amount\n"
+                                        + (revenueStats?.withdrawals || []).map(w => 
+                                            `${new Date(w.timestamp).toISOString()},${w.adminName},${w.destination},${w.reference},${w.amount}`
+                                        ).join("\n");
+                                    const encodedUri = encodeURI(csvContent);
+                                    const link = document.createElement("a");
+                                    link.setAttribute("href", encodedUri);
+                                    link.setAttribute("download", "revenue_ledger.csv");
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                }}
+                                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded transition-colors border border-gray-300 flex items-center gap-1"
+                            >
+                                <span>⬇️</span> Export CSV
+                            </button>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-300">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date / Admin</th>
+                                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Details</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 bg-white text-sm">
+                                    {revenueStats?.withdrawals?.slice(0, 10).map((wd) => (
+                                        <tr key={wd._id || wd.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="px-3 py-3 whitespace-nowrap">
+                                                <div className="text-gray-900 font-medium text-xs">{new Date(wd.timestamp).toLocaleDateString()}</div>
+                                                <div className="text-[10px] text-gray-500">{new Date(wd.timestamp).toLocaleTimeString()}</div>
+                                                <div className="mt-1 flex items-center gap-1">
+                                                    <span className="w-4 h-4 rounded-full bg-gray-200 flex items-center justify-center text-[8px] text-gray-600 font-bold">
+                                                        {wd.adminName?.charAt(0).toUpperCase() || 'A'}
+                                                    </span>
+                                                    <span className="text-xs text-gray-600">{wd.adminName}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-3">
+                                                <div className="text-gray-900 text-xs font-medium">{wd.destination}</div>
+                                                <div className="text-[10px] text-gray-500 mt-0.5 break-words max-w-[150px]">{wd.reference}</div>
+                                                <div className="mt-1">
+                                                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                        wd.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 
+                                                        wd.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' : 
+                                                        'bg-red-100 text-red-800'
+                                                    }`}>
+                                                        {wd.status || 'COMPLETED'}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-3 text-right align-top">
+                                                <span className="text-red-600 font-bold text-sm">-${wd.amount.toFixed(2)}</span>
+                                            </td>
+                                            <td className="px-3 py-3 text-right align-top">
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteWithdrawal(wd._id || wd.id);
+                                                  }}
+                                                  className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                                  title="Delete Withdrawal Entry"
+                                                >
+                                                  <span className="text-sm">🗑️</span>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(!revenueStats?.withdrawals || revenueStats.withdrawals.length === 0) && (
+                                        <tr>
+                                            <td colSpan={3} className="px-4 py-12 text-center">
+                                                <div className="flex flex-col items-center justify-center text-gray-400">
+                                                    <span className="text-3xl mb-2">🧾</span>
+                                                    <p className="text-sm">No withdrawals recorded yet.</p>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        {revenueStats?.withdrawals && revenueStats.withdrawals.length > 10 && (
+                            <div className="text-center mt-3">
+                                <button className="text-xs text-purple-600 hover:text-purple-800 font-medium">
+                                    View All ({revenueStats.withdrawals.length})
+                                </button>
                             </div>
-                          </td>
-                          <td className="px-4 py-2 border-r border-gray-200">
-                            {rev.gameDetails?.winner ? (
-                              <span className="text-xs font-medium text-gray-700">{rev.gameDetails.winner.username || rev.gameDetails.winner.color}</span>
-                            ) : (
-                              <span className="text-xs text-gray-400 italic">Unknown</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-right border-r border-gray-200 text-gray-500">
-                            {rev.gameDetails?.stake ? (
-                              <span>${(rev.gameDetails.stake * 2).toFixed(2)}</span>
-                            ) : '-'}
-                          </td>
-                          <td className="px-4 py-2 text-right font-bold text-green-700 bg-green-50/30">
-                            +${rev.amount.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                      {(!revenueStats?.history || revenueStats.history.length === 0) && (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-12 text-center text-gray-400 italic font-sans">
-                            No revenue records found in the ledger.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                    <tfoot className="bg-gray-100 border-t-2 border-gray-300">
-                      <tr>
-                        <td colSpan={4} className="px-4 py-2 text-right font-bold text-gray-600 uppercase text-xs tracking-wider">Total Revenue Credit:</td>
-                        <td className="px-4 py-2 text-right font-bold text-green-800 font-mono border-l border-gray-200 bg-green-100/50">
-                          ${revenueStats?.totalRevenue.toFixed(2) || '0.00'}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                        )}
+                    </div>
                 </div>
-              </div>
 
-              {/* Withdrawal History */}
-              {/* Withdrawal History Ledger */}
-              <div className="bg-white border border-gray-300 shadow-sm rounded-sm overflow-hidden">
-                <div className="bg-gray-100 px-4 py-3 border-b border-gray-300 flex justify-between items-center">
-                  <h3 className="font-mono font-bold text-gray-800 uppercase tracking-widest text-sm">Withdrawals Ledger</h3>
-                  <div className="flex items-center gap-4">
-                    <div className="text-xs text-gray-500 font-mono">DEBIT RECORD</div>
-                    <button
-                      onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8,"
-                          + "Date,Admin,Destination,Reference,Amount\n"
-                          + (revenueStats?.withdrawals || []).map(w =>
-                            `${new Date(w.timestamp).toISOString()},${w.adminName},${w.destination},${w.reference},${w.amount}`
-                          ).join("\n");
-                        const encodedUri = encodeURI(csvContent);
-                        const link = document.createElement("a");
-                        link.setAttribute("href", encodedUri);
-                        link.setAttribute("download", "revenue_ledger.csv");
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                      }}
-                      className="text-[10px] bg-white hover:bg-gray-50 text-gray-600 px-2 py-1 rounded border border-gray-300 font-mono uppercase tracking-wide transition-colors"
-                    >
-                      Export CSV
-                    </button>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-300 border-collapse">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Date</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Authorized By</th>
-                        <th className="px-4 py-2 text-left text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Destination / Ref</th>
-                        <th className="px-4 py-2 text-center text-xs font-bold text-gray-600 uppercase tracking-wider border-r border-gray-200 font-mono">Status</th>
-                        <th className="px-4 py-2 text-right text-xs font-bold text-red-700 uppercase tracking-wider font-mono">Amount (DR)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white text-sm font-mono">
-                      {revenueStats?.withdrawals?.slice(0, 15).map((wd, index) => (
-                        <tr key={wd._id || wd.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-red-50 transition-colors border-b border-gray-200`}>
-                          <td className="px-4 py-2 whitespace-nowrap border-r border-gray-200 text-gray-600">
-                            {new Date(wd.timestamp).toLocaleDateString()} <span className="text-gray-400 text-xs ml-1">{new Date(wd.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          </td>
-                          <td className="px-4 py-2 border-r border-gray-200">
-                            <div className="flex items-center gap-2">
-                              <span className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[10px] text-gray-600 font-bold border border-gray-300">
-                                {wd.adminName?.charAt(0).toUpperCase() || 'A'}
-                              </span>
-                              <span className="text-xs text-gray-700">{wd.adminName}</span>
+                {/* Withdrawal Modal */}
+                {showWithdrawModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+                            <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                                <h3 className="text-xl font-bold text-gray-900">Withdraw Revenue</h3>
+                                <button onClick={() => setShowWithdrawModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
                             </div>
-                          </td>
-                          <td className="px-4 py-2 border-r border-gray-200">
-                            <div className="text-xs text-gray-800">{wd.destination}</div>
-                            <div className="text-[10px] text-gray-400 font-mono mt-0.5">{wd.reference}</div>
-                          </td>
-                          <td className="px-4 py-2 text-center border-r border-gray-200">
-                            <span className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border ${wd.status === 'COMPLETED' ? 'bg-white text-green-700 border-green-200' :
-                              wd.status === 'PENDING' ? 'bg-white text-yellow-700 border-yellow-200' :
-                                'bg-white text-red-700 border-red-200'
-                              }`}>
-                              {wd.status || 'COMPLETED'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-right font-bold text-red-700 bg-red-50/30">
-                            -${wd.amount.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                      {(!revenueStats?.withdrawals || revenueStats.withdrawals.length === 0) && (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-12 text-center text-gray-400 italic font-sans">
-                            No withdrawal records found in the ledger.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                    <tfoot className="bg-gray-100 border-t-2 border-gray-300">
-                      <tr>
-                        <td colSpan={4} className="px-4 py-2 text-right font-bold text-gray-600 uppercase text-xs tracking-wider">Total Withdrawals Debit:</td>
-                        <td className="px-4 py-2 text-right font-bold text-red-800 font-mono border-l border-gray-200 bg-red-100/50">
-                          -${revenueStats?.totalWithdrawn.toFixed(2) || '0.00'}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-                {revenueStats?.withdrawals && revenueStats.withdrawals.length > 15 && (
-                  <div className="bg-gray-50 px-4 py-2 border-t border-gray-200 text-center">
-                    <button className="text-xs text-gray-500 hover:text-gray-800 font-mono uppercase tracking-wide">
-                      View Full Ledger ({revenueStats.withdrawals.length})
-                    </button>
-                  </div>
+                            <form onSubmit={handleWithdraw} className="p-6 space-y-4">
+                                <div className="bg-green-50 p-4 rounded-lg border border-green-100 mb-4">
+                                    <p className="text-sm text-green-800 font-medium">Available for Withdrawal</p>
+                                    <p className="text-2xl font-bold text-green-900">${revenueStats?.netRevenue?.toFixed(2) || '0.00'}</p>
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Amount ($)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        required
+                                        max={revenueStats?.netRevenue || 0}
+                                        value={withdrawAmount}
+                                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Destination</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={withdrawDestination}
+                                        onChange={(e) => setWithdrawDestination(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                        placeholder="e.g., Bank Account, Crypto Wallet Address"
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Reference / Note</label>
+                                    <input
+                                        type="text"
+                                        value={withdrawReference}
+                                        onChange={(e) => setWithdrawReference(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                        placeholder="Optional note"
+                                    />
+                                </div>
+                                
+                                <div className="pt-4 flex gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowWithdrawModal(false)}
+                                        className="flex-1 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold rounded-lg transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={loading || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > (revenueStats?.netRevenue || 0)}
+                                        className="flex-1 px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white font-bold rounded-lg transition-colors shadow-md"
+                                    >
+                                        {loading ? 'Processing...' : 'Confirm Withdrawal'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
                 )}
-              </div>
             </div>
-
-            {/* Withdrawal Modal */}
-            {showWithdrawModal && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
-                  <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                    <h3 className="text-xl font-bold text-gray-900">Withdraw Revenue</h3>
-                    <button onClick={() => setShowWithdrawModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-                  </div>
-                  <form onSubmit={handleWithdraw} className="p-6 space-y-4">
-                    <div className="bg-green-50 p-4 rounded-lg border border-green-100 mb-4">
-                      <p className="text-sm text-green-800 font-medium">Available for Withdrawal</p>
-                      <p className="text-2xl font-bold text-green-900">${revenueStats?.netRevenue?.toFixed(2) || '0.00'}</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">Amount ($)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        required
-                        max={revenueStats?.netRevenue || 0}
-                        value={withdrawAmount}
-                        onChange={(e) => setWithdrawAmount(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                        placeholder="0.00"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">Destination</label>
-                      <input
-                        type="text"
-                        required
-                        value={withdrawDestination}
-                        onChange={(e) => setWithdrawDestination(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                        placeholder="e.g., Bank Account, Crypto Wallet Address"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">Reference / Note</label>
-                      <input
-                        type="text"
-                        value={withdrawReference}
-                        onChange={(e) => setWithdrawReference(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                        placeholder="Optional note"
-                      />
-                    </div>
-
-                    <div className="pt-4 flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setShowWithdrawModal(false)}
-                        className="flex-1 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold rounded-lg transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={loading || !withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > (revenueStats?.netRevenue || 0)}
-                        className="flex-1 px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white font-bold rounded-lg transition-colors shadow-md"
-                      >
-                        {loading ? 'Processing...' : 'Confirm Withdrawal'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
         );
       case 'wallet':
         return (
@@ -1275,7 +1259,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   🔄 Refresh
                 </button>
               </div>
-
+              
               {/* Summary stats */}
               <div className="grid grid-cols-4 gap-3 mb-4">
                 <div className="bg-gray-100 rounded-lg p-3 text-center">
@@ -1295,23 +1279,24 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   <p className="text-xs text-red-600 mt-1">Rejected</p>
                 </div>
               </div>
-
+              
               {/* Filter buttons */}
               <div className="flex gap-2 flex-wrap">
                 {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => (
                   <button
                     key={status}
                     onClick={() => setFilterStatus(status)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${filterStatus === status
-                      ? status === 'ALL'
-                        ? 'bg-gray-800 text-white shadow-md'
-                        : status === 'PENDING'
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                      filterStatus === status
+                        ? status === 'ALL' 
+                          ? 'bg-gray-800 text-white shadow-md'
+                          : status === 'PENDING'
                           ? 'bg-yellow-600 text-white shadow-md'
                           : status === 'APPROVED'
-                            ? 'bg-green-600 text-white shadow-md'
-                            : 'bg-red-600 text-white shadow-md'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                          ? 'bg-green-600 text-white shadow-md'
+                          : 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                   >
                     {status === 'ALL' ? '📋 All' : status === 'PENDING' ? '⏳ Pending' : status === 'APPROVED' ? '✓ Approved' : '✗ Rejected'}
                     {status !== 'ALL' && (
@@ -1376,160 +1361,163 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     {requests
                       .filter(req => filterStatus === 'ALL' || req.status === filterStatus)
                       .map((req) => {
-                        const isDeposit = req.type === 'DEPOSIT';
-                        const statusColors = {
-                          'APPROVED': {
-                            bg: 'bg-green-50',
-                            text: 'text-green-700',
-                            border: 'border-green-300',
-                            badge: 'bg-green-100 text-green-800',
-                            icon: '✓'
-                          },
-                          'REJECTED': {
-                            bg: 'bg-red-50',
-                            text: 'text-red-700',
-                            border: 'border-red-300',
-                            badge: 'bg-red-100 text-red-800',
-                            icon: '✗'
-                          },
-                          'PENDING': {
-                            bg: 'bg-yellow-50',
-                            text: 'text-yellow-700',
-                            border: 'border-yellow-300',
-                            badge: 'bg-yellow-100 text-yellow-800',
-                            icon: '⏳'
-                          }
-                        };
-                        const statusStyle = statusColors[req.status as keyof typeof statusColors] || statusColors.PENDING;
-
-                        return (
-                          <div
-                            key={req.id || req._id}
-                            className={`relative overflow-hidden rounded-xl border-2 ${statusStyle.border} ${statusStyle.bg} shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]`}
-                          >
-                            {/* Header with gradient */}
-                            <div className={`p-4 border-b ${statusStyle.border} ${isDeposit ? 'bg-gradient-to-r from-green-50 to-green-100' : 'bg-gradient-to-r from-red-50 to-red-100'
-                              }`}>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-md ${isDeposit
-                                    ? 'bg-green-500 text-white'
+                      const isDeposit = req.type === 'DEPOSIT';
+                      const statusColors = {
+                        'APPROVED': { 
+                          bg: 'bg-green-50', 
+                          text: 'text-green-700', 
+                          border: 'border-green-300', 
+                          badge: 'bg-green-100 text-green-800',
+                          icon: '✓'
+                        },
+                        'REJECTED': { 
+                          bg: 'bg-red-50', 
+                          text: 'text-red-700', 
+                          border: 'border-red-300', 
+                          badge: 'bg-red-100 text-red-800',
+                          icon: '✗'
+                        },
+                        'PENDING': { 
+                          bg: 'bg-yellow-50', 
+                          text: 'text-yellow-700', 
+                          border: 'border-yellow-300', 
+                          badge: 'bg-yellow-100 text-yellow-800',
+                          icon: '⏳'
+                        }
+                      };
+                      const statusStyle = statusColors[req.status as keyof typeof statusColors] || statusColors.PENDING;
+                      
+                      return (
+                        <div 
+                          key={req.id || req._id} 
+                          className={`relative overflow-hidden rounded-xl border-2 ${statusStyle.border} ${statusStyle.bg} shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]`}
+                        >
+                          {/* Header with gradient */}
+                          <div className={`p-4 border-b ${statusStyle.border} ${
+                            isDeposit ? 'bg-gradient-to-r from-green-50 to-green-100' : 'bg-gradient-to-r from-red-50 to-red-100'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-md ${
+                                  isDeposit 
+                                    ? 'bg-green-500 text-white' 
                                     : 'bg-red-500 text-white'
-                                    }`}>
-                                    <span className="text-2xl">
-                                      {isDeposit ? '💰' : '💸'}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <p className={`text-sm font-bold uppercase tracking-wider ${isDeposit ? 'text-green-700' : 'text-red-700'
-                                      }`}>
-                                      {req.type}
-                                    </p>
-                                    <p className="text-xs text-gray-500 mt-0.5">
-                                      {new Date(req.timestamp).toLocaleDateString('en-US', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        year: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusStyle.badge} flex items-center gap-1`}>
-                                    <span>{statusStyle.icon}</span>
-                                    {req.status}
+                                }`}>
+                                  <span className="text-2xl">
+                                    {isDeposit ? '💰' : '💸'}
                                   </span>
-                                  {/* Delete Button */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation(); // Prevent card click
-                                      handleDeleteFinancialRequest(req.id || req._id!, req.userName || 'Unknown User');
-                                    }}
-                                    className="p-1.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
-                                    title={`Delete request ${req.shortId}`}
-                                  >
-                                    <span className="text-sm">🗑️</span>
-                                  </button>
+                                </div>
+                                <div>
+                                  <p className={`text-sm font-bold uppercase tracking-wider ${
+                                    isDeposit ? 'text-green-700' : 'text-red-700'
+                                  }`}>
+                                    {req.type}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    {new Date(req.timestamp).toLocaleDateString('en-US', { 
+                                      month: 'short', 
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </p>
                                 </div>
                               </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusStyle.badge} flex items-center gap-1`}>
+                                  <span>{statusStyle.icon}</span>
+                                  {req.status}
+                                </span>
+                                {/* Delete Button */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // Prevent card click
+                                    handleDeleteFinancialRequest(req.id || req._id!, req.userName || 'Unknown User');
+                                  }}
+                                  className="p-1.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                  title={`Delete request ${req.shortId}`}
+                                >
+                                  <span className="text-sm">🗑️</span>
+                                </button>
+                              </div>
                             </div>
-
-                            {/* Content */}
-                            <div className="p-5">
-                              {/* Amount */}
-                              <div className="mb-4 flex justify-between items-end">
-                                <div>
+                          </div>
+                          
+                          {/* Content */}
+                          <div className="p-5">
+                            {/* Amount */}
+                            <div className="mb-4 flex justify-between items-end">
+                              <div>
                                   <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Amount</p>
                                   <p className="text-3xl font-black text-gray-900">
                                     ${req.amount.toFixed(2)}
                                   </p>
-                                </div>
-                                {/* Manual Receipt Button for all requests */}
-                                <button
+                              </div>
+                              {/* Manual Receipt Button for all requests */}
+                              <button 
                                   onClick={() => downloadReceipt(req)}
                                   className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 bg-blue-50 px-2 py-1 rounded border border-blue-100 hover:border-blue-300 transition-colors"
                                   title="Generate Receipt"
-                                >
+                              >
                                   <span>🧾</span> Receipt
+                              </button>
+                            </div>
+                            
+                            {/* User Info */}
+                            <div className="mb-4 pb-4 border-b border-gray-200">
+                              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">User</p>
+                              <p className="text-sm font-semibold text-gray-900">{req.userName}</p>
+                              <p className="text-xs text-gray-400 font-mono mt-1">ID: {req.userId}</p>
+                            </div>
+                            
+                            {/* Payment Method */}
+                            {req.paymentMethod && (
+                              <div className="mb-4 pb-4 border-b border-gray-200">
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Payment Method</p>
+                                <p className="text-sm font-semibold text-gray-900">{req.paymentMethod}</p>
+                              </div>
+                            )}
+
+                            {/* Details */}
+                            {req.details && (
+                              <div className="mb-4">
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Details</p>
+                                <p className="text-sm text-gray-700 line-clamp-2" title={req.details}>
+                                  {req.details}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* Admin Comment */}
+                            {req.adminComment && (
+                              <div className="mb-4 p-3 bg-gray-100 rounded-lg">
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Admin Note</p>
+                                <p className="text-sm text-gray-700 italic">{req.adminComment}</p>
+                              </div>
+                            )}
+                            
+                            {/* Actions for PENDING requests */}
+                            {req.status === 'PENDING' && (
+                              <div className="flex gap-3 pt-4 border-t border-gray-200">
+                                <button 
+                                  onClick={() => handleProcessRequest(req.id || req._id!, 'APPROVE')}
+                                  className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                                >
+                                  ✓ Approve
+                                </button>
+                                <button 
+                                  onClick={() => handleProcessRequest(req.id || req._id!, 'REJECT')}
+                                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
+                                >
+                                  ✗ Reject
                                 </button>
                               </div>
-
-                              {/* User Info */}
-                              <div className="mb-4 pb-4 border-b border-gray-200">
-                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">User</p>
-                                <p className="text-sm font-semibold text-gray-900">{req.userName}</p>
-                                <p className="text-xs text-gray-400 font-mono mt-1">ID: {req.userId}</p>
-                              </div>
-
-                              {/* Payment Method */}
-                              {req.paymentMethod && (
-                                <div className="mb-4 pb-4 border-b border-gray-200">
-                                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Payment Method</p>
-                                  <p className="text-sm font-semibold text-gray-900">{req.paymentMethod}</p>
-                                </div>
-                              )}
-
-                              {/* Details */}
-                              {req.details && (
-                                <div className="mb-4">
-                                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Details</p>
-                                  <p className="text-sm text-gray-700 line-clamp-2" title={req.details}>
-                                    {req.details}
-                                  </p>
-                                </div>
-                              )}
-
-                              {/* Admin Comment */}
-                              {req.adminComment && (
-                                <div className="mb-4 p-3 bg-gray-100 rounded-lg">
-                                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Admin Note</p>
-                                  <p className="text-sm text-gray-700 italic">{req.adminComment}</p>
-                                </div>
-                              )}
-
-                              {/* Actions for PENDING requests */}
-                              {req.status === 'PENDING' && (
-                                <div className="flex gap-3 pt-4 border-t border-gray-200">
-                                  <button
-                                    onClick={() => handleProcessRequest(req.id || req._id!, 'APPROVE')}
-                                    className="flex-1 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
-                                  >
-                                    ✓ Approve
-                                  </button>
-                                  <button
-                                    onClick={() => handleProcessRequest(req.id || req._id!, 'REJECT')}
-                                    className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95"
-                                  >
-                                    ✗ Reject
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1550,66 +1538,71 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <span>⚡</span> Super Admin
           </h1>
         </div>
-
+        
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'dashboard'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${
+              activeTab === 'dashboard' 
+                ? 'bg-green-600 text-white shadow-md font-semibold' 
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+            }`}
           >
-            <span className="text-lg sm:text-xl">📊</span>
+            <span className="text-lg sm:text-xl">📊</span> 
             <span>Dashboard</span>
           </button>
-
+          
           <button
             onClick={() => setActiveTab('users')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'users'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${
+              activeTab === 'users' 
+                ? 'bg-green-600 text-white shadow-md font-semibold' 
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+            }`}
           >
-            <span className="text-lg sm:text-xl">👥</span>
+            <span className="text-lg sm:text-xl">👥</span> 
             <span>Users</span>
           </button>
-
+          
           <button
             onClick={() => setActiveTab('games')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'games'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${
+              activeTab === 'games' 
+                ? 'bg-green-600 text-white shadow-md font-semibold' 
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+            }`}
           >
-            <span className="text-lg sm:text-xl">🎮</span>
+            <span className="text-lg sm:text-xl">🎮</span> 
             <span>Active Games</span>
           </button>
-
+          
           <button
             onClick={() => setActiveTab('wallet')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'wallet'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${
+              activeTab === 'wallet' 
+                ? 'bg-green-600 text-white shadow-md font-semibold' 
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+            }`}
           >
-            <span className="text-lg sm:text-xl">💰</span>
+            <span className="text-lg sm:text-xl">💰</span> 
             <span>Wallet Requests</span>
           </button>
 
           <button
             onClick={() => setActiveTab('revenue')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'revenue'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${
+              activeTab === 'revenue' 
+                ? 'bg-green-600 text-white shadow-md font-semibold' 
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+            }`}
           >
-            <span className="text-lg sm:text-xl">📈</span>
+            <span className="text-lg sm:text-xl">📈</span> 
             <span>Revenue</span>
           </button>
         </nav>
 
         <div className="p-4 border-t border-gray-200">
-          <button
+          <button 
             onClick={onExit}
             className="w-full px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
           >
@@ -1626,212 +1619,215 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             Logged in as Super Admin
           </div>
         </header>
-
+        
         <div className="animate-in fade-in duration-300">
           {renderContent()}
         </div>
-
+        
         {/* User Details Modal */}
         {showUserModal && selectedUser && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                <h3 className="text-2xl font-bold text-gray-900">User Profile</h3>
-                <button onClick={() => setShowUserModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-              </div>
-
-              <div className="p-6 overflow-y-auto custom-scrollbar">
-                {/* User Stats Header */}
-                <div className="flex items-center gap-6 mb-8">
-                  <div className="w-24 h-24 rounded-full bg-slate-200 overflow-hidden border-4 border-white shadow-lg">
-                    <img src={selectedUser.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedUser.user.username}`} alt="Avatar" className="w-full h-full object-cover" />
-                  </div>
-                  <div>
-                    <h2 className="text-3xl font-black text-gray-900">{selectedUser.user.username}</h2>
-                    <p className="text-gray-500 font-mono text-sm mb-2">ID: {selectedUser.user.id || selectedUser.user._id}</p>
-                    <div className="flex gap-3">
-                      <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-bold">
-                        Balance: ${selectedUser.user.balance?.toFixed(2)}
-                      </span>
-                      <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-bold">
-                        Role: {selectedUser.user.role}
-                      </span>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                        <h3 className="text-2xl font-bold text-gray-900">User Profile</h3>
+                        <button onClick={() => setShowUserModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
                     </div>
-                  </div>
-                </div>
+                    
+                    <div className="p-6 overflow-y-auto custom-scrollbar">
+                        {/* User Stats Header */}
+                        <div className="flex items-center gap-6 mb-8">
+                            <div className="w-24 h-24 rounded-full bg-slate-200 overflow-hidden border-4 border-white shadow-lg">
+                                <img src={selectedUser.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedUser.user.username}`} alt="Avatar" className="w-full h-full object-cover" />
+                            </div>
+                            <div>
+                                <h2 className="text-3xl font-black text-gray-900">{selectedUser.user.username}</h2>
+                                <p className="text-gray-500 font-mono text-sm mb-2">ID: {selectedUser.user.id || selectedUser.user._id}</p>
+                                <div className="flex gap-3">
+                                    <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-bold">
+                                        Balance: ${selectedUser.user.balance?.toFixed(2)}
+                                    </span>
+                                    <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-bold">
+                                        Role: {selectedUser.user.role}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
 
-                {/* Stats Cards */}
-                <div className="grid grid-cols-3 gap-4 mb-8">
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
-                    <p className="text-xs uppercase font-bold text-slate-500 mb-1">Games Played</p>
-                    <p className="text-3xl font-black text-slate-800">{selectedUser.user.stats?.gamesPlayed || 0}</p>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-xl border border-green-200 text-center">
-                    <p className="text-xs uppercase font-bold text-green-600 mb-1">Won</p>
-                    <p className="text-3xl font-black text-green-700">{selectedUser.user.stats?.wins || 0}</p>
-                  </div>
-                  <div className="bg-red-50 p-4 rounded-xl border border-red-200 text-center">
-                    <p className="text-xs uppercase font-bold text-red-600 mb-1">Lost</p>
-                    <p className="text-3xl font-black text-red-700">
-                      {(selectedUser.user.stats?.gamesPlayed || 0) - (selectedUser.user.stats?.wins || 0)}
-                    </p>
-                  </div>
-                </div>
+                        {/* Stats Cards */}
+                        <div className="grid grid-cols-3 gap-4 mb-8">
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                                <p className="text-xs uppercase font-bold text-slate-500 mb-1">Games Played</p>
+                                <p className="text-3xl font-black text-slate-800">{selectedUser.user.stats?.gamesPlayed || 0}</p>
+                            </div>
+                            <div className="bg-green-50 p-4 rounded-xl border border-green-200 text-center">
+                                <p className="text-xs uppercase font-bold text-green-600 mb-1">Won</p>
+                                <p className="text-3xl font-black text-green-700">{selectedUser.user.stats?.wins || 0}</p>
+                            </div>
+                            <div className="bg-red-50 p-4 rounded-xl border border-red-200 text-center">
+                                <p className="text-xs uppercase font-bold text-red-600 mb-1">Lost</p>
+                                <p className="text-3xl font-black text-red-700">
+                                    {(selectedUser.user.stats?.gamesPlayed || 0) - (selectedUser.user.stats?.wins || 0)}
+                                </p>
+                            </div>
+                        </div>
 
-                {/* Admin Balance Adjustment */}
-                <div className="mb-8 p-4 bg-white border border-gray-200 rounded-xl">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-lg font-bold text-gray-800">Admin Balance Adjustment</h4>
-                    <span className="text-xs text-gray-500">Adjust a user's wallet directly</span>
-                  </div>
-
-                  <div className="flex gap-2 mb-3">
-                    <button
-                      type="button"
-                      onClick={() => setBalanceType('DEPOSIT')}
-                      className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'DEPOSIT' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    >
-                      Deposit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBalanceType('WITHDRAWAL')}
-                      className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'WITHDRAWAL' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    >
-                      Withdraw
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                    <div className="md:col-span-1">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Amount ($)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={balanceAmount}
-                        onChange={(e) => setBalanceAmount(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg"
-                        placeholder="0.00"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Comment (optional)</label>
-                      <input
-                        type="text"
-                        value={balanceComment}
-                        onChange={(e) => setBalanceComment(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg"
-                        placeholder="Reason or note for this adjustment"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm text-gray-600">
-                      <div>Current Balance: <span className="font-bold text-green-700">${selectedUser?.user.balance?.toFixed(2) || '0.00'}</span></div>
-                      {balanceType === 'WITHDRAWAL' && (
-                        <div className="text-xs text-red-600">Withdrawals cannot exceed current balance.</div>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!selectedUser) return;
-                          confirmAndUpdateBalance(selectedUser.user.id || selectedUser.user._id!);
-                        }}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold"
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setBalanceAmount(''); setBalanceComment(''); setBalanceType('DEPOSIT'); }}
-                        className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-semibold"
-                      >
-                        Reset
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Match History */}
-                <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <span>📜</span> Match History
-                </h4>
-
-                {selectedUser.history.length === 0 ? (
-                  <div className="p-8 text-center bg-gray-50 rounded-xl border border-gray-200 border-dashed">
-                    <p className="text-gray-500">No match history found.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {selectedUser.history.map((match) => (
-                      <div key={match.gameId} className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold ${match.result === 'WON' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                            }`}>
-                            {match.result === 'WON' ? 'W' : 'L'}
+                        {/* Admin Balance Adjustment */}
+                        <div className="mb-8 p-4 bg-white border border-gray-200 rounded-xl">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-lg font-bold text-gray-800">Admin Balance Adjustment</h4>
+                            <span className="text-xs text-gray-500">Adjust a user's wallet directly</span>
                           </div>
-                          <div>
-                            <p className="font-bold text-gray-900">vs {match.opponentName}</p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(match.date).toLocaleDateString()} at {new Date(match.date).toLocaleTimeString()}
-                            </p>
+
+                          <div className="flex gap-2 mb-3">
+                            <button
+                              type="button"
+                              onClick={() => setBalanceType('DEPOSIT')}
+                              className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'DEPOSIT' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              Deposit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBalanceType('WITHDRAWAL')}
+                              className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'WITHDRAWAL' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              Withdraw
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                            <div className="md:col-span-1">
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Amount ($)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={balanceAmount}
+                                onChange={(e) => setBalanceAmount(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded-lg"
+                                placeholder="0.00"
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-semibold text-gray-600 mb-1">Comment (optional)</label>
+                              <input
+                                type="text"
+                                value={balanceComment}
+                                onChange={(e) => setBalanceComment(e.target.value)}
+                                className="w-full p-2 border border-gray-300 rounded-lg"
+                                placeholder="Reason or note for this adjustment"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm text-gray-600">
+                              <div>Current Balance: <span className="font-bold text-green-700">${selectedUser?.user.balance?.toFixed(2) || '0.00'}</span></div>
+                              {balanceType === 'WITHDRAWAL' && (
+                                <div className="text-xs text-red-600">Withdrawals cannot exceed current balance.</div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!selectedUser) return;
+                                  confirmAndUpdateBalance(selectedUser.user.id || selectedUser.user._id!);
+                                }}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { setBalanceAmount(''); setBalanceComment(''); setBalanceType('DEPOSIT'); }}
+                                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-semibold"
+                              >
+                                Reset
+                              </button>
+                            </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className={`font-bold text-lg ${match.amount >= 0 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                            {match.amount >= 0 ? '+' : ''}${Math.abs(match.amount).toFixed(2)}
-                          </p>
-                          <p className="text-xs text-gray-400">Stake: ${match.stake}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
 
-              <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
-                <button
-                  onClick={() => setShowUserModal(false)}
-                  className="px-6 py-2 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-              </div>
+                        {/* Match History */}
+                        <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <span>📜</span> Match History
+                        </h4>
+                        
+                        {selectedUser.history.length === 0 ? (
+                            <div className="p-8 text-center bg-gray-50 rounded-xl border border-gray-200 border-dashed">
+                                <p className="text-gray-500">No match history found.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {selectedUser.history.map((match) => (
+                                    <div key={match.gameId} className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold ${
+                                                match.result === 'WON' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                                            }`}>
+                                                {match.result === 'WON' ? 'W' : 'L'}
+                                            </div>
+                                            <div>
+                                                <p className="font-bold text-gray-900">vs {match.opponentName}</p>
+                                                <p className="text-xs text-gray-500">
+                                                    {new Date(match.date).toLocaleDateString()} at {new Date(match.date).toLocaleTimeString()}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className={`font-bold text-lg ${
+                                                match.amount >= 0 ? 'text-green-600' : 'text-red-600'
+                                            }`}>
+                                                {match.amount >= 0 ? '+' : ''}${Math.abs(match.amount).toFixed(2)}
+                                            </p>
+                                            <p className="text-xs text-gray-400">Stake: ${match.stake}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+                        <button 
+                            onClick={() => setShowUserModal(false)} 
+                            className="px-6 py-2 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-lg transition-colors"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
             </div>
-          </div>
         )}
       </main>
-
+      
       {/* Spectator Modal */}
       {watchingGameId && (
-        <SpectatorModal
-          gameId={watchingGameId}
-          onClose={() => setWatchingGameId(null)}
+        <SpectatorModal 
+            gameId={watchingGameId} 
+            onClose={() => setWatchingGameId(null)} 
         />
       )}
 
       {/* Hidden Receipt Template */}
       <div className="fixed top-0 left-[-9999px]">
-        {receiptData && (
-          <TransactionReceipt
-            ref={receiptRef}
-            request={receiptData.req}
-            userName={receiptData.user.username}
-            userPhone={receiptData.user.phone}
-          />
-        )}
+          {receiptData && (
+              <TransactionReceipt 
+                  ref={receiptRef} 
+                  request={receiptData.req} 
+                  userName={receiptData.user.username} 
+                  userPhone={receiptData.user.phone} 
+              />
+          )}
       </div>
 
       {/* Notification Component */}
       {showNotification && (
-        <div className={`fixed bottom-8 right-8 z-[70] p-4 rounded-lg shadow-xl text-white max-w-sm transition-all duration-300 transform ${notificationType === 'success' ? 'bg-green-500' : 'bg-red-500'
-          }`}>
+        <div className={`fixed bottom-8 right-8 z-[70] p-4 rounded-lg shadow-xl text-white max-w-sm transition-all duration-300 transform ${
+          notificationType === 'success' ? 'bg-green-500' : 'bg-red-500'
+        }`}>
           <div className="flex items-center gap-3">
             <span className="text-xl">
               {notificationType === 'success' ? '✅' : '❌'}

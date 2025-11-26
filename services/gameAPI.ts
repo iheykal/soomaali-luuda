@@ -3,7 +3,6 @@ import { instrumentedFetch } from './api';
 
 interface ActiveGameResponse {
   hasActiveGame: boolean;
-  message?: string; // Add this line
   game: {
     gameId: string;
     playerColor: string;
@@ -28,11 +27,8 @@ const getGameUrl = () => {
 };
 
 export const gameAPI = {
-  async checkActiveGame(userId: string, gameId?: string): Promise<ActiveGameResponse> {
-    let url = `${getGameUrl()}/game/check-active/${userId}`;
-    if (gameId) {
-      url += `?gameId=${gameId}`;
-    }
+  async checkActiveGame(userId: string): Promise<ActiveGameResponse> {
+    const url = `${getGameUrl()}/game/check-active/${userId}`;
     const options = {
         method: 'GET',
         headers: {
