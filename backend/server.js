@@ -143,7 +143,7 @@ const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongod
 const mongooseOptions = {
   serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
   socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
-  maxPoolSize: 5, // REDUCED: 5 connections max (saves ~50-100MB RAM)
+  maxPoolSize: 10, // OPTIMIZED: 10 connections max (balance between memory and concurrency)
   minPoolSize: 1,
 };
 
@@ -2183,6 +2183,12 @@ setInterval(() => {
       console.warn(`⚠️ Warning: ${humanPlayerTimers.size} timers active - possible leak`);
     }
   }
+
+  // Cleanup activeAutoTurns
+  if (activeAutoTurns.size > 100) {
+    console.warn(`⚠️ Warning: ${activeAutoTurns.size} active auto-turns - clearing stale entries`);
+    activeAutoTurns.clear();
+  }
 }, 120000); // Check every 2 minutes
 
 const scheduleHumanPlayerAutoRoll = (gameId) => {
@@ -2529,10 +2535,12 @@ const runStateConsistencyChecker = () => {
       const now = Date.now();
       const STALE_THRESHOLD_MS = 5000; // 5 seconds
 
-      // Use .lean() for faster read-only query if we weren't modifying them. 
-      // But here we modify, so we keep standard find, but we can limit fields if needed.
-      // For now, just reducing frequency is the biggest win.
-      const activeGames = await Game.find({ status: 'ACTIVE' });
+      // Use .lean() for faster read-only query and .select() to fetch only needed fields
+      // This significantly reduces memory usage and CPU for deserialization
+      const activeGames = await Game.find({ status: 'ACTIVE' })
+        .select('gameId status turnState diceValue updatedAt players message legalMoves')
+        .lean();
+
       for (const game of activeGames) {
         let changed = false;
 
@@ -2568,10 +2576,22 @@ const runStateConsistencyChecker = () => {
         }
 
         if (changed) {
-          await game.save();
-          const plainState = game.toObject ? game.toObject() : game;
+          // Since we used .lean(), we must use updateOne instead of save()
+          await Game.updateOne(
+            { _id: game._id },
+            {
+              $set: {
+                turnState: game.turnState,
+                diceValue: game.diceValue,
+                legalMoves: game.legalMoves,
+                message: game.message,
+                players: game.players
+              }
+            }
+          );
+
           console.log(`📤 ConsistencyFix: Emitting GAME_STATE_UPDATE for game ${game.gameId}`);
-          try { io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: plainState }); } catch (e) { console.warn('⚠️ Failed to emit GAME_STATE_UPDATE during consistency fix', e); }
+          try { io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: game }); } catch (e) { console.warn('⚠️ Failed to emit GAME_STATE_UPDATE during consistency fix', e); }
 
           // Re-evaluate scheduling for this game
           try { scheduleNextAction(game.gameId); } catch (e) { console.warn('⚠️ Failed to scheduleNextAction after consistency fix', e); }
