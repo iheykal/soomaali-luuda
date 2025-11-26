@@ -11,24 +11,24 @@ const getAuthToken = () => {
 };
 
 const getAuthHeaders = () => {
-    const token = getAuthToken();
-    if(!token) {
-        throw new Error('No authentication token');
-    }
-    return {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-    }
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error('No authentication token');
+  }
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  }
 }
 
 export const adminAPI = {
   async getAllUsers(): Promise<User[]> {
     const url = `${getApiUrl()}/admin/users`;
     const options = {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      };
-    
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
     try {
       const { responseData } = await instrumentedFetch(url, options);
       return responseData.users || [];
@@ -38,43 +38,43 @@ export const adminAPI = {
     }
   },
 
-  async getRevenueStats(filter: string = 'all'): Promise<{ 
-    totalRevenue: number; 
+  async getRevenueStats(filter: string = 'all'): Promise<{
+    totalRevenue: number;
     totalWithdrawn: number;
     netRevenue: number;
-    history: Revenue[]; 
+    history: Revenue[];
     withdrawals: RevenueWithdrawal[];
-    filter: string 
+    filter: string
   }> {
     const url = `${getApiUrl()}/admin/revenue?filter=${filter}`;
     const options = {
-        method: 'GET',
-        headers: getAuthHeaders(),
+      method: 'GET',
+      headers: getAuthHeaders(),
     };
 
     try {
-        const { responseData } = await instrumentedFetch(url, options);
-        return {
-            totalRevenue: responseData.totalRevenue,
-            totalWithdrawn: responseData.totalWithdrawn || 0,
-            netRevenue: responseData.netRevenue || (responseData.totalRevenue - (responseData.totalWithdrawn || 0)),
-            history: responseData.history || [],
-            withdrawals: responseData.withdrawals || [],
-            filter: responseData.filter || filter
-        };
+      const { responseData } = await instrumentedFetch(url, options);
+      return {
+        totalRevenue: responseData.totalRevenue,
+        totalWithdrawn: responseData.totalWithdrawn || 0,
+        netRevenue: responseData.netRevenue || (responseData.totalRevenue - (responseData.totalWithdrawn || 0)),
+        history: responseData.history || [],
+        withdrawals: responseData.withdrawals || [],
+        filter: responseData.filter || filter
+      };
     } catch (error: any) {
-        const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch revenue stats';
-        throw new Error(errorMessage);
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch revenue stats';
+      throw new Error(errorMessage);
     }
   },
 
   async withdrawRevenue(amount: number, destination: string, reference?: string): Promise<RevenueWithdrawal> {
     const url = `${getApiUrl()}/admin/revenue/withdraw`;
     const options = {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ amount, destination, reference }),
-      };
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ amount, destination, reference }),
+    };
 
     try {
       const { responseData } = await instrumentedFetch(url, options);
@@ -88,16 +88,16 @@ export const adminAPI = {
   async getActiveGames(): Promise<GameState[]> {
     const url = `${getApiUrl()}/admin/games/active`;
     const options = {
-        method: 'GET',
-        headers: getAuthHeaders(),
+      method: 'GET',
+      headers: getAuthHeaders(),
     };
 
     try {
-        const { responseData } = await instrumentedFetch(url, options);
-        return responseData.games || [];
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData.games || [];
     } catch (error: any) {
-        const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch active games';
-        throw new Error(errorMessage);
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch active games';
+      throw new Error(errorMessage);
     }
   },
 
@@ -120,8 +120,8 @@ export const adminAPI = {
   async deleteGame(gameId: string): Promise<void> {
     const url = `${getApiUrl()}/admin/matches/${gameId}`;
     const options = {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
+      method: 'DELETE',
+      headers: getAuthHeaders(),
     };
 
     try {
@@ -199,33 +199,33 @@ export const adminAPI = {
   async getUserDetails(userId: string): Promise<UserDetailsResponse> {
     const url = `${getApiUrl()}/admin/user/${userId}/details`;
     const options = {
-        method: 'GET',
-        headers: getAuthHeaders(),
+      method: 'GET',
+      headers: getAuthHeaders(),
     };
 
     try {
-        const { responseData } = await instrumentedFetch(url, options);
-        return responseData;
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
     } catch (error: any) {
-        const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch user details';
-        throw new Error(errorMessage);
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch user details';
+      throw new Error(errorMessage);
     }
   },
 
   async getWalletRequests(): Promise<FinancialRequest[]> {
     const url = `${getApiUrl()}/admin/wallet/requests`;
     const options = {
-        method: 'GET',
-        headers: getAuthHeaders(),
+      method: 'GET',
+      headers: getAuthHeaders(),
     };
 
     try {
       const { responseData } = await instrumentedFetch(url, options);
-      
+
       if (!responseData.success) {
         throw new Error(responseData.error || 'Failed to fetch requests');
       }
-      
+
       return responseData.requests || [];
     } catch (error: any) {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch wallet requests';
@@ -236,26 +236,26 @@ export const adminAPI = {
   async processWalletRequest(requestId: string, action: 'APPROVE' | 'REJECT', comment?: string): Promise<{ request: FinancialRequest; user?: { phone?: string | null } }> {
     const url = `${getApiUrl()}/admin/wallet/request/${requestId}`;
     const options = {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ action, adminComment: comment }),
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ action, adminComment: comment }),
     };
 
     try {
       const { responseData } = await instrumentedFetch(url, options);
       return { request: responseData.request, user: responseData.user };
     } catch (error: any) {
-       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to process wallet request';
-       throw new Error(errorMessage);
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to process wallet request';
+      throw new Error(errorMessage);
     }
   },
 
-  async updateUserBalance(userId: string, amount: number, type: 'deposit' | 'withdrawal', comment?: string): Promise<{ success: boolean; message: string; user: { id: string; username: string; balance: number } }> {
+  async updateUserBalance(userId: string, amount: number, type: 'DEPOSIT' | 'WITHDRAWAL', comment?: string): Promise<{ success: boolean; message: string; user: { id: string; username: string; balance: number } }> {
     const url = `${getApiUrl()}/admin/user/balance-update`;
     const options = {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ userId, amount, type, comment }),
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ userId, amount, type, comment }),
     };
 
     try {
