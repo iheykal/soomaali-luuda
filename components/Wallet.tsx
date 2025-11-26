@@ -37,6 +37,20 @@ const AlertMessage: React.FC<{ message: string }> = ({ message }) => (
     </div>
 );
 
+const PendingRequestMessage: React.FC = () => (
+    <div className="bg-green-500/10 border-2 border-green-500/30 rounded-lg p-4 flex items-center space-x-3 animate-in fade-in slide-in-from-bottom-4 duration-500 mb-4">
+        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <div>
+            <h4 className="font-bold text-green-400">Dalab Hore Ayaa Jira!</h4>
+            <p className="text-sm text-slate-300">walaal dalab hore ayaa dalbatay inta midkaas laga xaqiijinaayo masameen kartid dalab cusub, ama la xariir whatsapp <a href="https://wa.me/252610251014" target="_blank" rel="noopener noreferrer" className="text-blue-300 underline">0610251014</a></p>
+        </div>
+    </div>
+);
+
 const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [amount, setAmount] = useState('');
     const [myRequests, setMyRequests] = useState<FinancialRequest[]>([]);
@@ -46,15 +60,15 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [userLoading, setUserLoading] = useState(true);
     const [showSuccessMessage, setShowSuccessMessage] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [showPendingRequestMessage, setShowPendingRequestMessage] = useState(false); // New state variable
 
     // Payment method state
     const PAYMENT_METHODS = ['EVC-PLUS', 'E-DAHAB', 'GOLIS', 'TELESOM'];
     const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
 
     // Deposit-specific fields
-    const [fullName, setFullName] = useState(user.username || '');
-    const [phoneNumber, setPhoneNumber] = useState(user.phone || '');
-
+    const [fullName, setFullName] = useState(user?.username || '');
+    const [phoneNumber, setPhoneNumber] = useState(user?.phone || '');
     // Fetch current user data from API (source of truth)
     const fetchCurrentUser = async () => {
         try {
@@ -123,8 +137,23 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
         }
     };
 
+    const hasPendingRequest = myRequests.some(req => req.status === 'PENDING');
+
+    useEffect(() => {
+        if (hasPendingRequest) {
+            setShowPendingRequestMessage(true);
+        } else {
+            setShowPendingRequestMessage(false);
+        }
+    }, [hasPendingRequest]);
+
     const handleRequest = async (type: 'DEPOSIT' | 'WITHDRAWAL') => {
         setErrorMessage(null); // Clear previous errors
+        setShowSuccessMessage(false); // Clear previous success
+        setShowPendingRequestMessage(false); // Clear previous pending message
+
+        // Check for existing pending requests
+
         const val = parseFloat(amount);
         if (!val || val <= 0) return;
 
@@ -157,8 +186,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    userId: currentUser?.id || user.id,
-                    userName: currentUser?.username || user.username, // Pass username for auto-sync
+                    userId: currentUser?.id || user?.id,
+                    userName: currentUser?.username || user?.username, // Pass username for auto-sync
                     type,
                     amount: val,
                     paymentMethod,
@@ -174,22 +203,9 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 setTimeout(() => setShowSuccessMessage(false), 4000);
                 setAmount('');
                 // Refresh requests list
-                const refreshResponse = await fetch(`${API_URL}/wallet/my-requests`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
-                if (refreshResponse.ok) {
-                    const refreshData = await refreshResponse.json();
-                    if (refreshData.success && refreshData.requests) {
-                        setMyRequests(refreshData.requests);
-                    }
-                }
-                // Refresh user data and requests
-                await fetchCurrentUser();
                 await fetchRequests();
+                // Refresh user data
+                await fetchCurrentUser();
             } else {
                 setErrorMessage(data.error || 'An error occurred');
                 setTimeout(() => setErrorMessage(null), 5000);
@@ -201,6 +217,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
             setLoading(false);
         }
     };
+
+    console.log('Wallet component rendered');
 
     return (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -239,6 +257,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 <div className="p-6 min-h-[250px]">
                     {showSuccessMessage && <SuccessMessage />}
                     {errorMessage && <AlertMessage message={errorMessage} />}
+                    {showPendingRequestMessage && <PendingRequestMessage />}
                     {tab === 'action' ? (
                         <div className="space-y-6">
                             <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700/50 mb-4">
@@ -295,14 +314,14 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                             <div className="grid grid-cols-2 gap-4">
                                 <button
                                     onClick={() => handleRequest('DEPOSIT')}
-                                    disabled={loading}
+                                    disabled={loading || hasPendingRequest}
                                     className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95 disabled:opacity-50 shadow-lg shadow-green-900/20"
                                 >
                                     {loading ? '...' : 'Deposit'}
                                 </button>
                                 <button
                                     onClick={() => handleRequest('WITHDRAWAL')}
-                                    disabled={loading}
+                                    disabled={loading || hasPendingRequest}
                                     className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95 disabled:opacity-50 shadow-lg shadow-red-900/20"
                                 >
                                     {loading ? '...' : 'Withdraw'}
@@ -349,8 +368,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                                 <div className="flex items-start justify-between mb-3">
                                                     <div className="flex items-center gap-3">
                                                         <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${isDeposit
-                                                                ? 'bg-green-500/20 text-green-400'
-                                                                : 'bg-red-500/20 text-red-400'
+                                                            ? 'bg-green-500/20 text-green-400'
+                                                            : 'bg-red-500/20 text-red-400'
                                                             }`}>
                                                             <span className="text-2xl">
                                                                 {isDeposit ? '💰' : '💸'}

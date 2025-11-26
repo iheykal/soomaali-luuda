@@ -123,15 +123,18 @@ const rateLimiter = (req, res, next) => {
   next();
 };
 
-// CLEANUP: Clear rate limit map every 60 seconds to prevent memory leaks
-// Since the window is only 100ms, clearing every minute is safe and releases memory
-setInterval(() => {
-  if (rateLimit.size > 0) {
-    console.log(`🧹 Clearing rate limit map (${rateLimit.size} entries) to free memory`);
-    rateLimit.clear();
-  }
-}, 60000);
+
+
+
 app.use('/api/', rateLimiter);
+
+// --- BOT SYSTEM: Inactivity Check Loop ---
+// Run every 2 seconds (optimized) to check for AFK/Disconnected players
+setInterval(() => {
+  gameEngine.checkInactivity();
+}, 2000);
+
+
 
 // Database Connection
 const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/ludo-master';
@@ -195,6 +198,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 const apiRouter = express.Router();
+app.use('/api', apiRouter);
 
 // --- GAME REJOIN ROUTES ---
 
@@ -2123,7 +2127,7 @@ const createMatch = async (player1, player2, stake) => {
           } else if (firstPlayer && !firstPlayer.socketId && (firstPlayer.isAI || firstPlayer.isDisconnected)) {
             // Only auto-roll if player has NO socketId AND is marked as AI/disconnected
             console.log(`🤖 First player ${firstPlayer.color} has no socketId and is AI/disconnected, scheduling auto-turn`);
-            scheduleAutoTurn(gameId, 1500);
+            scheduleAutoTurn(gameId, 1000);
           } else if (firstPlayer) {
             // Player exists but state is unclear - default to NO AUTO-ROLL for safety
             console.log(`⚠️ First player ${firstPlayer.color} state unclear (socketId: ${firstPlayer.socketId}, isAI: ${firstPlayer.isAI}, isDisconnected: ${firstPlayer.isDisconnected}) - defaulting to NO AUTO-ROLL`);
@@ -2160,11 +2164,7 @@ const removeFromQueue = (socketId) => {
 // Matchmaking runs immediately when players join (see findMatch function)
 // This eliminates 2 checks per second running 24/7 (saves ~99% CPU on matchmaking)
 
-// Only run once on startup to catch any queued players from a restart
-setTimeout(() => {
-  console.log('🔍 Running initial matchmaking check on startup...');
-  processMatchmaking();
-}, 1000);
+
 
 // --- REAL-TIME GAME LOGIC ---
 
@@ -2226,7 +2226,7 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
                 scheduleHumanPlayerAutoRoll(gameId);
               }
             }
-          }, 1200);
+          }, 800);
         } else if (gameState.legalMoves.length === 1) {
           console.log(`⏱️ One legal move for auto-roll. Moving automatically in 1.2s.`);
           setTimeout(async () => {
@@ -2238,7 +2238,7 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
                 scheduleHumanPlayerAutoRoll(gameId);
               }
             }
-          }, 1200);
+          }, 800);
         }
         // If there are multiple moves, the 18s auto-move timer will handle it
         else {
@@ -2294,7 +2294,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
             scheduleHumanPlayerAutoRoll(gameId);
           } else if (nextPlayer) {
             console.log(`🤖 Auto-move passed turn to AI/bot ${nextPlayer.color}. Scheduling auto-turn.`);
-            scheduleAutoTurn(gameId, 1200);
+            scheduleAutoTurn(gameId, 800);
           }
         }
       } else {
@@ -2309,7 +2309,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
 };
 
 
-const scheduleAutoTurn = async (gameId, delay = 1500) => {
+const scheduleAutoTurn = async (gameId, delay = 1000) => {
   console.log(`🤖 scheduleAutoTurn called for game ${gameId}, delay=${delay}ms`);
 
   // CRITICAL: Before scheduling auto-turn, verify the player is actually AI or disconnected
@@ -2435,10 +2435,10 @@ const runAutoTurn = async (gameId) => {
 
           // Schedule next player's turn if needed
           if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
-            scheduleAutoTurn(gameId, 1500);
+            scheduleAutoTurn(gameId, 1000);
           }
         }
-      }, 1200);
+      }, 800);
       return; // Done with this turn sequence
     }
 
@@ -2462,7 +2462,7 @@ const runAutoTurn = async (gameId) => {
         const nextPlayerFromDb = updatedGameRecord.players[nextPlayerIndex];
         if (nextPlayerFromDb && (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected)) {
           console.log(`🤖 Next player ${nextPlayerFromDb.color} is AI or disconnected, scheduling auto-turn`);
-          scheduleAutoTurn(gameId, 1500); // Next player is also bot/afk
+          scheduleAutoTurn(gameId, 1000); // Next player is also bot/afk
         } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
           console.log(`✅ Next player ${nextPlayerFromDb.color} is human and connected, starting 8s timer`);
           scheduleHumanPlayerAutoRoll(gameId);
@@ -2508,7 +2508,7 @@ const scheduleNextAction = async (gameId) => {
     // Schedule next action
     if (currentPlayer.isAI || currentPlayer.isDisconnected) {
       console.log(`[SCHEDULE] Player is AI/Disconnected. Scheduling auto-turn.`);
-      scheduleAutoTurn(gameId, 1500);
+      scheduleAutoTurn(gameId, 1000);
     } else {
       console.log(`[SCHEDULE] Player is Human. Scheduling auto-roll timer.`);
       scheduleHumanPlayerAutoRoll(gameId);
@@ -2719,12 +2719,12 @@ io.on('connection', (socket) => {
           } else if (currentPlayer.isAI || currentPlayer.isDisconnected) {
             // If it's the rejoining player's turn but they are still AI/disconnected (shouldn't happen after handleJoinGame)
             console.log(`🤖 Post-rejoin check: Reconnected player ${currentPlayer.color} is current player, but still AI/disconnected. Scheduling auto-turn.`);
-            scheduleAutoTurn(gameId, 1500);
+            scheduleAutoTurn(gameId, 1000);
           }
         } else if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
           // If it's another player's turn and they are AI/disconnected
           console.log(`🤖 Post-rejoin check: Current player ${currentPlayer.color} is AI/disconnected (not the rejoining player). Scheduling auto-turn.`);
-          scheduleAutoTurn(gameId, 1500);
+          scheduleAutoTurn(gameId, 1000);
         }
       }
     } else {
@@ -2836,12 +2836,12 @@ io.on('connection', (socket) => {
 
               // Schedule next player's turn if needed (use nextPlayer from above)
               if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
-                scheduleAutoTurn(gameId, 1500);
+                scheduleAutoTurn(gameId, 1000);
               } else if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
                 scheduleHumanPlayerAutoRoll(gameId);
               }
             }
-          }, 1200); // Same delay as local game (1200ms)
+          }, 800); // Same delay as local game (1200ms)
         }
 
         // Check the next player from database, not from the state object
@@ -2977,7 +2977,7 @@ io.on('connection', (socket) => {
         // Ensure state is a plain object
         const plainState = result.state.toObject ? result.state.toObject() : result.state;
         io.to(socket.gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-        
+
         const disconnectedPlayer = result.player;
         if (result.isCurrentTurn && disconnectedPlayer) {
           console.log(`🕒 Player ${disconnectedPlayer.color} disconnected on their turn. Starting 7s bot takeover timer.`);
@@ -2991,7 +2991,7 @@ io.on('connection', (socket) => {
 
           const timer = setTimeout(async () => {
             console.log(`⏰ 7s timer expired for disconnected player ${playerId} in game ${gameId}.`);
-            
+
             const Game = require('./models/Game');
             const game = await Game.findOne({ gameId });
             const player = game.players.find(p => p.userId === playerId);
@@ -3014,37 +3014,29 @@ io.on('connection', (socket) => {
 
     console.log('🔌 Client disconnected:', socket.id);
   });
+
+  // Chat Event
+  socket.on('send_chat', ({ gameId, message }) => {
+    // Broadcast to everyone in the room (including sender)
+    io.to(gameId).emit('chat_message', {
+      senderId: socket.id,
+      message,
+      timestamp: new Date().toISOString()
+    });
+  });
 });
 
 // ... (all your API routes)
 
 // This must be after all other API routes
 // Serve frontend static build when present (same-domain deployment)
-try {
-  const frontendDist = path.join(__dirname, '..', 'dist');
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(frontendDist, 'index.html'));
-    });
-    console.log('✅ Serving frontend from', frontendDist);
-  } else {
-    console.log('ℹ️ Frontend dist not found at', frontendDist);
-  }
-} catch (e) {
-  console.warn('⚠️ Error checking frontend dist:', e.message);
-}
-
-
-// ... (all other API routes)
-
-// This must be after all other API routes
 // Serve frontend static build when present (same-domain deployment)
 try {
   const frontendDist = path.join(__dirname, '..', 'dist');
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
+    // Use regex to avoid "Missing parameter name" error with newer path-to-regexp
+    app.get(/.*/, (req, res) => {
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
     console.log('✅ Serving frontend from', frontendDist);
@@ -3076,71 +3068,13 @@ const performStartupCleanup = async () => {
       }
     );
 
-    console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games. This ensures auto-turns will work if players don't reconnect.`);
+    console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games.`);
   } catch (error) {
     console.error('❌ Startup cleanup failed:', error);
   }
 };
 
-// Scheduled Task: Cleanup Stale Games (Every 6 Hours)
-setInterval(async () => {
-  try {
-    const Game = require('./models/Game');
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    // Find games that are 'ACTIVE' but haven't been updated in 24 hours
-    const staleGames = await Game.find({
-      status: 'ACTIVE',
-      updatedAt: { $lt: twentyFourHoursAgo }
-    });
-
-    if (staleGames.length > 0) {
-      console.log(`🧹 Found ${staleGames.length} stale games to clean up and refund...`);
-      for (const game of staleGames) {
-        const stake = game.stake;
-        if (stake > 0) {
-          for (const player of game.players) {
-            if (player.userId && !player.isAI) {
-              try {
-                const user = await User.findById(player.userId);
-                if (user && user.reservedBalance >= stake) {
-                  user.balance += stake;
-                  user.reservedBalance -= stake;
-                  user.transactions.push({
-                    type: 'game_refund',
-                    amount: stake,
-                    matchId: game.gameId,
-                    description: `Refund for stale/cancelled game ${game.gameId}`
-                  });
-                  await user.save();
-                  console.log(`💰 Refunded ${stake} to user ${user.username} for stale game ${game.gameId}.`);
-                }
-              } catch (refundError) {
-                console.error(`❌ Error refunding user ${player.userId} for stale game ${game.gameId}:`, refundError);
-              }
-            }
-          }
-        }
-        // After attempting refunds, delete the game
-        await Game.deleteOne({ _id: game._id });
-
-        // OPTIMIZATION: Clear any orphaned timers for this game
-        if (humanPlayerTimers.has(game.gameId)) {
-          clearTimeout(humanPlayerTimers.get(game.gameId));
-          humanPlayerTimers.delete(game.gameId);
-          console.log(`🧹 Cleared orphaned timer for stale game ${game.gameId}`);
-        }
-      }
-      console.log(`✅ Finished cleaning up ${staleGames.length} stale games.`);
-    }
-  } catch (err) {
-    console.error('Game cleanup error:', err);
-  }
-}, 6 * 60 * 60 * 1000);
-
 // Start server after ensuring DB connection and performing startup cleanup.
-// We explicitly await the Mongo connection to avoid making DB queries before
-// mongoose is connected (fixes errors like "Cannot call `users.findOne()` before initial connection is complete").
 (async () => {
   try {
     await ensureMongoConnect();
@@ -3172,3 +3106,5 @@ setInterval(async () => {
     }
   });
 })();
+
+

@@ -15,6 +15,12 @@ export interface Token {
   position: TokenPosition;
 }
 
+export interface ChatMessage {
+  senderId: string;
+  message: string;
+  timestamp: string;
+}
+
 export interface Player {
   color: PlayerColor;
   isAI: boolean;

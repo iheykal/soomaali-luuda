@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { MessageCircle } from 'lucide-react';
 import Board from './components/GameBoard';
 import Dice from './components/Dice';
 import GameSetup from './components/GameSetup';
@@ -11,7 +12,7 @@ import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import ResetPassword from './components/auth/ResetPassword';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import type { Player, PlayerColor, MultiplayerGame } from './types';
+import type { Player, PlayerColor, MultiplayerGame, ChatMessage } from './types';
 import { debugService } from './services/debugService';
 import DebugConsole from './components/DebugConsole';
 
@@ -33,7 +34,7 @@ interface MultiplayerConfig {
 
 const AppContent: React.FC = () => {
   const [multiplayerConfig, setMultiplayerConfig] = useState<MultiplayerConfig | null>(null);
-  const { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, isMyTurn, setState } = useGameLogic(multiplayerConfig || undefined);
+  const { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, isMyTurn, setState, socket } = useGameLogic(multiplayerConfig || undefined);
   const { gameStarted, players, currentPlayerIndex, turnState, winners, timer } = state;
   const { user, isAuthenticated, loading: authLoading, refreshUser } = useAuth();
   const [view, setView] = useState<View>('login');
@@ -41,6 +42,42 @@ const AppContent: React.FC = () => {
   const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
   const [showWallet, setShowWallet] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any | null>(null);
+
+  // Chat State
+  const [showChatDropdown, setShowChatDropdown] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [lastMessage, setLastMessage] = useState<{ text: string, senderId: string } | null>(null);
+
+  const PREFILLED_MESSAGES = [
+    "Waa nasiib badantahay",
+    "Haa",
+    "Waakaa badinayaa 😂",
+    "Nasiib-kaa ku caawiyay saxib",
+    "Soo dhawoow",
+    "Haye"
+  ];
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('chat_message', (msg: ChatMessage) => {
+        setChatMessages(prev => [...prev, msg]);
+        setLastMessage({ text: msg.message, senderId: msg.senderId });
+
+        // Clear floating message after 3 seconds
+        setTimeout(() => setLastMessage(null), 3000);
+      });
+    }
+    return () => {
+      if (socket) socket.off('chat_message');
+    };
+  }, [socket]);
+
+  const sendChat = (message: string) => {
+    if (socket && multiplayerConfig?.gameId) {
+      socket.emit('send_chat', { gameId: multiplayerConfig.gameId, message });
+      setShowChatDropdown(false);
+    }
+  };
 
   // Render Super Admin Overlay
   const renderSuperAdminOverlay = () => {
@@ -165,30 +202,37 @@ const AppContent: React.FC = () => {
     }
     setShowSuperAdminOverlay(true);
   };
-  const handleToggleWallet = async () => {
+  const handleToggleWallet = useCallback(() => {
+    // IMMEDIATE UI UPDATE: Toggle wallet visibility first
+    setShowWallet(prev => !prev);
+
+    // Then refresh user data in the background if we are opening it
     if (!showWallet) {
+      console.log('💰 Opening wallet, refreshing user data in background...');
       if (refreshUser) {
-        await refreshUser();
+        refreshUser().catch(err => console.error('Background user refresh failed:', err));
       }
     }
-    setShowWallet(prev => !prev);
-  }
+  }, [showWallet, refreshUser]);
 
-  const handleEnterWallet = async () => {
-    // Refresh user data before showing wallet
-    if (refreshUser) {
-      await refreshUser();
-    }
+  const handleEnterWallet = useCallback(() => {
+    // IMMEDIATE UI UPDATE: Show wallet first
     setShowWallet(true);
-  };
 
-  const handleExitWallet = () => {
+    // Then refresh user data in the background
+    console.log('💰 Entering wallet, refreshing user data in background...');
+    if (refreshUser) {
+      refreshUser().catch(err => console.error('Background user refresh failed:', err));
+    }
+  }, [refreshUser]);
+
+  const handleExitWallet = useCallback(() => {
     setShowWallet(false);
     // Refresh user data after wallet operations
     if (refreshUser) {
       refreshUser();
     }
-  };
+  }, [refreshUser]);
 
   const handleLoginSuccess = () => {
     // Check if user is Super Admin and redirect to dashboard
@@ -454,6 +498,8 @@ const AppContent: React.FC = () => {
             onAnimationComplete={handleAnimationComplete}
             isMyTurn={isMyTurn}
             perspectiveColor={perspectiveColor}
+            gameId={multiplayerConfig?.gameId}
+            socket={socket}
           />
         </div>
 
@@ -470,6 +516,42 @@ const AppContent: React.FC = () => {
             turnState={state.turnState}
             potAmount={state.stake ? state.stake * 2 * 0.9 : 0}
           />
+
+          {/* Chat Button - Next to Dice */}
+          <div className="absolute -right-16 top-1/2 transform -translate-y-1/2 z-50">
+            <div className="relative">
+              {showChatDropdown && (
+                <div className="absolute bottom-14 right-0 w-48 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-5 z-[60]">
+                  {PREFILLED_MESSAGES.map((msg, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => sendChat(msg)}
+                      className="px-3 py-2 text-left text-slate-200 hover:bg-slate-700 hover:text-white border-b border-slate-700/50 last:border-0 transition-colors text-xs font-medium"
+                    >
+                      {msg}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setShowChatDropdown(!showChatDropdown)}
+                className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95 border-2 border-blue-400"
+                title="Chat"
+              >
+                <MessageCircle size={20} />
+              </button>
+            </div>
+          </div>
+
+          {/* Global Chat Toast */}
+          {lastMessage && (
+            <div className="absolute -top-20 left-1/2 transform -translate-x-1/2 z-[70] animate-bounce w-max max-w-[200px]">
+              <div className="bg-white/90 text-slate-900 px-4 py-2 rounded-full shadow-xl border-2 border-yellow-400 font-bold text-sm flex items-center gap-2">
+                <MessageCircle size={16} className="text-blue-500 shrink-0" />
+                <span className="truncate">{lastMessage.text}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Bottom Left: Red */}

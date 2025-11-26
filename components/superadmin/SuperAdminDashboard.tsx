@@ -5,6 +5,7 @@ import Board from '../GameBoard';
 import { useGameLogic } from '../../hooks/useGameLogic';
 import html2canvas from 'html2canvas';
 import TransactionReceipt from '../TransactionReceipt';
+import Fuse from 'fuse.js';
 
 // --- Spectator Modal Component ---
 const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gameId, onClose }) => {
@@ -675,7 +676,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     onClick={() => setSortOption('balance_desc')}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
                   >
-                    Filter: Richest
+                    Sort by Most Balance
                   </button>
                 </div>
                 <div className="flex-shrink-0 self-end">
@@ -683,7 +684,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     onClick={() => setSortOption('wins_desc')}
                     className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-all text-sm font-medium shadow-sm hover:shadow-md"
                   >
-                    Filter: Top Winners
+                    Sort by Most Wins
                   </button>
                 </div>
               </div>

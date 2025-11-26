@@ -222,17 +222,18 @@ const calculateLegalMoves = (gameState, diceValue) => {
                 // Check what's on the destination square
                 const tokensAtFinalIndex = gameState.tokens.filter(t => t.position.type === 'PATH' && t.position.index === finalIndex);
                 const opponentTokensAtFinalIndex = tokensAtFinalIndex.filter(t => t.color !== currentPlayer.color);
-                const ownTokensAtFinalIndex = tokensAtFinalIndex.filter(t => t.color === currentPlayer.color);
 
-                // A blockade is formed by 2 or more opponent pawns of the same color on a non-safe square
-                const isBlockade = opponentTokensAtFinalIndex.length >= 2 && 
-                                   opponentTokensAtFinalIndex.every(t => t.color === opponentTokensAtFinalIndex[0].color) &&
-                                   !SAFE_SQUARES.includes(finalIndex);
+                // Blockade Rule: 2 or more opponent pawns on ANY square (safe or not) form a blockade? 
+                // Standard Ludo: Blockades usually only form if 2+ pawns. 
+                // User prompt says: "Unable to move pawns when multiple pawns (both player and opponent) illegally occupy same square"
+                // We will stick to: 2+ opponent pawns = Blockade.
+                const isBlockade = opponentTokensAtFinalIndex.length >= 2 &&
+                    opponentTokensAtFinalIndex.every(t => t.color === opponentTokensAtFinalIndex[0].color);
 
-                // Cannot land on a square occupied by your own token
-                const isOccupiedBySelf = ownTokensAtFinalIndex.length > 0;
+                // Self-occupation: Standard Ludo allows infinite stacking of own pawns.
+                // We allow moving there.
 
-                if (!isBlockade && !isOccupiedBySelf) {
+                if (!isBlockade) {
                     moves.push({ tokenId: token.id, finalPosition: { type: 'PATH', index: finalIndex } });
                 }
                 // --- END FIX ---
@@ -354,18 +355,117 @@ exports.handleDisconnect = async (gameId, socketId) => {
     }
 };
 
+// --- BOT / INACTIVITY SYSTEM ---
+
+/**
+ * Checks all active games for inactive players and triggers auto-play.
+ * Should be called periodically (e.g., every 1 second) from server.js.
+ */
+exports.checkInactivity = async () => {
+    try {
+        // Find active games where it's a human's turn
+        const games = await Game.find({
+            status: 'ACTIVE',
+            turnState: { $in: ['ROLLING', 'MOVING'] }
+        });
+
+        const now = Date.now();
+        const TIMEOUT_MS = 30000; // 30 seconds allowed per turn
+
+        for (const game of games) {
+            const player = game.players[game.currentPlayerIndex];
+
+            // Skip if player is already AI (handled by local loop or separate logic) 
+            // OR if player is disconnected (handled by handleDisconnect/Auto logic immediately)
+            // But if they are disconnected, we DO want to auto-play for them.
+
+            if (!player) continue;
+
+            // If player is marked as disconnected, we treat them as a bot immediately.
+            // If player is connected but taking too long, we also treat them as a bot for this turn.
+
+            const lastActionTime = new Date(game.updatedAt).getTime();
+
+            // Define timeouts locally to avoid ReferenceError
+            const ROLL_TIMEOUT = 7000;
+            const MOVE_TIMEOUT = 18000;
+
+            const timeout = game.turnState === 'ROLLING' ? ROLL_TIMEOUT : MOVE_TIMEOUT;
+            const isTimedOut = (now - lastActionTime) > timeout;
+
+            if (player.isDisconnected || isTimedOut) {
+                // console.log(`🤖 Bot taking over for ${player.color} in game ${game.gameId} (Disconnected: ${player.isDisconnected}, TimedOut: ${isTimedOut})`);
+
+                if (game.turnState === 'ROLLING') {
+                    // Auto Roll
+                    await exports.handleAutoRoll(game.gameId, true); // Force=true to override socket check
+                } else if (game.turnState === 'MOVING') {
+                    // Auto Move
+                    await exports.handleAutoMove(game.gameId);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error in checkInactivity:', error);
+    }
+};
+
+// --- Normal Gameplay (Human) ---
+
+// --- Atomic Update Helper ---
+
+/**
+ * Applies an update to a game with optimistic concurrency control.
+ * Retries if a VersionError occurs.
+ * 
+ * @param {string} gameId - The ID of the game to update.
+ * @param {Function} updateFn - A function that takes the current game state and modifies it. 
+ *                              Should return an object { success: boolean, message?: string, result?: any }.
+ *                              If it returns success: false, the update is aborted.
+ * @param {number} maxRetries - Maximum number of retries (default 3).
+ */
+const applyAtomicUpdate = async (gameId, updateFn, maxRetries = 3) => {
+    let attempts = 0;
+    while (attempts < maxRetries) {
+        try {
+            const game = await Game.findOne({ gameId });
+            if (!game) return { success: false, message: 'Game not found' };
+
+            // Apply the update logic
+            const result = await updateFn(game);
+
+            if (!result.success) {
+                return result; // Abort if logic says so (e.g. illegal move)
+            }
+
+            // Attempt to save
+            await game.save();
+            return { success: true, state: game.toObject ? game.toObject() : game, ...result };
+
+        } catch (error) {
+            if (error.name === 'VersionError') {
+                attempts++;
+                console.warn(`⚠️ VersionError in game ${gameId} (attempt ${attempts}/${maxRetries}). Retrying...`);
+                if (attempts >= maxRetries) {
+                    console.error(`❌ Failed to update game ${gameId} after ${maxRetries} attempts due to VersionError.`);
+                    return { success: false, message: 'Server busy, please try again.' };
+                }
+                // Short random delay to reduce contention
+                await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+            } else {
+                console.error(`❌ Error updating game ${gameId}:`, error);
+                return { success: false, message: error.message || 'Internal server error' };
+            }
+        }
+    }
+};
+
 // --- Normal Gameplay (Human) ---
 
 exports.handleRollDice = async (gameId, socketId) => {
     console.log(`🎲 handleRollDice called: gameId=${gameId}, socketId=${socketId}`);
 
-    try {
-        const game = await Game.findOne({ gameId });
-        if (!game) {
-            console.log(`❌ Game not found: ${gameId}`);
-            return { success: false, message: 'Game not found' };
-        }
-
+    return applyAtomicUpdate(gameId, async (game) => {
         if (game.status === 'COMPLETED' || game.turnState === 'GAMEOVER') {
             return { success: false, message: 'Game is already over' };
         }
@@ -383,159 +483,159 @@ exports.handleRollDice = async (gameId, socketId) => {
             return { success: false, message: 'Not in ROLLING state' };
         }
 
-        // --- Perform the roll (NO SAVE - state is in memory only) ---
-        executeRollDice(game); // Modifies 'game' in place. `diceValue` is now set.
+        // --- Perform the roll ---
+        executeRollDice(game); // Modifies 'game' in place.
 
-        // OPTIMIZATION: Don't save here - let the move handler save the final state
-        await game.save();
-
-        const plainState = game.toObject ? game.toObject() : game;
-        return { success: true, state: plainState };
-    } catch (error) {
-        console.error(`❌ Error in handleRollDice for game ${gameId}:`, error);
-        return { success: false, message: error.message || 'Error rolling dice' };
-    }
+        return { success: true };
+    });
 };
 
 exports.handleMoveToken = async (gameId, socketId, tokenId) => {
-    try {
-        const game = await Game.findOne({ gameId });
-        if (!game) return { success: false, message: 'Game not found' };
-
+    return applyAtomicUpdate(gameId, async (game) => {
         const player = game.players[game.currentPlayerIndex];
         if (player.socketId !== socketId) return { success: false, message: 'Not your turn' };
 
-        // Execute the move in memory
-        const { success, state: updatedGameState, settlementPromise, message } = executeMoveToken(game, tokenId);
+        // Execute the move
+        const { success, settlementPromise, message } = executeMoveToken(game, tokenId);
 
         if (!success) {
             return { success: false, message };
         }
 
         // If there's a settlement promise, await it.
+        // Note: In a retry loop, this might be executed multiple times if save fails.
+        // However, settlementProcessed flag in processGameSettlement prevents double payout.
         if (settlementPromise) {
             await settlementPromise;
         }
 
-        // OPTIMIZATION: Save only after move completes (includes roll + move)
-        await updatedGameState.save();
-
-        const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
-
-        return { success: true, state: plainState };
-    } catch (error) {
-        console.error(`❌ Error in handleMoveToken for game ${gameId}:`, error);
-        return { success: false, message: error.message || 'Error moving token' };
-    }
+        return { success: true };
+    });
 };
 
 // --- Autopilot / Bot Logic ---
 
 exports.handleAutoRoll = async (gameId, force = false) => {
-    const game = await Game.findOne({ gameId });
-    if (!game) return { success: false, message: 'Game not found' };
+    return applyAtomicUpdate(gameId, async (game) => {
+        // SPAM PREVENTION: Check if turn state is actually ROLLING
+        if (game.turnState !== 'ROLLING') {
+            return { success: false, message: 'Not in rolling state' };
+        }
 
-    const currentPlayer = game.players[game.currentPlayerIndex];
-    if (!currentPlayer) return { success: false, message: 'No current player' };
+        // SPAM PREVENTION: Cooldown check (minimum 2 seconds between actions)
+        const now = Date.now();
+        const lastActionTime = new Date(game.updatedAt).getTime();
+        // Reduced cooldown to 1s to make game faster
+        if (now - lastActionTime < 1000) {
+            return { success: false, message: 'Cooldown active' };
+        }
 
-    // The 'force' flag from the server timer overrides the socket check
-    if (currentPlayer.socketId && !force) {
-        console.log(`🚫 BLOCKED: Auto-roll for connected player ${currentPlayer.color}`);
-        return { success: false, message: 'Cannot auto-roll for active player' };
-    }
+        const currentPlayer = game.players[game.currentPlayerIndex];
+        if (!currentPlayer) return { success: false, message: 'No current player' };
 
-    if (game.turnState !== 'ROLLING') {
-        return { success: false, message: 'Not in rolling state' };
-    }
+        // The 'force' flag from the server timer overrides the socket check
+        if (currentPlayer.socketId && !force) {
+            console.log(`🚫 BLOCKED: Auto-roll for connected player ${currentPlayer.color}`);
+            return { success: false, message: 'Cannot auto-roll for active player' };
+        }
 
-    console.log(`🤖 Auto-rolling for ${currentPlayer.color}...`);
-    game.message = `${currentPlayer.color} (Auto) is rolling...`;
+        console.log(`🤖 Auto-rolling for ${currentPlayer.color}...`);
+        game.message = `${currentPlayer.color} (Auto) is rolling...`;
 
-    // Perform the roll and calculate moves in memory
-    executeRollDice(game); // Modifies 'game' in place
+        // Perform the roll
+        const diceValue = crypto.randomInt(1, 7);
+        game.diceValue = diceValue;
 
-    // OPTIMIZATION: Don't save for auto-roll - state is temporary
-    // await game.save();
+        // Calculate legal moves
+        const moves = calculateLegalMoves(game, diceValue);
 
-    return { success: true, state: game.toObject ? game.toObject() : game };
+        // CRITICAL FIX: Save legal moves to state immediately so frontend receives them
+        game.legalMoves = moves;
+
+        if (moves.length === 0) {
+            // No moves possible
+            game.message = `Rolled ${diceValue}. No moves possible.`;
+            game.turnState = 'ROLLING'; // Reset for next player
+            game.currentPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, false); // No extra turn for 6 if no moves
+            game.diceValue = null;
+            game.legalMoves = [];
+        } else {
+            game.turnState = 'MOVING';
+            game.message = `Rolled ${diceValue}. Select a token to move.`;
+        }
+
+        // Update timestamp for timer reset
+        game.markModified('updatedAt'); // Ensure timestamp updates
+
+        return { success: true };
+    });
 };
 
 exports.handleAutoMove = async (gameId) => {
-    const game = await Game.findOne({ gameId });
-    if (!game) return { success: false, message: 'Game not found' };
+    return applyAtomicUpdate(gameId, async (game) => {
+        if (game.turnState !== 'MOVING') {
+            return { success: false, message: 'Not in moving state' };
+        }
 
-    if (game.turnState !== 'MOVING') {
-        return { success: false, message: 'Not in moving state' };
-    }
+        const moves = game.legalMoves;
+        if (!moves || moves.length === 0) {
+            console.log(`🤖 Auto-move called with no legal moves. Passing turn.`);
+            const grantExtraTurn = game.diceValue === 6;
+            const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
+            game.currentPlayerIndex = nextPlayerIndex;
+            game.turnState = 'ROLLING';
+            game.diceValue = null;
+            game.legalMoves = [];
+            return { success: true };
+        }
 
-    const moves = game.legalMoves;
-    if (!moves || moves.length === 0) {
-        // This case should ideally be handled by auto-passing the turn.
-        // But if we get here, we pass the turn.
-        console.log(`🤖 Auto-move called with no legal moves. Passing turn.`);
-        const grantExtraTurn = game.diceValue === 6;
+        let bestMove = moves[0];
+        const currentPlayer = game.players[game.currentPlayerIndex];
+
+        for (const move of moves) {
+            if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
+                const occupied = game.tokens.some(t =>
+                    t.color !== currentPlayer.color &&
+                    t.position.type === 'PATH' &&
+                    t.position.index === move.finalPosition.index
+                );
+                if (occupied) { bestMove = move; break; }
+            }
+            if (move.finalPosition.type === 'HOME') {
+                bestMove = move;
+            }
+        }
+
+        console.log(`🤖 Auto-moving for ${currentPlayer.color}. Best move: ${bestMove.tokenId}`);
+        const moveResult = executeMoveToken(game, bestMove.tokenId);
+
+        if (moveResult.settlementPromise) {
+            await moveResult.settlementPromise;
+        }
+
+        return { success: true };
+    });
+};
+
+exports.handlePassTurn = async (gameId) => {
+    return applyAtomicUpdate(gameId, async (game) => {
+        // This function is called when a player has no legal moves after a roll.
+        // We pass the turn to the next player.
+
+        // A roll of 6, even with no moves, should not grant an extra turn if no move can be made to capitalize on it.
+        const grantExtraTurn = false;
+
         const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
         game.currentPlayerIndex = nextPlayerIndex;
         game.turnState = 'ROLLING';
         game.diceValue = null;
         game.legalMoves = [];
-        // OPTIMIZATION: Don't save for pass turn - next action will save
-        // await game.save();
-        return { success: true, state: game.toObject ? game.toObject() : game };
-    }
 
-    let bestMove = moves[0];
-    const currentPlayer = game.players[game.currentPlayerIndex];
+        const nextPlayer = game.players[nextPlayerIndex];
+        game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color}...`;
 
-    for (const move of moves) {
-        if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
-            const occupied = game.tokens.some(t =>
-                t.color !== currentPlayer.color &&
-                t.position.type === 'PATH' &&
-                t.position.index === move.finalPosition.index
-            );
-            if (occupied) { bestMove = move; break; }
-        }
-        if (move.finalPosition.type === 'HOME') {
-            bestMove = move;
-        }
-    }
-
-    console.log(`🤖 Auto-moving for ${currentPlayer.color}. Best move: ${bestMove.tokenId}`);
-    const moveResult = executeMoveToken(game, bestMove.tokenId);
-
-    if (moveResult.settlementPromise) {
-        await moveResult.settlementPromise;
-    }
-
-    // OPTIMIZATION: Save only for auto-move (final action in turn)
-    await game.save();
-
-    return { success: true, state: game.toObject ? game.toObject() : game };
-};
-
-exports.handlePassTurn = async (gameId) => {
-    const game = await Game.findOne({ gameId });
-    if (!game) return { success: false, message: 'Game not found' };
-
-    // This function is called when a player has no legal moves after a roll.
-    // We pass the turn to the next player.
-
-    // A roll of 6, even with no moves, should not grant an extra turn if no move can be made to capitalize on it.
-    const grantExtraTurn = false;
-
-    const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
-    game.currentPlayerIndex = nextPlayerIndex;
-    game.turnState = 'ROLLING';
-    game.diceValue = null;
-    game.legalMoves = [];
-
-    const nextPlayer = game.players[nextPlayerIndex];
-    game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color}...`;
-
-    // OPTIMIZATION: Save for pass turn (end of turn sequence)
-    await game.save();
-    return { success: true, state: game.toObject ? game.toObject() : game };
+        return { success: true };
+    });
 };
 
 
@@ -586,25 +686,34 @@ function executeMoveToken(game, tokenId) {
     });
 
     // Capture Logic
-    if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
+    // Capture Logic
+    if (move.finalPosition.type === 'PATH') {
         const targetPos = move.finalPosition.index;
-        const opponentTokensAtTarget = game.tokens.filter(t =>
-            t.color !== player.color &&
-            t.position.type === 'PATH' &&
-            t.position.index === targetPos
-        );
+        const isSafeZone = SAFE_SQUARES.includes(targetPos);
 
-        // A blockade is formed by 2 or more opponent pawns of the same color.
-        const isBlockade = opponentTokensAtTarget.length > 1 && opponentTokensAtTarget.every(t => t.color === opponentTokensAtTarget[0].color);
+        if (!isSafeZone) {
+            // KILL RULE: If not safe zone, remove ALL opponent tokens at this position
+            const opponentTokensAtTarget = game.tokens.filter(t =>
+                t.color !== player.color &&
+                t.position.type === 'PATH' &&
+                t.position.index === targetPos
+            );
 
-        if (!isBlockade && opponentTokensAtTarget.length > 0) {
-            captured = true;
-            const victimIds = opponentTokensAtTarget.map(vt => vt.id);
-            game.tokens.forEach(t => {
-                if (victimIds.includes(t.id)) {
-                    t.position = { type: 'YARD', index: parseInt(t.id.split('-')[1]) };
-                }
-            });
+            if (opponentTokensAtTarget.length > 0) {
+                console.log(`⚔️ COMBAT: ${player.color} landed on ${targetPos} (Non-Safe). Killing ${opponentTokensAtTarget.length} opponents.`);
+                captured = true;
+                const victimIds = opponentTokensAtTarget.map(vt => vt.id);
+                game.tokens = game.tokens.map(t => {
+                    if (victimIds.includes(t.id)) {
+                        // Send back to yard
+                        return { ...t, position: { type: 'YARD', index: parseInt(t.id.split('-')[1]) } };
+                    }
+                    return t;
+                });
+                game.message = `${player.username || player.color} killed ${opponentTokensAtTarget[0].color}!`;
+            }
+        } else {
+            console.log(`🛡️ SAFE ZONE: ${player.color} landed on ${targetPos}. No combat.`);
         }
     }
 
@@ -631,6 +740,7 @@ function executeMoveToken(game, tokenId) {
         }
     }
 
+    // FIX: Rolling a 6 ALWAYS grants an extra turn, regardless of other conditions
     const grantExtraTurn = game.diceValue === 6 || captured || move.finalPosition.type === 'HOME';
 
     // console.log(`🎯 Move completed: diceValue=${game.diceValue}, grantExtraTurn=${grantExtraTurn}, captured=${captured}, reachedHome=${move.finalPosition.type === 'HOME'}`);

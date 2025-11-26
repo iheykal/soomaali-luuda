@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Trophy, Home, User, Volume2, VolumeX } from 'lucide-react';
 import type { GameState, PlayerColor, Token, LegalMove } from '../types';
 import {
   PLAYER_TAILWIND_COLORS,
@@ -13,6 +14,7 @@ import {
   getAnimationPath,
   calculatePathBetween,
 } from '../lib/boardLayout';
+import { playSound } from '../utils/sound';
 
 interface BoardProps {
   gameState: GameState;
@@ -20,6 +22,8 @@ interface BoardProps {
   onAnimationComplete: () => void;
   isMyTurn: boolean;
   perspectiveColor?: PlayerColor;
+  gameId?: string;
+  socket?: any; // Socket instance for chat
 }
 
 // Helper hook to get the previous value of a prop or state
@@ -32,7 +36,7 @@ function usePrevious<T>(value: T): T | undefined {
 }
 
 
-const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red' }) => {
+const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red', gameId, socket }) => {
   const { tokens, legalMoves, diceValue, turnState } = gameState;
 
   // console.log(`🎯 Board render: legalMoves=${legalMoves?.length || 0}, diceValue=${diceValue}, turnState=${turnState}, isMyTurn=${isMyTurn}`);
@@ -43,6 +47,8 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
   const cellSize = size / 15;
   const [animation, setAnimation] = useState<{ tokenId: string, tokenColor: PlayerColor, path: { x: number, y: number }[], step: number } | null>(null);
   const prevTokens = usePrevious(tokens);
+
+
 
   useEffect(() => {
     // REMOVED: turnState !== 'ANIMATING' check to allow animation even if server quickly transitions to ROLLING
@@ -285,8 +291,41 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
     )
   }
 
+  const renderPlayerStatus = () => {
+    return gameState.players.map((player) => {
+      if (!player.isDisconnected) return null;
+
+      let x = 0;
+      let y = 0;
+      // Center of bases
+      switch (player.color) {
+        case 'green': x = cellSize * 3; y = cellSize * 3; break;
+        case 'yellow': x = cellSize * 12; y = cellSize * 3; break;
+        case 'red': x = cellSize * 3; y = cellSize * 12; break;
+        case 'blue': x = cellSize * 12; y = cellSize * 12; break;
+      }
+
+      return (
+        <g key={`status-${player.color}`} transform={`translate(${toPx(x)}, ${toPx(y)})`}>
+          <rect x={-60} y={-20} width={120} height={40} rx={20} fill="rgba(0,0,0,0.7)" />
+          <text
+            x={0}
+            y={5}
+            textAnchor="middle"
+            fill="white"
+            fontSize={16}
+            fontWeight="bold"
+            style={{ pointerEvents: 'none' }}
+          >
+            Bot Playing
+          </text>
+        </g>
+      );
+    });
+  };
+
   return (
-    <div className="aspect-square w-full lg:w-auto lg:h-full max-w-full bg-gray-200 p-2 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="relative aspect-square w-full lg:w-auto lg:h-full max-w-full bg-gray-200 p-2 rounded-2xl shadow-2xl overflow-hidden">
       <svg
         viewBox={`0 0 ${size} ${size}`}
         style={{
@@ -309,10 +348,12 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
         {renderTokens()}
         {renderMovableIndicators()}
         {renderAnimatedToken()}
+        {renderPlayerStatus()}
       </svg>
+
+      {/* Chat Removed - Moved to App.tsx */}
     </div>
   );
 });
 
 export default Board;
-

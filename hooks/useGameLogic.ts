@@ -618,7 +618,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             debugService.game({ event: 'ai_thinking', action: 'roll' });
             timeoutId = setTimeout(() => {
                 handleRollDice();
-            }, 300);
+            }, 1500); // Increased from 300ms to 1.5s for better visibility
         } else if (turnState === 'MOVING') {
             debugService.game({ event: 'ai_thinking', action: 'move' });
             timeoutId = setTimeout(() => {
@@ -627,7 +627,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                     debugService.game({ event: 'ai_move', move: randomMove });
                     handleMoveToken(randomMove.tokenId);
                 }
-            }, 500);
+            }, 2000); // Increased from 500ms to 2s for better visibility
         }
 
         return () => clearTimeout(timeoutId);
@@ -694,5 +694,5 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         prevStateRef.current = state;
     }, [state]);
 
-    return { state, timer, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn };
+    return { state, timer, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn, socket };
 };
