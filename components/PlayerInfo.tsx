@@ -45,7 +45,9 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({ player, tokens, isCurrentPlayer
         )}
       </div>
       <div className="mt-2 flex space-x-2">
-        {/* Token dots removed as per user request */}
+        {Array.from({ length: playerTokens.length }).map((_, i) => (
+          <div key={i} className={`w-6 h-6 rounded-full ${i < homeCount ? colors.bg : 'bg-slate-600'} border-2 ${colors.border.replace(/-[0-9]+/, '-700')}`}></div>
+        ))}
       </div>
       {isCurrentPlayer && message && (
         <div className="mt-3 pt-3 border-t border-slate-700">

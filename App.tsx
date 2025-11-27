@@ -362,7 +362,8 @@ const AppContent: React.FC = () => {
               </div>
             </div>
           )}
-          <div className="flex-shrink-0 p-4 flex justify-between items-start">
+          {/* PlayerInfo cards removed as per user request */}
+          {/* <div className="flex-shrink-0 p-4 flex justify-between items-start">
             <div className="flex gap-2 flex-wrap">
               {players.map((p, i) => (
                 <PlayerInfo
@@ -378,6 +379,15 @@ const AppContent: React.FC = () => {
             <button
               onClick={handleRestart}
               className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition h-10"
+            >
+              Exit Game
+            </button>
+          </div> */}
+
+          <div className="absolute top-4 right-4">
+            <button
+              onClick={handleRestart}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition shadow-lg"
             >
               Exit Game
             </button>
