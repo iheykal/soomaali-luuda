@@ -28,8 +28,15 @@ class AudioService {
    * Initialize audio service and preload sounds
    */
   constructor() {
-    // Preload dice roll sound
     this.loadSound('diceRoll', '/audio/sfx_dice_roll.mp3');
+    this.loadSound('tokenKilled', '/audio/sfx_token_killed.mp3');
+    this.loadSound('inHome', '/audio/sfx_in_home.mp3');
+    this.loadSound('tokenMove', '/audio/sfx_token_move.mp3');
+    this.loadSound('win', '/audio/sfx_win.mp3');
+    this.loadSound('click', '/audio/sfx_click.mp3');
+    this.loadSound('clock', '/audio/sfx_clock.mp3');
+    this.loadSound('my_turn', '/audio/sfx_my_turn.mp3');
+    this.loadSound('opp_turn', '/audio/sfx_opp_turn.mp3');
   }
 
   /**

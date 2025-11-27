@@ -5,7 +5,7 @@ const UserSchema = new mongoose.Schema({
   _id: String, // Explicitly define _id as String to allow frontend-generated IDs (e.g., 'u123456')
   username: { type: String, required: true, unique: true },
   phone: { type: String, sparse: true, unique: true }, // Phone number for login - sparse allows multiple nulls
-  password: { type: String, required: true }, 
+  password: { type: String, required: true },
   email: { type: String },
   balance: { type: Number, default: 100.00 },
   reservedBalance: { type: Number, default: 0 }, // For holding bets during matches
@@ -24,15 +24,19 @@ const UserSchema = new mongoose.Schema({
     totalLosses: { type: Number, default: 0 },
   },
   transactions: [{
-      type: {
-          type: String,
-          enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake']
-      },
-      amount: Number,
-      matchId: String,
-      description: String,
-      createdAt: { type: Date, default: Date.now }
+    type: {
+      type: String,
+      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake']
+    },
+    amount: Number,
+    matchId: String,
+    description: String,
+    createdAt: { type: Date, default: Date.now }
   }]
 }, { _id: false }); // Important: Disable auto-generated ObjectId to use our String _id
+
+// ===== INDEX OPTIMIZATION =====
+// Compound index for admin dashboard (filter by role and status)
+UserSchema.index({ role: 1, status: 1 });
 
 module.exports = mongoose.model('User', UserSchema);

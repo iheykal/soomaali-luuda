@@ -24,7 +24,7 @@ const GameSchema = new mongoose.Schema({
   gameId: { type: String, unique: true, required: true },
   players: [PlayerSchema],
   tokens: [TokenSchema],
-  
+
   // Game State
   currentPlayerIndex: { type: Number, default: 0 },
   diceValue: { type: Number, default: null },
@@ -33,13 +33,13 @@ const GameSchema = new mongoose.Schema({
   winners: [String],
   message: String,
   timer: { type: Number, default: 7 },
-  
+
   // Legal moves calculated by server
   legalMoves: [{
     tokenId: String,
     finalPosition: {
-       type: { type: String },
-       index: Number
+      type: { type: String },
+      index: Number
     }
   }],
 
@@ -49,5 +49,21 @@ const GameSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
+
+// ===== INDEX OPTIMIZATION =====
+// Compound index for finding active/completed games sorted by date
+GameSchema.index({ status: 1, createdAt: -1 });
+
+// Compound index for finding user's active games (common query)
+GameSchema.index({ 'players.userId': 1, status: 1 });
+
+// TTL index: Auto-delete completed games after 30 days to save storage
+GameSchema.index(
+  { createdAt: 1 },
+  {
+    expireAfterSeconds: 2592000, // 30 days
+    partialFilterExpression: { status: 'COMPLETED' }
+  }
+);
 
 module.exports = mongoose.model('Game', GameSchema);

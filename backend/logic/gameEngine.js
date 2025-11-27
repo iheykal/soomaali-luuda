@@ -563,27 +563,41 @@ function executeMoveToken(game, tokenId) {
         return t;
     });
 
-    // Capture Logic
-    if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
-        const targetPos = move.finalPosition.index;
-        const opponentTokensAtTarget = game.tokens.filter(t => 
-            t.color !== player.color &&
-            t.position.type === 'PATH' &&
-            t.position.index === targetPos
-        );
-
-        if (opponentTokensAtTarget.length === 1) {
-            const victim = opponentTokensAtTarget[0];
-            captured = true;
-            game.tokens = game.tokens.map(t => {
-                if (t.id === victim.id) {
-                    t.position = { type: 'YARD', index: parseInt(t.id.split('-')[1]) };
-                }
-                return t;
-            });
+        // Capture Logic
+        if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
+            const targetPos = move.finalPosition.index;
+            const opponentTokensAtTarget = game.tokens.filter(t =>
+                t.color !== player.color &&
+                t.position.type === 'PATH' &&
+                t.position.index === targetPos
+            );
+    
+            // ADD COMBAT BUG DEBUG LOGGING HERE
+            console.log("=== COMBAT BUG DEBUG ===");
+            console.log("Moving to:", targetPos);
+            console.log("Is Safe Zone (from SAFE_SQUARES):", SAFE_SQUARES.includes(targetPos));
+            const allOccupants = game.tokens.filter(t => t.position.type === 'PATH' && t.position.index === targetPos);
+            console.log("Current Occupants (before potential kill):", allOccupants.map(o => ({ id: o.id, color: o.color, pos: o.position })));
+            const hasOpponentOccupants = opponentTokensAtTarget.length > 0;
+            console.log("Opponent Occupants (filtered for moving player):", opponentTokensAtTarget.map(o => ({ id: o.id, color: o.color })));
+            console.log("Combat Should Trigger (conditions: !isSafeZone && hasOpponentOccupants):", !SAFE_SQUARES.includes(targetPos) && hasOpponentOccupants);
+            console.log("--------------------------");
+    
+    
+            if (opponentTokensAtTarget.length > 0) { // CHANGED from === 1 to > 0
+                console.log(`⚔️ COMBAT: ${player.color} landed on ${targetPos} (Non-Safe). Killing ${opponentTokensAtTarget.length} opponent(s).`);
+                captured = true;
+                const victimIds = opponentTokensAtTarget.map(vt => vt.id); // Get all victim IDs
+                game.tokens = game.tokens.map(t => {
+                    if (victimIds.includes(t.id)) { // Check if token is one of the victims
+                        // Send back to yard
+                        return { ...t, position: { type: 'YARD', index: parseInt(t.id.split('-')[1]) } };
+                    }
+                    return t;
+                });
+                game.message = `${player.username || player.color} killed ${opponentTokensAtTarget[0].color} token(s)!`; // Updated message
+            }
         }
-    }
-
     // This is an async operation that needs to be handled by the caller.
     let settlementPromise = null;
 

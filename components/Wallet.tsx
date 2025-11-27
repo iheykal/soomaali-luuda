@@ -37,8 +37,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
 
     // Deposit-specific fields
-    const [fullName, setFullName] = useState(user.username || '');
-    const [phoneNumber, setPhoneNumber] = useState(user.phone || '');
+    const [fullName, setFullName] = useState(user?.username || '');
+    const [phoneNumber, setPhoneNumber] = useState(user?.phone || '');
 
     // Fetch current user data from API (source of truth)
     const fetchCurrentUser = async () => {
@@ -80,38 +80,38 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
 
     // Fetch requests from API
     const fetchRequests = async () => {
-            try {
-                const token = localStorage.getItem('ludo_token');
-                if (!token) {
-                    console.warn('No auth token found');
-                    return;
-                }
-
-                const response = await fetch(`${API_URL}/wallet/my-requests`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success && data.requests) {
-                        setMyRequests(data.requests);
-                    }
-                } else {
-                    console.error('Failed to fetch requests');
-                }
-            } catch (error) {
-                console.error('Error fetching requests:', error);
+        try {
+            const token = localStorage.getItem('ludo_token');
+            if (!token) {
+                console.warn('No auth token found');
+                return;
             }
-        };
+
+            const response = await fetch(`${API_URL}/wallet/my-requests`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.requests) {
+                    setMyRequests(data.requests);
+                }
+            } else {
+                console.error('Failed to fetch requests');
+            }
+        } catch (error) {
+            console.error('Error fetching requests:', error);
+        }
+    };
 
     const handleRequest = async (type: 'DEPOSIT' | 'WITHDRAWAL') => {
         const val = parseFloat(amount);
         if (!val || val <= 0) return;
-        
+
         if (type === 'DEPOSIT') {
             if (!fullName.trim()) {
                 alert('Please enter your Full Name');
@@ -122,7 +122,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 return;
             }
         }
-        
+
         setLoading(true);
         try {
             const token = localStorage.getItem('ludo_token');
@@ -133,7 +133,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
 
             const response = await fetch(`${API_URL}/wallet/request`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
@@ -143,8 +143,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                     type,
                     amount: val,
                     paymentMethod,
-                    details: type === 'DEPOSIT' 
-                        ? `Name: ${fullName}, Phone: ${phoneNumber}, Method: ${paymentMethod} (Web Request)` 
+                    details: type === 'DEPOSIT'
+                        ? `Name: ${fullName}, Phone: ${phoneNumber}, Method: ${paymentMethod} (Web Request)`
                         : `Method: ${paymentMethod} (Manual Withdrawal Request via Web Wallet)`
                 })
             });
@@ -186,7 +186,12 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
             <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 overflow-hidden">
                 <div className="bg-slate-900 p-4 flex justify-between items-center border-b border-slate-700">
                     <h3 className="text-xl font-bold text-white">My Wallet</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+                    <button
+                        onClick={onClose}
+                        className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-700 hover:bg-red-600 text-white text-2xl font-bold transition-colors"
+                    >
+                        ×
+                    </button>
                 </div>
 
                 <div className="p-6 text-center bg-gradient-to-br from-slate-800 to-slate-900">
@@ -201,14 +206,14 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 </div>
 
                 <div className="flex border-b border-slate-700">
-                    <button 
-                        onClick={() => setTab('action')} 
+                    <button
+                        onClick={() => setTab('action')}
                         className={`flex-1 py-3 font-bold text-sm transition-colors ${tab === 'action' ? 'bg-slate-700 text-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                     >
                         Actions
                     </button>
-                    <button 
-                        onClick={() => setTab('history')} 
+                    <button
+                        onClick={() => setTab('history')}
                         className={`flex-1 py-3 font-bold text-sm transition-colors ${tab === 'history' ? 'bg-slate-700 text-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                     >
                         History
@@ -224,8 +229,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                 <div className="space-y-3">
                                     <div>
                                         <label className="block text-slate-400 text-[10px] font-bold uppercase mb-1">Full Name</label>
-                                        <input 
-                                            type="text" 
+                                        <input
+                                            type="text"
                                             value={fullName}
                                             onChange={(e) => setFullName(e.target.value)}
                                             placeholder="Verify Full Name"
@@ -234,8 +239,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                     </div>
                                     <div>
                                         <label className="block text-slate-400 text-[10px] font-bold uppercase mb-1">Phone Number</label>
-                                        <input 
-                                            type="tel" 
+                                        <input
+                                            type="tel"
                                             value={phoneNumber}
                                             onChange={(e) => setPhoneNumber(e.target.value)}
                                             placeholder="Verify Phone Number"
@@ -244,10 +249,10 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div>
                                 <label className="block text-slate-400 text-xs font-bold uppercase mb-2">Payment Method</label>
-                                <select 
+                                <select
                                     value={paymentMethod}
                                     onChange={(e) => setPaymentMethod(e.target.value)}
                                     className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 text-white text-l font-bold focus:ring-2 focus:ring-cyan-500 outline-none"
@@ -260,8 +265,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
 
                             <div>
                                 <label className="block text-slate-400 text-xs font-bold uppercase mb-2">Amount ($)</label>
-                                <input 
-                                    type="number" 
+                                <input
+                                    type="number"
                                     value={amount}
                                     onChange={(e) => setAmount(e.target.value)}
                                     placeholder="Enter amount..."
@@ -271,19 +276,19 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <button 
+                                <button
                                     onClick={() => handleRequest('DEPOSIT')}
                                     disabled={loading}
                                     className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95 disabled:opacity-50 shadow-lg shadow-green-900/20"
                                 >
                                     {loading ? '...' : 'Deposit'}
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => handleRequest('WITHDRAWAL')}
                                     disabled={loading}
                                     className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95 disabled:opacity-50 shadow-lg shadow-red-900/20"
                                 >
-                                     {loading ? '...' : 'Withdraw'}
+                                    {loading ? '...' : 'Withdraw'}
                                 </button>
                             </div>
                             <div className="text-xs text-slate-500 text-center leading-relaxed border-t border-slate-700 pt-4">
@@ -313,45 +318,42 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                         'PENDING': { bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/30', icon: '⏳' }
                                     };
                                     const statusStyle = statusColors[req.status as keyof typeof statusColors] || statusColors.PENDING;
-                                    
+
                                     return (
-                                        <div 
-                                            key={req.id || req._id} 
+                                        <div
+                                            key={req.id || req._id}
                                             className={`relative overflow-hidden rounded-xl border-2 ${statusStyle.border} ${statusStyle.bg} p-4 transition-all duration-200 hover:shadow-lg hover:scale-[1.02]`}
                                         >
                                             {/* Background gradient effect */}
-                                            <div className={`absolute top-0 right-0 w-20 h-20 rounded-full blur-2xl opacity-20 ${
-                                                isDeposit ? 'bg-green-500' : 'bg-red-500'
-                                            }`}></div>
-                                            
+                                            <div className={`absolute top-0 right-0 w-20 h-20 rounded-full blur-2xl opacity-20 ${isDeposit ? 'bg-green-500' : 'bg-red-500'
+                                                }`}></div>
+
                                             <div className="relative z-10">
                                                 <div className="flex items-start justify-between mb-3">
                                                     <div className="flex items-center gap-3">
-                                                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                                                            isDeposit 
-                                                                ? 'bg-green-500/20 text-green-400' 
-                                                                : 'bg-red-500/20 text-red-400'
-                                                        }`}>
+                                                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${isDeposit
+                                                            ? 'bg-green-500/20 text-green-400'
+                                                            : 'bg-red-500/20 text-red-400'
+                                                            }`}>
                                                             <span className="text-2xl">
                                                                 {isDeposit ? '💰' : '💸'}
                                                             </span>
                                                         </div>
                                                         <div>
-                                                            <p className={`text-sm font-bold uppercase tracking-wider ${
-                                                                isDeposit ? 'text-green-400' : 'text-red-400'
-                                                            }`}>
+                                                            <p className={`text-sm font-bold uppercase tracking-wider ${isDeposit ? 'text-green-400' : 'text-red-400'
+                                                                }`}>
                                                                 {req.type}
                                                             </p>
                                                             <p className="text-xs text-slate-400 mt-0.5">
-                                                                {new Date(req.timestamp).toLocaleDateString('en-US', { 
-                                                                    month: 'short', 
+                                                                {new Date(req.timestamp).toLocaleDateString('en-US', {
+                                                                    month: 'short',
                                                                     day: 'numeric',
                                                                     year: 'numeric'
                                                                 })}
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    
+
                                                     <div className="text-right">
                                                         <p className="text-2xl font-black text-white mb-1">
                                                             ${req.amount.toFixed(2)}
@@ -362,7 +364,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                                         </span>
                                                     </div>
                                                 </div>
-                                                
+
                                                 {req.adminComment && (
                                                     <div className="mt-3 pt-3 border-t border-slate-700/50">
                                                         <p className="text-xs text-slate-400 flex items-start gap-2">
@@ -371,7 +373,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                                         </p>
                                                     </div>
                                                 )}
-                                                
+
                                                 {req.details && !req.adminComment && (
                                                     <div className="mt-3 pt-3 border-t border-slate-700/50">
                                                         <p className="text-xs text-slate-500 truncate" title={req.details}>

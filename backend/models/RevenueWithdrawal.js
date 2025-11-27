@@ -10,6 +10,10 @@ const RevenueWithdrawalSchema = new mongoose.Schema({
   status: { type: String, enum: ['COMPLETED', 'PENDING', 'FAILED'], default: 'COMPLETED' }
 });
 
+// ===== INDEX OPTIMIZATION =====
+// Index for withdrawal history sorted by date
+RevenueWithdrawalSchema.index({ timestamp: -1 });
+
 module.exports = mongoose.model('RevenueWithdrawal', RevenueWithdrawalSchema);
 
 

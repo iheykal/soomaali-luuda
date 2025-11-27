@@ -9,6 +9,13 @@ const RevenueSchema = new mongoose.Schema({
   reason: { type: String, default: 'Game Commission' }
 });
 
+// ===== INDEX OPTIMIZATION =====
+// Index for revenue reports sorted by date
+RevenueSchema.index({ timestamp: -1 });
+
+// Index for finding revenue by game
+RevenueSchema.index({ gameId: 1 });
+
 module.exports = mongoose.model('Revenue', RevenueSchema);
 
 

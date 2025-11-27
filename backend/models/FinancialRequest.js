@@ -14,4 +14,20 @@ const FinancialRequestSchema = new mongoose.Schema({
   adminComment: String
 });
 
+// ===== INDEX OPTIMIZATION =====
+// Compound index for admin dashboard (filter by status, sort by date)
+FinancialRequestSchema.index({ status: 1, timestamp: -1 });
+
+// Index for user's request history
+FinancialRequestSchema.index({ userId: 1, timestamp: -1 });
+
+// TTL index: Auto-delete approved/rejected requests after 90 days
+FinancialRequestSchema.index(
+  { timestamp: 1 },
+  {
+    expireAfterSeconds: 7776000, // 90 days
+    partialFilterExpression: { status: { $in: ['APPROVED', 'REJECTED'] } }
+  }
+);
+
 module.exports = mongoose.model('FinancialRequest', FinancialRequestSchema);

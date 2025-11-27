@@ -44,14 +44,14 @@ const AppContent: React.FC = () => {
 
   // Render Super Admin Overlay
   const renderSuperAdminOverlay = () => {
-      if (!showSuperAdminOverlay) return null;
-      return (
-          <div className="fixed inset-0 z-50 bg-white flex items-center justify-center">
-              <div className="w-full h-full overflow-auto">
-                   <SuperAdminDashboard onExit={() => setShowSuperAdminOverlay(false)} />
-              </div>
-          </div>
-      );
+    if (!showSuperAdminOverlay) return null;
+    return (
+      <div className="fixed inset-0 z-50 bg-white flex items-center justify-center">
+        <div className="w-full h-full overflow-auto">
+          <SuperAdminDashboard onExit={() => setShowSuperAdminOverlay(false)} />
+        </div>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -61,9 +61,9 @@ const AppContent: React.FC = () => {
       // Stash the event so it can be triggered later.
       setInstallPrompt(e);
     };
-  
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
@@ -72,30 +72,30 @@ const AppContent: React.FC = () => {
   // Effect to listen for multiplayer game state updates from another tab
   useEffect(() => {
     if (!multiplayerConfig) {
-        console.log('No multiplayer config, skipping broadcast channel setup');
-        return;
+      console.log('No multiplayer config, skipping broadcast channel setup');
+      return;
     }
 
     console.log('Setting up broadcast channel for game:', multiplayerConfig.gameId);
     const channel = new BroadcastChannel(`ludo-game-${multiplayerConfig.gameId}`);
 
     const handleMessage = (event: MessageEvent) => {
-        const { type, payload } = event.data;
-        console.log('📡 Broadcast message received:', type, 'from session:', payload?.sessionId, 'local session:', multiplayerConfig.sessionId);
-        if (type === 'GAME_STATE_UPDATE' && payload.sessionId !== multiplayerConfig.sessionId) {
-            console.log('📡 Updating state from broadcast channel for game:', multiplayerConfig.gameId);
-            setState(payload.state);
-        } else if (type === 'GAME_STATE_UPDATE' && payload.sessionId === multiplayerConfig.sessionId) {
-            console.log('📡 Ignoring broadcast message from own session');
-        }
+      const { type, payload } = event.data;
+      console.log('📡 Broadcast message received:', type, 'from session:', payload?.sessionId, 'local session:', multiplayerConfig.sessionId);
+      if (type === 'GAME_STATE_UPDATE' && payload.sessionId !== multiplayerConfig.sessionId) {
+        console.log('📡 Updating state from broadcast channel for game:', multiplayerConfig.gameId);
+        setState(payload.state);
+      } else if (type === 'GAME_STATE_UPDATE' && payload.sessionId === multiplayerConfig.sessionId) {
+        console.log('📡 Ignoring broadcast message from own session');
+      }
     };
 
     channel.addEventListener('message', handleMessage);
 
     return () => {
-        console.log('Cleaning up broadcast channel');
-        channel.removeEventListener('message', handleMessage);
-        channel.close();
+      console.log('Cleaning up broadcast channel');
+      channel.removeEventListener('message', handleMessage);
+      channel.close();
     };
   }, [multiplayerConfig]);
 
@@ -116,9 +116,9 @@ const AppContent: React.FC = () => {
         // Only update config if it's actually different to prevent unnecessary re-renders
         setMultiplayerConfig(prev => {
           if (prev?.gameId === mpConfig.gameId &&
-              prev?.localPlayerColor === mpConfig.localPlayerColor &&
-              prev?.sessionId === mpConfig.sessionId &&
-              prev?.playerId === mpConfig.playerId) {
+            prev?.localPlayerColor === mpConfig.localPlayerColor &&
+            prev?.sessionId === mpConfig.sessionId &&
+            prev?.playerId === mpConfig.playerId) {
             return prev; // Same config, don't update
           }
           return mpConfig;
@@ -156,7 +156,7 @@ const AppContent: React.FC = () => {
   const handleRestart = () => {
     window.location.reload();
   };
-  
+
   const handleEnterLobby = () => setView('multiplayer-lobby');
   const handleEnterSuperAdmin = async () => {
     // Refresh user data before showing SuperAdmin dashboard
@@ -167,9 +167,9 @@ const AppContent: React.FC = () => {
   };
   const handleToggleWallet = async () => {
     if (!showWallet) {
-        if (refreshUser) {
-            await refreshUser();
-        }
+      if (refreshUser) {
+        await refreshUser();
+      }
     }
     setShowWallet(prev => !prev);
   }
@@ -189,7 +189,20 @@ const AppContent: React.FC = () => {
       refreshUser();
     }
   };
-  
+
+  // Auto-navigate to setup view if user is already authenticated
+  useEffect(() => {
+    if (isAuthenticated && !authLoading && view === 'login') {
+      console.log('👤 User already authenticated, setting view to setup');
+      // Check if user is Super Admin
+      if (user?.role === 'SUPER_ADMIN') {
+        setView('superadmin');
+      } else {
+        setView('setup');
+      }
+    }
+  }, [isAuthenticated, authLoading, view, user]);
+
   const handleLoginSuccess = () => {
     // Check if user is Super Admin and redirect to dashboard
     let userStr = localStorage.getItem('ludo_user');
@@ -224,7 +237,7 @@ const AppContent: React.FC = () => {
     console.log(`🎮 handleRejoinGame called!`);
     console.log(`🔄 Rejoining game ${gameId} as ${playerColor}`);
     console.log(`👤 User:`, user);
-    
+
     if (!user) {
       console.error('❌ Cannot rejoin: user not authenticated');
       alert('Please login to rejoin the game');
@@ -235,9 +248,9 @@ const AppContent: React.FC = () => {
     // Generate a session ID for this rejoin
     const sessionId = Math.random().toString(36).substring(2, 10);
     const playerId = user.id || user._id || user.username;
-    
+
     console.log(`📋 Player ID for rejoin: ${playerId}`);
-    
+
     // Create multiplayer config for rejoining
     const mpConfig: MultiplayerConfig = {
       gameId,
@@ -262,14 +275,14 @@ const AppContent: React.FC = () => {
     } catch (e) {
       console.warn('⚠️ Failed to persist rejoin blob during rejoin', e);
     }
-    
+
     // The actual state will be updated when we receive GAME_STATE_UPDATE from server
     // startGame(placeholderPlayers) is removed as it's no longer needed;
     // the UI will display a loading state until the real game state arrives.
-    
+
     console.log(`🖼️ Switching to game view...`);
     setView('game');
-    
+
     console.log('✅ Rejoin complete, game view set, view is now:', 'game');
   }, [user, setIsRejoining]);
 
@@ -315,202 +328,104 @@ const AppContent: React.FC = () => {
     return <Login onSuccess={handleLoginSuccess} onSwitchToRegister={handleSwitchToRegister} />;
   }
 
-  // Authenticated views
-  if (view === 'setup') {
-    return (
-      <>
-        {renderSuperAdminOverlay()}
-        <GameSetup 
-            onStartGame={handleStartGame} 
-            onEnterLobby={handleEnterLobby} 
-            onRejoinGame={handleRejoinGame}
-            onEnterSuperAdmin={handleEnterSuperAdmin}
-            onEnterWallet={handleEnterWallet}
-            onInstall={handleInstallClick}
-            showInstallButton={!!installPrompt}
-        />
-        {showWallet && user && (
-            <Wallet 
-                user={user} 
-                onClose={handleExitWallet}
-                onUpdateUser={() => {
-                    if (refreshUser) {
-                        refreshUser();
-                    }
-                }}
-            />
-        )}
-      </>
-    );
-  }
-
-  if (view === 'multiplayer-lobby') {
-    return (
-        <>
-            {renderSuperAdminOverlay()}
-            <MultiplayerLobby onStartGame={handleStartGame} onExit={() => setView('setup')} />
-        </>
-    );
-  }
-
-  // --- Game View ---
-  // Show game view if view is 'game' and we have players (don't strictly require gameStarted for multiplayer)
-  if (view === 'game') {
-    if (isRejoining) {
-      return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-          <div className="text-white text-xl animate-pulse">Rejoining Game...</div>
-        </div>
-      );
-    }
-    
-    // Only render the game board if the game has started
-    if (!gameStarted && (!multiplayerConfig || players.length < 2)) {
-        return (
-            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-                <div className="text-white text-xl">Waiting for game to start...</div>
-            </div>
-        );
-    }
-
-    const currentPlayer = players[currentPlayerIndex];
-    
-    // Helper to find specific players
-    const getPlayer = (color: PlayerColor) => players.find(p => p.color === color);
-    const pGreen = getPlayer('green');
-    const pYellow = getPlayer('yellow');
-    const pRed = getPlayer('red');
-    const pBlue = getPlayer('blue');
-
-    // Determine perspective for board rotation
-    // For local games, we keep the board fixed (perspective 'red') so that the corners match the UI placement.
-    // For multiplayer, we rotate so the local player is at the bottom.
-    const perspectiveColor = multiplayerConfig 
-        ? multiplayerConfig.localPlayerColor 
-        : 'red'; 
-
-    return (
-      <div className="min-h-screen bg-slate-900 p-2 sm:p-4 flex flex-col lg:grid lg:h-screen lg:grid-cols-[300px_1fr_300px] lg:grid-rows-[1fr_auto_1fr] gap-4 items-center justify-center overflow-hidden relative">
-        {renderSuperAdminOverlay()}
-
-        {user && (
-            <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-                {user.role === 'SUPER_ADMIN' && (
-                    <button 
-                        onClick={handleEnterSuperAdmin}
-                        className="w-12 h-12 flex items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-700 border-2 border-purple-400 text-white text-xl font-bold transition-all shadow-xl backdrop-blur-sm"
-                        title="Super Admin Dashboard"
-                    >
-                        ⚡
-                    </button>
-                )}
-                <button 
-                    onClick={handleToggleWallet}
-                    className="w-12 h-12 flex items-center justify-center rounded-lg bg-green-600 hover:bg-green-700 border-2 border-green-400 text-white text-xl font-bold transition-all shadow-xl backdrop-blur-sm"
-                    title="My Wallet"
-                >
-                    💰
-                </button>
-            </div>
-        )}
-
-        {showWallet && user && (
-            <Wallet 
-                user={user} 
-                onClose={handleExitWallet}
-                onUpdateUser={() => {
-                    if (refreshUser) {
-                        refreshUser();
-                    }
-                }}
-            />
-        )}
-        
-        {turnState === 'GAMEOVER' && <GameOverModal winners={winners} onRestart={handleRestart} message={state.message}/>}
-        
-        {/* Top Left: Green - Hidden */}
-        {/* <div className="w-full lg:w-auto order-2 lg:order-none lg:row-start-1 lg:col-start-1 flex justify-center lg:justify-start lg:items-start p-2">
-            {pGreen && (
-                <PlayerInfo
-                    player={pGreen}
-                    tokens={state.tokens}
-                    isCurrentPlayer={currentPlayer.color === pGreen.color}
-                    winners={winners}
-                    message={currentPlayer.color === pGreen.color ? state.message : undefined}
-                />
-            )}
-        </div> */}
-
-        {/* Top Right: Yellow */}
-        <div className="lg:w-auto order-2 lg:order-none lg:row-start-1 lg:col-start-3 flex justify-center lg:justify-end lg:items-start p-2">
-
-        </div>
-
-        {/* Center: Board */}
-        <div className="w-full max-w-[600px] aspect-square lg:h-auto order-1 lg:order-none lg:row-start-1 lg:row-end-4 lg:col-start-2 flex items-center justify-center">
-          <Board 
-            gameState={state} 
-            onMoveToken={handleMoveToken} 
-            onAnimationComplete={handleAnimationComplete}
-            isMyTurn={isMyTurn}
-            perspectiveColor={perspectiveColor}
-          />
-        </div>
-
-        {/* Dice & Controls: Right Middle */}
-        <div className="order-3 lg:order-none lg:row-start-2 lg:col-start-3 flex justify-center items-center pointer-events-auto z-10 relative">
-             <Dice 
-                value={state.diceValue} 
-                onRoll={handleRollDice} 
-                // Allow rolling if it's my turn, regardless of exact state (hook handles validation)
-                // This prevents UI locking if state is slightly desynced (e.g. diceValue null but state not ROLLING)
-                isMyTurn={isMyTurn}
-                playerColor={currentPlayer?.color || 'green'}
-                timer={timer}
-                turnState={state.turnState}
-                potAmount={state.stake ? state.stake * 2 * 0.9 : 0}
-            />
-        </div>
-
-        {/* Bottom Left: Red */}
-        <div className="lg:w-auto order-4 lg:order-none lg:row-start-3 lg:col-start-1 flex justify-center lg:justify-start lg:items-end p-2">
-
-        </div>
-
-        {/* Bottom Right: Blue - Hidden */}
-        {/* <div className="w-full lg:w-auto order-5 lg:order-none lg:row-start-3 lg:col-start-3 flex justify-center lg:justify-end lg:items-end p-2">
-             {pBlue && (
-                <PlayerInfo
-                    player={pBlue}
-                    tokens={state.tokens}
-                    isCurrentPlayer={currentPlayer.color === pBlue.color}
-                    winners={winners}
-                    message={currentPlayer.color === pBlue.color ? state.message : undefined}
-                />
-            )}
-        </div> */}
-
-      </div>
-    );
-  }
-
-  if (view === 'superadmin') {
-    return <SuperAdminDashboard onExit={() => setView('setup')} />;
-  }
-
-  // Fallback
+  // Authenticated: Show main game interface
   return (
-    <GameSetup 
-        onStartGame={handleStartGame} 
-        onEnterLobby={handleEnterLobby} 
-        onRejoinGame={handleRejoinGame}
-        onEnterSuperAdmin={handleEnterSuperAdmin}
-        onInstall={handleInstallClick}
-        showInstallButton={!!installPrompt}
-    />
+    <>
+      {renderSuperAdminOverlay()}
+      {showWallet && <Wallet onClose={handleExitWallet} />}
+
+      {view === 'setup' && (
+        <GameSetup
+          onStartGame={handleStartGame}
+          onEnterLobby={handleEnterLobby}
+          onRejoinGame={handleRejoinGame}
+          onEnterSuperAdmin={handleEnterSuperAdmin}
+          onEnterWallet={handleEnterWallet}
+          onInstall={handleInstallClick}
+          showInstallButton={!!installPrompt}
+        />
+      )}
+
+      {view === 'multiplayer-lobby' && (
+        <MultiplayerLobby
+          onStartGame={handleStartGame}
+          onBack={() => setView('setup')}
+        />
+      )}
+
+      {view === 'game' && (
+        <div className="min-h-screen bg-slate-800 flex flex-col">
+          {isRejoining && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white p-6 rounded-lg shadow-xl">
+                <p className="text-xl font-bold">Rejoining game...</p>
+              </div>
+            </div>
+          )}
+          <div className="flex-shrink-0 p-4 flex justify-between items-start">
+            <div className="flex gap-2 flex-wrap">
+              {players.map((p, i) => (
+                <PlayerInfo
+                  key={p.color}
+                  player={p}
+                  tokens={state.tokens}
+                  isCurrentPlayer={i === currentPlayerIndex}
+                  winners={winners}
+                  message={state.message}
+                />
+              ))}
+            </div>
+            <button
+              onClick={handleRestart}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition h-10"
+            >
+              Exit Game
+            </button>
+          </div>
+
+          <div className="flex-1 flex items-center justify-center p-4">
+            <div className="max-w-[600px] w-full aspect-square">
+              <Board
+                gameState={state}
+                onMoveToken={handleMoveToken}
+                onAnimationComplete={handleAnimationComplete}
+                isMyTurn={isMyTurn}
+                perspectiveColor={multiplayerConfig?.localPlayerColor}
+              />
+            </div>
+          </div>
+
+          <div className="flex-shrink-0 p-4 flex justify-center">
+            <Dice
+              value={state.diceValue}
+              onRoll={handleRollDice}
+              isMyTurn={isMyTurn}
+              playerColor={players[currentPlayerIndex]?.color || 'red'}
+              timer={timer}
+              turnState={turnState}
+              potAmount={state.stake}
+            />
+          </div>
+
+          {winners.length > 0 && (
+            <GameOverModal
+              winners={winners}
+              players={players}
+              onRestart={handleRestart}
+              prize={(state.stake || 0) * 2 * 0.9}
+            />
+          )}
+        </div>
+      )}
+
+      {view === 'superadmin' && (
+        <SuperAdminDashboard onExit={() => setView('setup')} />
+      )}
+    </>
   );
 };
 
+// Main App component with AuthProvider wrapper
 const App: React.FC = () => {
   return (
     <AuthProvider>
