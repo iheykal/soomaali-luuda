@@ -4,6 +4,7 @@ import { PLAYER_COLORS, START_POSITIONS, HOME_ENTRANCES, HOME_PATH_LENGTH, SAFE_
 import { SOCKET_URL } from '../lib/apiConfig';
 import { io, Socket } from 'socket.io-client';
 import { debugService } from '../services/debugService';
+import { audioService } from '../services/audioService';
 
 // --- Constants ---
 const ROLL_TIME_LIMIT = 8;
@@ -23,7 +24,8 @@ export type Action =
     | { type: 'AI_THINKING' }
     | { type: 'SET_STATE'; state: GameState }
     | { type: 'RESET_GAME' }
-    | { type: 'TICK_TIMER' };
+    | { type: 'TICK_TIMER' }
+    | { type: 'SET_TIMER'; timer: number };
 
 const initialState: GameState = {
     players: [],
@@ -63,7 +65,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
                 timer: ROLL_TIME_LIMIT,
             };
         }
-        
+
         case 'SET_STATE':
             // Completely replace the state with server state
             // Server is the source of truth for multiplayer games
@@ -78,7 +80,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
             // - null when starting a new turn (turnState: ROLLING)
             // - undefined might occur in edge cases - treat as null
             let diceValue: number | null = null;
-            
+
             if (serverState.diceValue !== undefined && serverState.diceValue !== null) {
                 // Server sent a valid dice value (1-6)
                 diceValue = Number(serverState.diceValue);
@@ -95,7 +97,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
 
             // Ensure turnState is valid - if game is started and diceValue is null, turnState should be ROLLING
             let finalTurnState = serverState.turnState;
-            
+
             // FIX: If diceValue is null (no active roll), we MUST be in ROLLING state to allow the player to roll.
             // This overrides 'MOVING' or other states if the dice has been cleared.
             if (shouldBeStarted && diceValue === null && serverState.turnState !== 'GAMEOVER') {
@@ -104,7 +106,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
                     finalTurnState = 'ROLLING';
                 }
             }
-            
+
             // Additional check: If message says "Waiting for X" and turnState is not ROLLING, fix it
             if (serverState.message && serverState.message.includes('Waiting for') && finalTurnState !== 'ROLLING') {
                 console.log(`🔧 Fixing turnState: message indicates waiting for player, setting to ROLLING`);
@@ -126,13 +128,13 @@ const _reducer = (state: GameState, action: Action): GameState => {
             // But if server doesn't send it (undefined), keep local.
             // We trust the server's authoritative timer to fix drift.
             let timer = serverState.timer !== undefined ? serverState.timer : state.timer;
-            
+
             // Reset timer locally if turn changed and server didn't send timer
             if (serverState.timer === undefined) {
                 if (finalTurnState === 'ROLLING' && serverState.currentPlayerIndex !== state.currentPlayerIndex) {
-                     timer = ROLL_TIME_LIMIT;
+                    timer = ROLL_TIME_LIMIT;
                 } else if (finalTurnState === 'MOVING' && diceValue !== null && diceValue !== state.diceValue) {
-                     timer = MOVE_TIME_LIMIT;
+                    timer = MOVE_TIME_LIMIT;
                 }
             }
 
@@ -152,9 +154,12 @@ const _reducer = (state: GameState, action: Action): GameState => {
 
         case 'RESET_GAME':
             return initialState;
-        
+
         case 'TICK_TIMER':
             return { ...state, timer: Math.max(0, state.timer - 1) };
+
+        case 'SET_TIMER':
+            return { ...state, timer: action.timer };
 
         case 'ROLL_DICE': {
             return {
@@ -165,24 +170,24 @@ const _reducer = (state: GameState, action: Action): GameState => {
                 timer: MOVE_TIME_LIMIT,
             };
         }
-        
+
         case 'SET_LEGAL_MOVES_AND_PROCEED': {
-             if (action.moves.length === 0) {
-                 return {
+            if (action.moves.length === 0) {
+                return {
                     ...state,
                     legalMoves: [],
                     message: `No legal moves. Passing turn.`,
                     timer: ROLL_TIME_LIMIT, // Reset timer for next player immediately
-                 }
+                }
             }
             return { ...state, legalMoves: action.moves, timer: MOVE_TIME_LIMIT };
         }
-        
+
         case 'MOVE_TOKEN': {
             // In multiplayer, this is just an optimistic update OR driven by server state
             // For simplicity, we let the server state override this via SET_STATE usually.
             // But for local play, we calculate.
-            
+
             const { move } = action;
             const diceValue = state.diceValue!;
             const currentPlayerColor = state.players[state.currentPlayerIndex].color;
@@ -191,7 +196,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
             let newTokens = state.tokens.map(t =>
                 t.id === move.tokenId ? { ...t, position: move.finalPosition } : { ...t }
             );
-            
+
             if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
                 const targetPos = move.finalPosition.index;
                 const opponentTokensAtTarget = newTokens.filter(t =>
@@ -199,7 +204,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
                     t.position.type === 'PATH' &&
                     t.position.index === targetPos
                 );
-                
+
                 const isBlockade = opponentTokensAtTarget.length > 1 &&
                     opponentTokensAtTarget.every(t => t.color === opponentTokensAtTarget[0].color);
 
@@ -261,7 +266,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
         case 'NEXT_TURN': {
             return { ...state, ...getNextTurnState(state, action.grantExtraTurn) };
         }
-        
+
         case 'AI_THINKING': {
             return { ...state, message: `${state.players[state.currentPlayerIndex].color} (Computer) is thinking...` };
         }
@@ -281,11 +286,11 @@ const reducer = (state: GameState, action: Action): GameState => {
 
 const getNextTurnState = (state: GameState, grantExtraTurn: boolean): Partial<GameState> => {
     let nextPlayerIndex = grantExtraTurn ? state.currentPlayerIndex : (state.currentPlayerIndex + 1) % state.players.length;
-    
+
     while (state.winners.includes(state.players[nextPlayerIndex].color)) {
         nextPlayerIndex = (nextPlayerIndex + 1) % state.players.length;
     }
-    
+
     return {
         currentPlayerIndex: nextPlayerIndex,
         diceValue: null,
@@ -297,11 +302,11 @@ const getNextTurnState = (state: GameState, grantExtraTurn: boolean): Partial<Ga
 };
 
 interface MultiplayerConfig {
-  gameId: string;
-  localPlayerColor?: PlayerColor;
-  sessionId?: string;
-  playerId?: string;
-  isSpectator?: boolean;
+    gameId: string;
+    localPlayerColor?: PlayerColor;
+    sessionId?: string;
+    playerId?: string;
+    isSpectator?: boolean;
 }
 
 export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
@@ -321,13 +326,13 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
     // In multiplayer, 'isMyTurn' strictly depends on the server state matching our color
     const isMyTurn = isMultiplayer
-        ? (multiplayerConfig?.isSpectator ? false : state.players[state.currentPlayerIndex]?.color === multiplayerConfig?.localPlayerColor)
+        ? (multiplayerConfig?.isSpectator ? false : state.players?.[state.currentPlayerIndex]?.color === multiplayerConfig?.localPlayerColor)
         : true;
 
     // Debug logging for turn state
-    const currentPlayerColor = state.players[state.currentPlayerIndex]?.color;
+    const currentPlayerColor = state.players?.[state.currentPlayerIndex]?.color;
     console.log(`🎮 Turn state check: isMultiplayer=${isMultiplayer}, currentPlayerIndex=${state.currentPlayerIndex}, currentPlayerColor=${currentPlayerColor}, localPlayerColor=${multiplayerConfig?.localPlayerColor}, isMyTurn=${isMyTurn}, turnState=${state.turnState}, gameStarted=${state.gameStarted}`);
-    
+
     const localDispatchRef = useRef(dispatch);
     localDispatchRef.current = dispatch;
 
@@ -340,12 +345,12 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         // Connect to Socket.io Server
         // Use SOCKET_URL from apiConfig for proper network IP detection
-        const socketUrl = (import.meta as any).env?.VITE_USE_REAL_API === 'true' 
-            ? window.location.origin 
+        const socketUrl = (import.meta as any).env?.VITE_USE_REAL_API === 'true'
+            ? window.location.origin
             : SOCKET_URL;
-        
+
         console.log('🔌 Connecting to Socket.IO for game:', socketUrl);
-        
+
         // Try websocket first, but fallback to polling if websocket fails
         // This is important for network environments where websockets might be blocked
         socket = io(socketUrl, {
@@ -466,6 +471,45 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 correctedState.diceValue = Number(correctedState.diceValue);
             }
 
+            // Play audio based on game events
+            if (correctedState.message) {
+                const msg = correctedState.message.toLowerCase();
+
+                // Token killed sound
+                if (msg.includes('killed') || msg.includes('eliminated')) {
+                    audioService.play('tokenKilled');
+                }
+
+                // Win sound
+                if (msg.includes('win') || correctedState.turnState === 'GAMEOVER') {
+                    audioService.play('win');
+                }
+
+                // Turn change sounds
+                if (msg.includes('waiting for')) {
+                    const isMyTurn = correctedState.players?.[correctedState.currentPlayerIndex]?.color === multiplayerConfig?.localPlayerColor;
+                    if (isMyTurn) {
+                        audioService.play('my_turn');
+                    } else {
+                        audioService.play('opp_turn');
+                    }
+                }
+            }
+
+            // Check if any token just entered HOME by comparing with previous state
+            if (state.tokens && correctedState.tokens) {
+                const newHomeTokens = correctedState.tokens.filter((newToken: Token) => {
+                    const oldToken = state.tokens.find((t: Token) => t.id === newToken.id);
+                    return oldToken &&
+                        oldToken.position.type !== 'HOME' &&
+                        newToken.position.type === 'HOME';
+                });
+
+                if (newHomeTokens.length > 0) {
+                    audioService.play('inHome');
+                }
+            }
+
             localDispatchRef.current({ type: 'SET_STATE', state: correctedState });
             // On receiving authoritative state, clear any join retry timers
             try {
@@ -473,6 +517,13 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             } catch (e) {
                 // ignore
             }
+        });
+
+        // Fix for Issue #1: Timer Synchronization - Listen for server timer ticks
+        socket.on('TIMER_TICK', (data: { timer: number }) => {
+            debugService.socket({ event: 'receive', type: 'TIMER_TICK', timer: data.timer });
+            // Update timer to server's value to keep all clients in sync
+            localDispatchRef.current({ type: 'SET_TIMER', timer: data.timer });
         });
 
         socket.on('ERROR', (data: { message: string }) => {
@@ -511,7 +562,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             } else if (currentPos.type === 'PATH') {
                 const homeEntrance = HOME_ENTRANCES[currentPlayer.color];
                 const distanceToHomeEntrance = (homeEntrance - currentPos.index + 52) % 52;
-                
+
                 if (diceValue > distanceToHomeEntrance) {
                     const stepsIntoHome = diceValue - distanceToHomeEntrance - 1;
                     if (stepsIntoHome < HOME_PATH_LENGTH) {
@@ -581,6 +632,8 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             if (isMyTurn) {
                 debugService.socket({ event: 'emit', type: 'move_token', gameId: multiplayerConfig.gameId, tokenId });
                 socket?.emit('move_token', { gameId: multiplayerConfig.gameId, tokenId });
+                // Play token move sound
+                audioService.play('tokenMove');
             }
             return;
         }
@@ -588,6 +641,8 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         const move = state.legalMoves.find(m => m.tokenId === tokenId);
         if (move) {
             dispatch({ type: 'MOVE_TOKEN', move });
+            // Play token move sound for local game
+            audioService.play('tokenMove');
         }
     }, [state.turnState, state.legalMoves, isMyTurn, isMultiplayer, multiplayerConfig]);
 
@@ -618,8 +673,8 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 handleRollDice();
             }, 300);
         } else if (turnState === 'MOVING') {
-             debugService.game({ event: 'ai_thinking', action: 'move' });
-             timeoutId = setTimeout(() => {
+            debugService.game({ event: 'ai_thinking', action: 'move' });
+            timeoutId = setTimeout(() => {
                 if (legalMoves.length > 0) {
                     const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
                     debugService.game({ event: 'ai_move', move: randomMove });
@@ -630,7 +685,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         return () => clearTimeout(timeoutId);
     }, [currentPlayerIndex, turnState, gameStarted, isMultiplayer, handleRollDice, handleMoveToken, players, legalMoves]);
-    
+
     const startGame = (players: Player[], initialState?: GameState) => dispatch({ type: 'START_GAME', players, initialState });
 
     const setState = (newState: GameState) => dispatch({ type: 'SET_STATE', state: newState });
@@ -641,7 +696,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         // For now, we rely on the fact that 'MOVE_TOKEN' response from server sets state to ROLLING immediately 
         // but we might want to delay that locally. 
         if (!isMultiplayer) {
-             dispatch({ type: 'ANIMATION_COMPLETE' });
+            dispatch({ type: 'ANIMATION_COMPLETE' });
         }
     }, [isMultiplayer]);
 

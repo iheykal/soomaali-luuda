@@ -898,42 +898,131 @@ const cache = new NodeCache({
 
 app.get('/api/users/leaderboard', async (req, res) => {
   try {
-    // Check cache first
-    const cacheKey = 'leaderboard_top3';
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      console.log('📦 [Cache Hit] Serving leaderboard from cache');
-      return res.json(cached);
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ hasActiveGame: false, game: null });
     }
 
-    console.log('🔍 [Cache Miss] Fetching leaderboard from database');
-    // Get top 3 users sorted by wins
-    const topUsers = await User.find({ 'stats.wins': { $gt: 0 } })
-      .select('_id username avatar stats.wins balance')
-      .sort({ 'stats.wins': -1 })
-      .limit(3);
+    console.log(`🔍 Checking for active game for user: ${userId}`);
 
-    const leaderboard = topUsers.map(user => ({
-      id: user._id.toString(),
-      username: user.username,
-      avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`,
-      wins: user.stats?.wins || 0,
-      balance: user.balance || 0
-    }));
+    // Find any active game where this user is a player
+    const activeGame = await Game.findOne({
+      'players.userId': userId,
+      status: 'ACTIVE'
+    });
 
-    const result = {
-      success: true,
-      leaderboard
-    };
+    if (!activeGame) {
+      console.log(`ℹ️ No active game found for user ${userId}`);
+      return res.json({ hasActiveGame: false, game: null });
+    }
 
-    // Store in cache
-    cache.set(cacheKey, result);
-    console.log('💾 [Cache Store] Leaderboard cached for 5 minutes');
+    // Find the player's info in the game
+    const playerInfo = activeGame.players.find(p => p.userId === userId);
 
-    res.json(result);
+    if (!playerInfo) {
+      console.log(`⚠️ User ${userId} found in game but not in players array`);
+      return res.json({ hasActiveGame: false, game: null });
+    }
+
+    console.log(`✅ Active game found: ${activeGame.gameId}, player color: ${playerInfo.color}`);
+
+    res.json({
+      hasActiveGame: true,
+      game: {
+        gameId: activeGame.gameId,
+        playerColor: playerInfo.color,
+        isDisconnected: playerInfo.isDisconnected || false,
+        status: activeGame.status,
+        stake: activeGame.stake || 0,
+        winners: activeGame.winners || [],
+        allPawnsHome: activeGame.winners.includes(playerInfo.color)
+      }
+    });
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
-    res.status(500).json({ success: false, leaderboard: [], error: error.message });
+    console.error('Error checking for active game:', error);
+    res.status(500).json({ hasActiveGame: false, game: null, error: error.message });
+  }
+});
+
+// POST: Rejoin an active game
+app.post('/api/game/rejoin', async (req, res) => {
+  try {
+    const { gameId, userId, userName } = req.body;
+
+    if (!gameId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Game ID and User ID are required'
+      });
+    }
+
+    console.log(`🔄 Rejoin request: gameId=${gameId}, userId=${userId}, userName=${userName}`);
+
+    // Find the game
+    const game = await Game.findOne({ gameId });
+
+    if (!game) {
+      return res.status(404).json({
+        success: false,
+        message: 'Game not found'
+      });
+    }
+
+    if (game.status !== 'ACTIVE') {
+      return res.status(400).json({
+        success: false,
+        message: `Game is ${game.status}, cannot rejoin`
+      });
+    }
+
+    // Find the player in the game
+    const playerIndex = game.players.findIndex(p => p.userId === userId);
+
+    if (playerIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'You are not a player in this game'
+      });
+    }
+
+    const player = game.players[playerIndex];
+
+    // Check if player already won
+    if (game.winners.includes(player.color)) {
+      return res.json({
+        success: true,
+        gameId: game.gameId,
+        playerColor: player.color,
+        allPawnsHome: true,
+        canRejoin: false,
+        message: 'You have already won this game'
+      });
+    }
+
+    // Update player's username if provided (for display sync)
+    if (userName && player.username !== userName) {
+      player.username = userName;
+      await game.save();
+      console.log(`✅ Updated username for player ${player.color} to ${userName}`);
+    }
+
+    console.log(`✅ Rejoin successful for user ${userId} as ${player.color} in game ${gameId}`);
+
+    res.json({
+      success: true,
+      gameId: game.gameId,
+      playerColor: player.color,
+      allPawnsHome: false,
+      canRejoin: true,
+      message: 'Rejoin successful - reconnect via socket'
+    });
+  } catch (error) {
+    console.error('Error rejoining game:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to rejoin game'
+    });
   }
 });
 
@@ -2197,6 +2286,77 @@ const removeFromQueue = (socketId) => {
 };
 
 const humanPlayerTimers = new Map(); // gameId -> timer reference
+const timerBroadcasts = new Map(); // gameId -> { intervalId, timeLeft } for countdown broadcast
+
+// ===== TIMER BROADCAST SYSTEM (Fix for Issue #1: Timer Synchronization) =====
+// Broadcasts timer countdown every second to keep all clients in sync
+const startTimerBroadcast = (gameId, initialTime, timerType = 'roll') => {
+  stopTimerBroadcast(gameId); // Clear any existing broadcast
+
+  let timeLeft = initialTime;
+  console.log(`⏱️ Starting timer broadcast for game ${gameId}: ${initialTime}s (${timerType})`);
+
+  const intervalId = setInterval(async () => {
+    timeLeft--;
+
+    if (timeLeft <= 0) {
+      stopTimerBroadcast(gameId);
+      return;
+    }
+
+    // Broadcast timer tick to all clients in the game room
+    io.to(gameId).emit('TIMER_TICK', { timer: timeLeft });
+  }, 1000); // Tick every second
+
+  timerBroadcasts.set(gameId, { intervalId, timeLeft: initialTime });
+};
+
+const stopTimerBroadcast = (gameId) => {
+  if (timerBroadcasts.has(gameId)) {
+    const { intervalId } = timerBroadcasts.get(gameId);
+    clearInterval(intervalId);
+    timerBroadcasts.delete(gameId);
+    console.log(`🛑 Stopped timer broadcast for game ${gameId}`);
+  }
+};
+
+// ===== TIMER CLEANUP SYSTEM (Fix for Issue #3: Memory Leaks) =====
+const clearAllTimersForGame = (gameId) => {
+  // Clear setTimeout timers
+  if (humanPlayerTimers.has(gameId)) {
+    clearTimeout(humanPlayerTimers.get(gameId));
+    humanPlayerTimers.delete(gameId);
+  }
+
+  // Clear setInterval broadcasts
+  stopTimerBroadcast(gameId);
+
+  console.log(`🧹 Cleared all timers for game ${gameId}`);
+};
+
+// Graceful shutdown - clear all timers to prevent zombie processes
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, cleaning up timers...');
+  humanPlayerTimers.forEach((timer, gameId) => {
+    clearTimeout(timer);
+  });
+  timerBroadcasts.forEach(({ intervalId }, gameId) => {
+    clearInterval(intervalId);
+  });
+  console.log('✅ All timers cleared');
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, cleaning up timers...');
+  humanPlayerTimers.forEach((timer, gameId) => {
+    clearTimeout(timer);
+  });
+  timerBroadcasts.forEach(({ intervalId }, gameId) => {
+    clearInterval(intervalId);
+  });
+  console.log('✅ All timers cleared');
+  process.exit(0);
+});
 
 const scheduleHumanPlayerAutoRoll = (gameId) => {
   // Clear any existing timer for this game to prevent duplicates
@@ -2205,6 +2365,9 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
   }
 
   console.log(`🕒 Scheduling auto-roll for human player in game ${gameId} in 7 seconds.`);
+
+  // START TIMER BROADCAST - Fix for Issue #1: Timer Synchronization
+  startTimerBroadcast(gameId, 7, 'roll');
 
   const timer = setTimeout(async () => {
     console.log(`⏰ 7s Timer expired for game ${gameId}. Checking state before auto-roll.`);
@@ -2275,6 +2438,9 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
   }
 
   console.log(`🕒 Scheduling auto-move for human player in game ${gameId} in 18 seconds.`);
+
+  // START TIMER BROADCAST - Fix for Issue #1: Timer Synchronization
+  startTimerBroadcast(gameId, 18, 'move');
 
   const timer = setTimeout(async () => {
     console.log(`⏰ 18s Timer expired for game ${gameId}. Checking state before auto-move.`);
@@ -2534,8 +2700,9 @@ const scheduleNextAction = async (gameId) => {
 };
 
 // --- State Consistency Checker (Repairs stuck games) ---
+// Fix for Issue #4: Reduced frequency from 5s to 30s to reduce database load
 const runStateConsistencyChecker = () => {
-  const CHECK_INTERVAL_MS = 5000; // every 5s
+  const CHECK_INTERVAL_MS = 30000; // every 30s (was 5s - 6x improvement)
   setInterval(async () => {
     try {
       const Game = require('./models/Game');
@@ -2965,11 +3132,8 @@ io.on('connection', (socket) => {
     // Handle game disconnect
     if (socket.gameId) {
       // CRITICAL: Clear any pending timers for this game to prevent memory leaks and dangling actions
-      if (humanPlayerTimers.has(socket.gameId)) {
-        clearTimeout(humanPlayerTimers.get(socket.gameId));
-        humanPlayerTimers.delete(socket.gameId);
-        console.log(`🧹 Cleared pending timer for game ${socket.gameId} due to player disconnect.`);
-      }
+      clearAllTimersForGame(socket.gameId);
+      console.log(`🧹 Cleared all timers for game ${socket.gameId} due to player disconnect.`);
 
       const result = await gameEngine.handleDisconnect(socket.gameId, socket.id);
       if (result) {
@@ -2981,7 +3145,6 @@ io.on('connection', (socket) => {
         }
       }
     }
-
     console.log('🔌 Client disconnected:', socket.id);
   });
 });
