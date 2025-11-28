@@ -1,256 +1,262 @@
-<link rel="manifest" href="/manifest.json" />
-<title>Gemini Ludo AI</title>
-<style>
-  /* New Blinking indicator for movable tokens */
-  .movable-indicator {
-    fill: none;
-    stroke: #06b6d4;
-    /* cyan-500 */
-    stroke-width: 4;
-    pointer-events: none;
-    animation: blink-indicator 1.5s infinite ease-in-out;
-  }
+<!DOCTYPE html>
+<html lang="en">
 
-  @keyframes blink-indicator {
-    0% {
-      opacity: 1;
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="/manifest.json" />
+  <title>Gemini Ludo AI</title>
+  <style>
+    /* New Blinking indicator for movable tokens */
+    .movable-indicator {
+      fill: none;
+      stroke: #06b6d4;
+      /* cyan-500 */
+      stroke-width: 4;
+      pointer-events: none;
+      animation: blink-indicator 1.5s infinite ease-in-out;
     }
 
-    50% {
-      opacity: 0.3;
+    @keyframes blink-indicator {
+      0% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.3;
+      }
+
+      100% {
+        opacity: 1;
+      }
     }
 
-    100% {
-      opacity: 1;
+    /* New SVG Board Styles */
+    .ludo-board {
+      background: transparent;
     }
-  }
 
-  /* New SVG Board Styles */
-  .ludo-board {
-    background: transparent;
-  }
+    .ludo-cell {
+      fill: #ffffff;
+      stroke: #d1d5db;
+      stroke-width: 1.5;
+    }
 
-  .ludo-cell {
-    fill: #ffffff;
-    stroke: #d1d5db;
-    stroke-width: 1.5;
-  }
+    /* Star icons - updated with stronger colors */
+    .star {
+      font-size: 1.5rem;
+      pointer-events: none;
+    }
 
-  /* Star icons - updated with stronger colors */
-  .star {
-    font-size: 1.5rem;
-    pointer-events: none;
-  }
+    .star-red {
+      fill: #dc2626;
+    }
 
-  .star-red {
-    fill: #dc2626;
-  }
+    .star-green {
+      fill: #16a34a;
+    }
 
-  .star-green {
-    fill: #16a34a;
-  }
+    .star-yellow {
+      fill: #facc15;
+    }
 
-  .star-yellow {
-    fill: #facc15;
-  }
+    .star-blue {
+      fill: #2563eb;
+    }
 
-  .star-blue {
-    fill: #2563eb;
-  }
+    /* Home path - updated with stronger colors */
+    .ludo-home-path {
+      stroke: rgba(0, 0, 0, 0.1);
+      stroke-width: 1;
+    }
 
-  /* Home path - updated with stronger colors */
-  .ludo-home-path {
-    stroke: rgba(0, 0, 0, 0.1);
-    stroke-width: 1;
-  }
+    .ludo-home-path.red {
+      fill: #f87171;
+    }
 
-  .ludo-home-path.red {
-    fill: #f87171;
-  }
+    .ludo-home-path.blue {
+      fill: #60a5fa;
+    }
 
-  .ludo-home-path.blue {
-    fill: #60a5fa;
-  }
+    .ludo-home-path.green {
+      fill: #4ade80;
+    }
 
-  .ludo-home-path.green {
-    fill: #4ade80;
-  }
+    .ludo-home-path.yellow {
+      fill: #fef08a;
+    }
 
-  .ludo-home-path.yellow {
-    fill: #fef08a;
-  }
+    /* Quadrant base colors - updated with stronger colors */
+    .fill-red {
+      fill: #dc2626;
+    }
 
-  /* Quadrant base colors - updated with stronger colors */
-  .fill-red {
-    fill: #dc2626;
-  }
+    .fill-green {
+      fill: #16a34a;
+    }
 
-  .fill-green {
-    fill: #16a34a;
-  }
+    .fill-yellow {
+      fill: #facc15;
+    }
 
-  .fill-yellow {
-    fill: #facc15;
-  }
+    .fill-blue {
+      fill: #2563eb;
+    }
 
-  .fill-blue {
-    fill: #2563eb;
-  }
+    /* Yard circles */
+    .yard-spot {
+      fill: #fff;
+      stroke: #9ca3af;
+      /* gray-400 */
+      stroke-width: 1.5;
+    }
 
-  /* Yard circles */
-  .yard-spot {
-    fill: #fff;
-    stroke: #9ca3af;
-    /* gray-400 */
-    stroke-width: 1.5;
-  }
+    /* tokens - updated to be a simple stroke, fill is handled by SVG gradient */
+    .token {
+      stroke: rgba(0, 0, 0, 0.4);
+      stroke-width: 1.5;
+      transition: transform 0.2s ease-in-out, filter 0.2s;
+    }
 
-  /* tokens - updated to be a simple stroke, fill is handled by SVG gradient */
-  .token {
-    stroke: rgba(0, 0, 0, 0.4);
-    stroke-width: 1.5;
-    transition: transform 0.2s ease-in-out, filter 0.2s;
-  }
+    /* --- 3D Dice Styles --- */
+    .scene {
+      width: 100px;
+      height: 100px;
+      /* Removed perspective for flat 2D look */
+      transition: transform 0.2s ease-in-out, filter 0.2s ease-in-out;
+    }
 
-  /* --- 3D Dice Styles --- */
-  .scene {
-    width: 100px;
-    height: 100px;
-    /* Removed perspective for flat 2D look */
-    transition: transform 0.2s ease-in-out, filter 0.2s ease-in-out;
-  }
+    .scene.dice-clickable {
+      cursor: pointer;
+    }
 
-  .scene.dice-clickable {
-    cursor: pointer;
-  }
+    .scene.dice-clickable:hover {
+      transform: scale(1.1);
+      filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.7));
+      /* Cyan glow */
+    }
 
-  .scene.dice-clickable:hover {
-    transform: scale(1.1);
-    filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.7));
-    /* Cyan glow */
-  }
+    .cube {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      transform-style: preserve-3d;
+      /* Flat neutral state */
+      transform: translateZ(-50px) rotateX(0deg) rotateY(0deg);
+      transition: transform 0.3s ease-out;
+      /* Faster transition for snapping */
+    }
 
-  .cube {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    transform-style: preserve-3d;
-    /* Flat neutral state */
-    transform: translateZ(-50px) rotateX(0deg) rotateY(0deg);
-    transition: transform 0.3s ease-out;
-    /* Faster transition for snapping */
-  }
-
-  /* Neutral state when no value is set */
-  .cube:not(.show-1):not(.show-2):not(.show-3):not(.show-4):not(.show-5):not(.show-6):not(.is-rolling) {
-    transform: translateZ(-50px) rotateX(0deg) rotateY(0deg);
-  }
-
-  .cube.is-rolling {
-    /* Infinite spin so it doesn't settle on 1 before result */
-    animation: roll3d 0.5s linear infinite;
-  }
-
-  .face {
-    position: absolute;
-    width: 100px;
-    height: 100px;
-    background: white;
-    border: 2px solid #334155;
-    /* slate-700 */
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* Hide backface to keep it clean in flat mode? Optional, but keep for rotation */
-    backface-visibility: hidden;
-  }
-
-  /* Positioning faces */
-  .face-1 {
-    transform: rotateY(0deg) translateZ(50px);
-  }
-
-  .face-2 {
-    transform: rotateY(180deg) translateZ(50px);
-  }
-
-  .face-3 {
-    transform: rotateX(-90deg) translateZ(50px);
-  }
-
-  .face-4 {
-    transform: rotateX(90deg) translateZ(50px);
-  }
-
-  .face-5 {
-    transform: rotateY(-90deg) translateZ(50px);
-  }
-
-  .face-6 {
-    transform: rotateY(90deg) translateZ(50px);
-  }
-
-  /* Final state rotations - Flat Alignment */
-  .cube.show-1 {
-    transform: translateZ(-50px) rotateY(0deg);
-  }
-
-  .cube.show-2 {
-    transform: translateZ(-50px) rotateY(180deg);
-  }
-
-  .cube.show-3 {
-    transform: translateZ(-50px) rotateX(90deg);
-  }
-
-  .cube.show-4 {
-    transform: translateZ(-50px) rotateX(-90deg);
-  }
-
-  .cube.show-5 {
-    transform: translateZ(-50px) rotateY(90deg);
-  }
-
-  .cube.show-6 {
-    transform: translateZ(-50px) rotateY(-90deg);
-  }
-
-  @keyframes roll3d {
-    0% {
+    /* Neutral state when no value is set */
+    .cube:not(.show-1):not(.show-2):not(.show-3):not(.show-4):not(.show-5):not(.show-6):not(.is-rolling) {
       transform: translateZ(-50px) rotateX(0deg) rotateY(0deg);
     }
 
-    100% {
-      transform: translateZ(-50px) rotateX(360deg) rotateY(720deg);
+    .cube.is-rolling {
+      /* Infinite spin so it doesn't settle on 1 before result */
+      animation: roll3d 0.5s linear infinite;
     }
-  }
 
-  /* Numbers on faces (replaces dots) */
-  .dice-number {
-    font-size: 48px;
-    font-weight: bold;
-    color: #1e293b;
-    /* slate-800 */
-    font-family: 'Arial', sans-serif;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-
-  @keyframes fast-pulse {
-    50% {
-      opacity: .5;
+    .face {
+      position: absolute;
+      width: 100px;
+      height: 100px;
+      background: white;
+      border: 2px solid #334155;
+      /* slate-700 */
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* Hide backface to keep it clean in flat mode? Optional, but keep for rotation */
+      backface-visibility: hidden;
     }
-  }
 
-  .animate-fast-pulse {
-    animation: fast-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  }
-</style>
+    /* Positioning faces */
+    .face-1 {
+      transform: rotateY(0deg) translateZ(50px);
+    }
+
+    .face-2 {
+      transform: rotateY(180deg) translateZ(50px);
+    }
+
+    .face-3 {
+      transform: rotateX(-90deg) translateZ(50px);
+    }
+
+    .face-4 {
+      transform: rotateX(90deg) translateZ(50px);
+    }
+
+    .face-5 {
+      transform: rotateY(-90deg) translateZ(50px);
+    }
+
+    .face-6 {
+      transform: rotateY(90deg) translateZ(50px);
+    }
+
+    /* Final state rotations - Flat Alignment */
+    .cube.show-1 {
+      transform: translateZ(-50px) rotateY(0deg);
+    }
+
+    .cube.show-2 {
+      transform: translateZ(-50px) rotateY(180deg);
+    }
+
+    .cube.show-3 {
+      transform: translateZ(-50px) rotateX(90deg);
+    }
+
+    .cube.show-4 {
+      transform: translateZ(-50px) rotateX(-90deg);
+    }
+
+    .cube.show-5 {
+      transform: translateZ(-50px) rotateY(90deg);
+    }
+
+    .cube.show-6 {
+      transform: translateZ(-50px) rotateY(-90deg);
+    }
+
+    @keyframes roll3d {
+      0% {
+        transform: translateZ(-50px) rotateX(0deg) rotateY(0deg);
+      }
+
+      100% {
+        transform: translateZ(-50px) rotateX(360deg) rotateY(720deg);
+      }
+    }
+
+    /* Numbers on faces (replaces dots) */
+    .dice-number {
+      font-size: 48px;
+      font-weight: bold;
+      color: #1e293b;
+      /* slate-800 */
+      font-family: 'Arial', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    @keyframes fast-pulse {
+      50% {
+        opacity: .5;
+      }
+    }
+
+    .animate-fast-pulse {
+      animation: fast-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
 </head>
 
 <body class="bg-slate-900 text-white font-sans">

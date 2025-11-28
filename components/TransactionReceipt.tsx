@@ -9,16 +9,16 @@ interface TransactionReceiptProps {
 
 const TransactionReceipt = forwardRef<HTMLDivElement, TransactionReceiptProps>(({ request, userName, userPhone }, ref) => {
   const isDeposit = request.type === 'DEPOSIT';
-  
+
   return (
     <div ref={ref} className="bg-white p-10 w-[420px] text-slate-900 font-sans relative overflow-hidden shadow-2xl">
       {/* Decorative Top Border */}
       <div className={`absolute top-0 left-0 right-0 h-5 ${isDeposit ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-red-500 to-red-600'}`}></div>
-      
+
       {/* Header */}
       <div className="text-center mb-10 mt-6">
         <div className="flex justify-center mb-5">
-            <img src="/icons/laddea.png" alt="Ludo Master" className="h-24 w-auto" />
+          <img src="/icons/laddea.png" alt="Ludo Master" className="h-24 w-auto" />
         </div>
         <h1 className="text-3xl font-black uppercase tracking-wider mb-2 text-slate-900">Transaction Receipt</h1>
         <p className="text-slate-600 text-sm font-semibold">Somali Ludo</p>
@@ -49,28 +49,27 @@ const TransactionReceipt = forwardRef<HTMLDivElement, TransactionReceiptProps>((
         <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
           <span className="text-slate-600 text-sm font-semibold">Date</span>
           <span className="font-bold text-slate-800 text-sm">
-            {new Date(request.timestamp).toLocaleDateString('en-US', { 
-              year: 'numeric', 
-              month: 'short', 
-              day: 'numeric' 
-            })} {new Date(request.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            {new Date(request.timestamp).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric'
+            })} {new Date(request.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
         <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
           <span className="text-slate-600 text-sm font-semibold">Status</span>
-          <span className={`font-bold text-xs px-3 py-1.5 rounded-full shadow-sm ${
-             request.status === 'APPROVED' ? 'bg-green-100 text-green-800 border border-green-300' :
-             request.status === 'REJECTED' ? 'bg-red-100 text-red-800 border border-red-300' :
-             'bg-yellow-100 text-yellow-800 border border-yellow-300'
-          }`}>
+          <span className={`font-bold text-xs px-3 py-1.5 rounded-full shadow-sm ${request.status === 'APPROVED' ? 'bg-green-100 text-green-800 border border-green-300' :
+              request.status === 'REJECTED' ? 'bg-red-100 text-red-800 border border-red-300' :
+                'bg-yellow-100 text-yellow-800 border border-yellow-300'
+            }`}>
             {request.status}
           </span>
         </div>
         {userPhone && (
-            <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
+          <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
             <span className="text-slate-600 text-sm font-semibold">Phone</span>
             <span className="font-bold text-slate-800 text-sm">{userPhone}</span>
-            </div>
+          </div>
         )}
       </div>
 
@@ -79,14 +78,16 @@ const TransactionReceipt = forwardRef<HTMLDivElement, TransactionReceiptProps>((
         <p className="text-sm text-slate-500 mb-2 font-medium">Thank you for playing with us!</p>
         <p className="text-xs text-slate-400">Generated automatically by Ludo Master System</p>
       </div>
-      
+
       {/* Watermark */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.02] pointer-events-none">
-         <div className="text-[120px] font-black rotate-45 text-slate-900">LUDO</div>
+        <div className="text-[120px] font-black rotate-45 text-slate-900">LUDO</div>
       </div>
     </div>
   );
 });
+
+TransactionReceipt.displayName = 'TransactionReceipt';
 
 export default TransactionReceipt;
 
