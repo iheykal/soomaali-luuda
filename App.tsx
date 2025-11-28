@@ -5,6 +5,7 @@ import Dice from './components/Dice';
 import GameSetup from './components/GameSetup';
 import PlayerInfo from './components/PlayerInfo';
 import GameOverModal from './components/GameOverModal';
+import QuickChat from './components/QuickChat';
 import { useGameLogic } from './hooks/useGameLogic';
 import MultiplayerLobby from './components/MultiplayerLobby';
 import Login from './components/auth/Login';
@@ -33,7 +34,7 @@ interface MultiplayerConfig {
 
 const AppContent: React.FC = () => {
   const [multiplayerConfig, setMultiplayerConfig] = useState<MultiplayerConfig | null>(null);
-  const { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, isMyTurn, setState } = useGameLogic(multiplayerConfig || undefined);
+  const { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, isMyTurn, setState, socket } = useGameLogic(multiplayerConfig || undefined);
   const { gameStarted, players, currentPlayerIndex, turnState, winners, timer } = state;
   const { user, isAuthenticated, loading: authLoading, refreshUser } = useAuth();
   const [view, setView] = useState<View>('login');
@@ -384,6 +385,23 @@ const AppContent: React.FC = () => {
             </button>
           </div> */}
 
+          {/* Prize Display - Always visible during gameplay */}
+          {multiplayerConfig && state.stake && state.stake > 0 && (
+            <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-10">
+              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-4 py-2 rounded-full shadow-xl border border-yellow-300">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🏆</span>
+                  <div className="text-center">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide opacity-90">Prize</div>
+                    <div className="text-lg font-bold">${((state.stake || 0) * 2 * 0.9).toFixed(2)}</div>
+                  </div>
+                  <span className="text-lg">💰</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+
           <div className="absolute top-4 right-4">
             <button
               onClick={handleRestart}
@@ -393,8 +411,8 @@ const AppContent: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex-1 flex items-center justify-center p-4">
-            <div className="max-w-[600px] w-full aspect-square">
+          <div className="flex-1 flex items-center justify-center p-2">
+            <div className="max-w-[700px] w-full aspect-square">
               <Board
                 gameState={state}
                 onMoveToken={handleMoveToken}
@@ -405,7 +423,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex-shrink-0 p-4 flex justify-center">
+          <div className="flex-shrink-0 p-2 flex justify-center">
             <Dice
               value={state.diceValue}
               onRoll={handleRollDice}
@@ -416,6 +434,16 @@ const AppContent: React.FC = () => {
               potAmount={state.stake}
             />
           </div>
+
+          {/* Quick Chat - Only for multiplayer games */}
+          {multiplayerConfig && socket && (
+            <QuickChat
+              gameId={multiplayerConfig.gameId}
+              socket={socket}
+              userId={multiplayerConfig.playerId}
+              playerColor={multiplayerConfig.localPlayerColor}
+            />
+          )}
 
           {winners.length > 0 && (
             <GameOverModal

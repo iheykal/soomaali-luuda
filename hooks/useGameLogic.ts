@@ -352,17 +352,20 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         console.log('🔌 Connecting to Socket.IO for game:', socketUrl);
 
         // Try websocket first, but fallback to polling if websocket fails
-        // This is important for network environments where websockets might be blocked
         socket = io(socketUrl, {
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            reconnectionAttempts: Infinity,
-            transports: ['websocket', 'polling'], // Prioritize websocket for faster connection
-            timeout: 20000, // 20 second connection timeout
-            forceNew: true, // Force new connection for game (separate from matchmaking)
-            upgrade: true, // Allow transport upgrade
-            rememberUpgrade: false // Don't remember upgrade preference
+            transports: ['polling', 'websocket'], // Try polling first, then upgrade
+            reconnection: true, // Enable auto-reconnection
+            reconnectionAttempts: Infinity, // Never stop trying to reconnect
+            reconnectionDelay: 1000, // Start with 1s delay
+            reconnectionDelayMax: 5000, // Max 5s between reconnection attempts
+            timeout: 45000, // 45s connection timeout (matches server)
+            // Additional stability settings
+            forceNew: false, // Reuse existing connection if possible
+            multiplex: true, // Allow multiplexing
+            autoConnect: true, // Auto-connect on creation
+            // Prevent disconnections during network hiccups
+            upgrade: true, // Allow transport upgrades
+            rememberUpgrade: true, // Remember the upgraded transport
         });
 
         // Join helpers: retry join_game until GAME_STATE_UPDATE is received
@@ -700,5 +703,5 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         }
     }, [isMultiplayer]);
 
-    return { state, timer, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn };
+    return { state, timer, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, setState, isMyTurn, socket };
 };

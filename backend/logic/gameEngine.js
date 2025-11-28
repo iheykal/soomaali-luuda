@@ -72,21 +72,62 @@ const processGameSettlement = async (game) => {
             return;
         }
 
+        // STRICT VALIDATION: Get winner and verify identity
         const winnerColor = game.winners[0];
         const winnerPlayer = game.players.find(p => p.color === winnerColor);
-        const loserPlayer = game.players.find(p => p.color !== winnerColor && !p.isAI);
 
-        if (!winnerPlayer || !loserPlayer) {
-            console.log(`⚠️ Could not find winner or loser for settlement in game ${game.gameId}`);
+        if (!winnerPlayer || !winnerPlayer.userId || winnerPlayer.isAI) {
+            console.error(`🚨 PAYMENT BLOCKED: Invalid winner player for game ${game.gameId}`);
             return;
         }
 
-        console.log(`💰 Processing settlement for game ${game.gameId}: Winner=${winnerPlayer.userId}, Loser=${loserPlayer.userId}, Stake=${game.stake}`);
+        // CRITICAL: Verify winner actually has ALL 4 pawns in HOME before ANY payment
+        const winnerTokens = game.tokens.filter(t => t.color === winnerColor);
+        const allInHome = winnerTokens.length === 4 && winnerTokens.every(t => t.position.type === 'HOME');
 
+        if (!allInHome) {
+            console.error(`🚨 PAYMENT BLOCKED: Winner ${winnerColor} does not have all 4 pawns in HOME! Game ${game.gameId}`);
+            console.error(`🚨 Winner tokens status:`, winnerTokens.map(t => ({ id: t.id, position: t.position })));
+            return;
+        }
+
+        console.log(`✅ VALIDATION PASSED: Winner ${winnerColor} has all 4 pawns in HOME`);
+
+        // STRICT VALIDATION: Get loser - must be different human player
+        const loserPlayer = game.players.find(p =>
+            p.userId &&
+            !p.isAI &&
+            p.userId !== winnerPlayer.userId &&
+            p.color !== winnerColor
+        );
+
+        if (!loserPlayer || !loserPlayer.userId) {
+            console.error(`🚨 PAYMENT BLOCKED: Invalid loser player for game ${game.gameId}`);
+            return;
+        }
+
+        console.log(`💰 STRICT VALIDATION PASSED - Processing settlement for game ${game.gameId}:`);
+        console.log(`   Winner: ${winnerPlayer.userId} (${winnerColor})`);
+        console.log(`   Loser: ${loserPlayer.userId} (${loserPlayer.color})`);
+        console.log(`   Stake: $${game.stake}`);
+
+        // Fetch user documents using VALIDATED userIds
         const winner = await User.findById(winnerPlayer.userId);
         const loser = await User.findById(loserPlayer.userId);
         const stake = game.stake;
 
+        // Final safety check: ensure we got the correct users
+        if (!winner) {
+            console.error(`🚨 PAYMENT BLOCKED: Winner user ${winnerPlayer.userId} not found in database`);
+            return;
+        }
+
+        if (!loser) {
+            console.error(`🚨 PAYMENT BLOCKED: Loser user ${loserPlayer.userId} not found in database`);
+            return;
+        }
+
+        // Process winner payout
         if (winner) {
             const totalPot = stake * 2;
             const commission = totalPot * 0.10;
@@ -134,6 +175,7 @@ const processGameSettlement = async (game) => {
             console.log(`✅ Winner ${winner.username} credited with $${winnings}. New balance: ${winner.balance}`);
         }
 
+        // Process loser deduction
         if (loser) {
             loser.reservedBalance -= stake;
 
@@ -158,6 +200,23 @@ const processGameSettlement = async (game) => {
             const profit = (stake * 2 * 0.9) - stake;
             game.message = `${winner.username} won ${profit.toFixed(2)} dollars`;
         }
+
+        // AUDIT LOG: Complete settlement record
+        console.log(`✅ SETTLEMENT AUDIT COMPLETE:`, {
+            gameId: game.gameId,
+            winnerUserId: winner._id.toString(),
+            winnerUsername: winner.username,
+            winnerColor: winnerColor,
+            winnerNewBalance: winner.balance,
+            loserUserId: loser._id.toString(),
+            loserUsername: loser.username,
+            loserColor: loserPlayer.color,
+            loserNewBalance: loser.balance,
+            stake: stake,
+            winnings: (stake * 2 * 0.9),
+            commission: (stake * 2 * 0.10)
+        });
+
         console.log(`✅ Settlement complete for game ${game.gameId}`);
     } catch (error) {
         console.error(`❌ Error processing settlement for game ${game.gameId}:`, error);

@@ -16,6 +16,7 @@ const FinancialRequest = require('./models/FinancialRequest');
 const Revenue = require('./models/Revenue');
 const RevenueWithdrawal = require('./models/RevenueWithdrawal');
 const Game = require('./models/Game');
+const VisitorAnalytics = require('./models/VisitorAnalytics');
 const { smartUserSync, smartUserLookup } = require('./utils/userSync');
 const NodeCache = require('node-cache'); // For caching performance optimization
 
@@ -79,6 +80,7 @@ const io = new Server(server, {
 });
 
 app.use(express.json());
+app.use(require('cookie-parser')());
 
 // Health check endpoints
 app.get('/health', (req, res) => {
@@ -100,6 +102,9 @@ app.get('/api/health', (req, res) => {
 });
 
 
+// Game rejoin routes
+const rejoinRoutes = require('./routes/rejoin');
+app.use('/api/game', rejoinRoutes);
 
 // Basic Rate Limiter Map (IP -> Timestamp)
 const rateLimit = new Map();
@@ -124,6 +129,74 @@ const rateLimiter = (req, res, next) => {
   next();
 };
 app.use('/api/', rateLimiter);
+
+// Visitor Analytics Middleware - Track all visitors (both anonymous and authenticated)
+app.use(async (req, res, next) => {
+  try {
+    // Generate or retrieve session ID from cookie
+    let sessionId = req.cookies?.sessionId || req.headers['x-session-id'];
+
+    if (!sessionId) {
+      sessionId = crypto.randomBytes(16).toString('hex');
+      res.cookie('sessionId', sessionId, { maxAge: 48 * 60 * 60 * 1000, httpOnly: true });
+    }
+
+    // Check if user is authenticated
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    let userId = null;
+    let username = null;
+    let isAuthenticated = false;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded.userId;
+        username = decoded.username;
+        isAuthenticated = true;
+      } catch (e) {
+        // Token invalid, treat as anonymous
+      }
+    }
+
+    // Track visitor (upsert based on sessionId)
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+
+    // Check if session exists in last 48h
+    const existingVisitor = await VisitorAnalytics.findOne({ sessionId });
+
+    if (existingVisitor) {
+      // Update existing session
+      existingVisitor.lastActivity = new Date();
+      existingVisitor.pageViews += 1;
+      existingVisitor.isReturning = true;
+      if (userId && !existingVisitor.userId) {
+        existingVisitor.userId = userId;
+        existingVisitor.username = username;
+        existingVisitor.isAuthenticated = true;
+      }
+      await existingVisitor.save();
+    } else {
+      // Create new visitor record
+      await VisitorAnalytics.create({
+        userId,
+        sessionId,
+        ipAddress,
+        userAgent,
+        isAuthenticated,
+        username,
+        pageViews: 1,
+        isReturning: false
+      });
+    }
+  } catch (error) {
+    // Don't block requests if analytics fail
+    console.error('Visitor tracking error:', error);
+  }
+
+  next();
+});
 
 // Database Connection
 const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/ludo-master';
@@ -889,6 +962,148 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
   }
 });
 
+// POST: Admin - Update user balance (DEPOSIT or WITHDRAWAL)
+app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => {
+  try {
+    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-update-balance');
+    const adminUser = lookupResult.success ? lookupResult.user : null;
+
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    const { id: targetUserId } = req.params;
+    const { amount, type, comment } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+
+    if (!['deposit', 'withdrawal'].includes(type?.toLowerCase())) {
+      return res.status(400).json({ error: 'Type must be deposit or withdrawal' });
+    }
+
+    const targetUser = await User.findById(targetUserId);
+
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Target user not found' });
+    }
+
+    const amountNum = parseFloat(amount);
+
+    if (type.toLowerCase() === 'deposit') {
+      targetUser.balance += amountNum;
+      targetUser.transactions.push({
+        type: 'admin_deposit',
+        amount: amountNum,
+        description: comment || `Admin deposit by ${adminUser.username}`,
+        timestamp: new Date()
+      });
+      console.log(`✅ Admin ${adminUser.username} deposited $${amountNum} to ${targetUser.username}`);
+    } else {
+      if (targetUser.balance < amountNum) {
+        return res.status(400).json({ error: 'Insufficient user balance for withdrawal' });
+      }
+      targetUser.balance -= amountNum;
+      targetUser.transactions.push({
+        type: 'admin_withdrawal',
+        amount: -amountNum,
+        description: comment || `Admin withdrawal by ${adminUser.username}`,
+        timestamp: new Date()
+      });
+      console.log(`✅ Admin ${adminUser.username} withdrew $${amountNum} from ${targetUser.username}`);
+    }
+
+    await targetUser.save();
+
+    res.json({
+      success: true,
+      message: `Balance updated successfully`,
+      newBalance: targetUser.balance,
+      user: {
+        phone: targetUser.phone
+      }
+    });
+
+  } catch (error) {
+    console.error('Admin balance update error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update balance' });
+  }
+});
+
+// GET: Visitor Analytics for SuperAdmin Dashboard
+app.get('/api/admin/visitor-analytics', authenticateToken, async (req, res) => {
+  try {
+    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-visitor-analytics');
+    const adminUser = lookupResult.success ? lookupResult.user : null;
+
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    // Get all visitors from last 48 hours (TTL handles cleanup)
+    const visitors = await VisitorAnalytics.find({}).sort({ lastActivity: -1 });
+
+    const totalVisitors = visitors.length;
+    const authenticatedVisitors = visitors.filter(v => v.isAuthenticated).length;
+    const anonymousVisitors = totalVisitors - authenticatedVisitors;
+    const returningVisitors = visitors.filter(v => v.isReturning).length;
+
+    // Top visitors by page views
+    const topVisitors = visitors
+      .filter(v => v.isAuthenticated)
+      .sort((a, b) => b.pageViews - a.pageViews)
+      .slice(0, 10)
+      .map(v => ({
+        username: v.username,
+        userId: v.userId,
+        pageViews: v.pageViews,
+        lastActivity: v.lastActivity,
+        isReturning: v.isReturning
+      }));
+
+    // Per-user visit frequency (group by userId)
+    const userVisits = {};
+    visitors.filter(v => v.userId).forEach(v => {
+      const uid = v.userId.toString();
+      if (!userVisits[uid]) {
+        userVisits[uid] = {
+          username: v.username,
+          sessions: 0,
+          totalPageViews: 0,
+          lastVisit: v.lastActivity
+        };
+      }
+      userVisits[uid].sessions += 1;
+      userVisits[uid].totalPageViews += v.pageViews;
+      if (new Date(v.lastActivity) > new Date(userVisits[uid].lastVisit)) {
+        userVisits[uid].lastVisit = v.lastActivity;
+      }
+    });
+
+    const perUserFrequency = Object.values(userVisits)
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 10);
+
+    res.json({
+      success: true,
+      analytics: {
+        totalVisitors,
+        authenticatedVisitors,
+        anonymousVisitors,
+        returningVisitors,
+        topVisitors,
+        perUserFrequency,
+        timeWindow: '48 hours'
+      }
+    });
+
+  } catch (error) {
+    console.error('Visitor analytics error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch visitor analytics' });
+  }
+});
+
 // Initialize cache for performance optimization
 // const NodeCache = require('node-cache'); // Already required at top
 const cache = new NodeCache({
@@ -1223,7 +1438,10 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
     }
 
     // 2. Input Validation
-    if (!userId || !amount || amount <= 0 || !type || !['DEPOSIT', 'WITHDRAWAL'].includes(type)) {
+    // Convert type to uppercase for consistent validation
+    const normalizedType = type?.toUpperCase();
+
+    if (!userId || !amount || amount <= 0 || !normalizedType || !['DEPOSIT', 'WITHDRAWAL'].includes(normalizedType)) {
       return res.status(400).json({ error: 'User ID, valid amount, and type (DEPOSIT/WITHDRAWAL) are required.' });
     }
 
@@ -1237,7 +1455,7 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
     let transactionType = '';
     let transactionDescription = '';
 
-    if (type === 'DEPOSIT') {
+    if (normalizedType === 'DEPOSIT') {
       newBalance += amount;
       transactionType = 'deposit';
       transactionDescription = comment || `Admin deposit by ${adminUser.username}`;
@@ -1261,11 +1479,11 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
     });
     await user.save();
 
-    console.log(`💰 Super Admin ${adminUser.username} performed ${type} of $${amount} for user ${user.username} (ID: ${user._id}). New balance: $${user.balance}`);
+    console.log(`💰 Super Admin ${adminUser.username} performed ${normalizedType} of $${amount} for user ${user.username} (ID: ${user._id}). New balance: $${user.balance}`);
 
     res.json({
       success: true,
-      message: `User ${user.username}'s balance updated successfully (${type}: $${amount}). New balance: $${user.balance}.`,
+      message: `User ${user.username}'s balance updated successfully (${normalizedType}: $${amount}). New balance: $${user.balance}.`,
       user: {
         id: user._id,
         username: user.username,
@@ -2788,7 +3006,8 @@ io.on('connection', (socket) => {
 
         // User exists in database - check balance
         userBalance = user.balance || 0;
-        if (userBalance < stake) {
+        // FIXED: Use <= to allow exact stake amount (0.25 balance should allow 0.25 stake)
+        if (userBalance < stake - 0.001) { // Allow tiny floating point error
           socket.emit('ERROR', { message: 'Insufficient funds' });
           return;
         }
@@ -3123,7 +3342,50 @@ io.on('connection', (socket) => {
     }
   });
 
+  // --- CHAT EVENTS ---
+
+  // Handle chat messages
+  socket.on('send_chat_message', async ({ gameId, userId, message }) => {
+    console.log(`💬 Chat message in game ${gameId} from ${userId}: ${message}`);
+
+    try {
+      // Find the game to get player information
+      const Game = require('./models/Game');
+      const game = await Game.findOne({ gameId });
+
+      if (!game) {
+        console.error(`❌ Chat message failed: Game ${gameId} not found`);
+        return;
+      }
+
+      // Find the player who sent the message
+      const player = game.players.find(p => p.userId === userId);
+
+      if (!player) {
+        console.error(`❌ Chat message failed: Player ${userId} not found in game ${gameId}`);
+        return;
+      }
+
+      // Broadcast the message to all players in the game room
+      const chatData = {
+        userId: userId,
+        playerColor: player.color,
+        playerName: player.username || player.userId,
+        message: message,
+        timestamp: Date.now()
+      };
+
+      // Emit to all players in the game room (including sender)
+      io.to(gameId).emit('chat_message', chatData);
+      console.log(`📤 Chat message broadcasted to game ${gameId}`);
+
+    } catch (error) {
+      console.error('❌ Error handling chat message:', error);
+    }
+  });
+
   socket.on('disconnect', async () => {
+
     console.log('🔌 Client disconnected:', socket.id);
 
     // Remove from matchmaking queue

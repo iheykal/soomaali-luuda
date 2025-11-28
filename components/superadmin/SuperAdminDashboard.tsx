@@ -140,6 +140,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [withdrawDestination, setWithdrawDestination] = useState('');
   const [withdrawReference, setWithdrawReference] = useState('');
   const [activeGames, setActiveGames] = useState<GameState[]>([]);
+  const [visitorAnalytics, setVisitorAnalytics] = useState<{
+    totalVisitors: number;
+    authenticatedVisitors: number;
+    anonymousVisitors: number;
+    returningVisitors: number;
+    topVisitors: Array<{ username: string | null; pageViews: number; isAuthenticated: boolean; lastActivity: string }>;
+    hourlyActivity: Array<{ hour: number; visitors: number }>;
+  } | null>(null);
 
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: 'wins' | 'balance' | 'joined' | 'username'; direction: 'asc' | 'desc' }>({ key: 'joined', direction: 'desc' });
@@ -271,6 +279,15 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       console.error('Error fetching active games:', err);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const fetchVisitorAnalytics = useCallback(async () => {
+    try {
+      const analytics = await adminAPI.getVisitorAnalytics();
+      setVisitorAnalytics(analytics);
+    } catch (err: any) {
+      console.error('Error fetching visitor analytics:', err);
     }
   }, []);
 
@@ -525,59 +542,121 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     if (activeTab === 'games' || activeTab === 'dashboard') {
       fetchActiveGames();
     }
-  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames]);
+    if (activeTab === 'dashboard') {
+      fetchVisitorAnalytics();
+    }
+  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics]);
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
         const pendingRequestsCount = requests.filter(r => r.status === 'PENDING').length;
         return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 sm:p-6 rounded-xl border-2 border-green-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('users')}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-3 bg-green-500 rounded-xl group-hover:scale-110 transition-transform">
-                  <span className="text-2xl">👥</span>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+              <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 sm:p-6 rounded-xl border-2 border-green-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('users')}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-3 bg-green-500 rounded-xl group-hover:scale-110 transition-transform">
+                    <span className="text-2xl">👥</span>
+                  </div>
+                  <span className="text-green-600 text-sm font-semibold">View All →</span>
                 </div>
-                <span className="text-green-600 text-sm font-semibold">View All →</span>
+                <h2 className="text-lg sm:text-xl font-bold mb-2 text-green-700">Total Users</h2>
+                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{users.length}</p>
+                <p className="text-xs sm:text-sm text-gray-600">Registered players</p>
               </div>
-              <h2 className="text-lg sm:text-xl font-bold mb-2 text-green-700">Total Users</h2>
-              <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{users.length}</p>
-              <p className="text-xs sm:text-sm text-gray-600">Registered players</p>
-            </div>
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 sm:p-6 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('games')}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-3 bg-blue-500 rounded-xl group-hover:scale-110 transition-transform">
-                  <span className="text-2xl">🎮</span>
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 sm:p-6 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('games')}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-3 bg-blue-500 rounded-xl group-hover:scale-110 transition-transform">
+                    <span className="text-2xl">🎮</span>
+                  </div>
+                  <span className="text-blue-600 text-sm font-semibold">View All →</span>
                 </div>
-                <span className="text-blue-600 text-sm font-semibold">View All →</span>
+                <h2 className="text-lg sm:text-xl font-bold mb-2 text-blue-700">Active Games</h2>
+                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{activeGames.length}</p>
+                <p className="text-xs sm:text-sm text-gray-600">Matches in progress</p>
               </div>
-              <h2 className="text-lg sm:text-xl font-bold mb-2 text-blue-700">Active Games</h2>
-              <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{activeGames.length}</p>
-              <p className="text-xs sm:text-sm text-gray-600">Matches in progress</p>
-            </div>
-            <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-5 sm:p-6 rounded-xl border-2 border-yellow-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('wallet')}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-3 bg-yellow-500 rounded-xl group-hover:scale-110 transition-transform">
-                  <span className="text-2xl">💰</span>
+              <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-5 sm:p-6 rounded-xl border-2 border-yellow-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('wallet')}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-3 bg-yellow-500 rounded-xl group-hover:scale-110 transition-transform">
+                    <span className="text-2xl">💰</span>
+                  </div>
+                  <span className="text-yellow-600 text-sm font-semibold">View All →</span>
                 </div>
-                <span className="text-yellow-600 text-sm font-semibold">View All →</span>
+                <h2 className="text-lg sm:text-xl font-bold mb-2 text-yellow-700">Pending Requests</h2>
+                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{pendingRequestsCount}</p>
+                <p className="text-xs sm:text-sm text-gray-600">Wallet transactions</p>
               </div>
-              <h2 className="text-lg sm:text-xl font-bold mb-2 text-yellow-700">Pending Requests</h2>
-              <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{pendingRequestsCount}</p>
-              <p className="text-xs sm:text-sm text-gray-600">Wallet transactions</p>
-            </div>
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-5 sm:p-6 rounded-xl border-2 border-purple-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('revenue')}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-3 bg-purple-500 rounded-xl group-hover:scale-110 transition-transform">
-                  <span className="text-2xl">📈</span>
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-5 sm:p-6 rounded-xl border-2 border-purple-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('revenue')}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-3 bg-purple-500 rounded-xl group-hover:scale-110 transition-transform">
+                    <span className="text-2xl">📈</span>
+                  </div>
+                  <span className="text-purple-600 text-sm font-semibold">View All →</span>
                 </div>
-                <span className="text-purple-600 text-sm font-semibold">View All →</span>
+                <h2 className="text-lg sm:text-xl font-bold mb-2 text-purple-700">Total Revenue</h2>
+                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
+                <p className="text-xs sm:text-sm text-gray-600">Platform earnings (10%)</p>
               </div>
-              <h2 className="text-lg sm:text-xl font-bold mb-2 text-purple-700">Total Revenue</h2>
-              <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
-              <p className="text-xs sm:text-sm text-gray-600">Platform earnings (10%)</p>
             </div>
-          </div>
+            {visitorAnalytics && (
+              <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2 justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>👁️</span> Visitor Analytics (Last 48 Hours)
+                  </div>
+                  <button
+                    onClick={fetchVisitorAnalytics}
+                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    🔄 Refresh
+                  </button>
+                </h3>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Total</p>
+                    <p className="text-2xl font-black text-gray-900">{visitorAnalytics.totalVisitors}</p>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                    <p className="text-xs text-green-700 uppercase font-semibold mb-1">Authenticated</p>
+                    <p className="text-2xl font-black text-green-700">{visitorAnalytics.authenticatedVisitors}</p>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <p className="text-xs text-blue-700 uppercase font-semibold mb-1">Anonymous</p>
+                    <p className="text-2xl font-black text-blue-700">{visitorAnalytics.anonymousVisitors}</p>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                    <p className="text-xs text-purple-700 uppercase font-semibold mb-1">Returning</p>
+                    <p className="text-2xl font-black text-purple-700">{visitorAnalytics.returningVisitors}</p>
+                  </div>
+                </div>
+
+                {/* Top Visitors */}
+                {visitorAnalytics.topVisitors && visitorAnalytics.topVisitors.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">TOP VISITORS</h4>
+                    <div className="space-y-2">
+                      {visitorAnalytics.topVisitors.slice(0, 5).map((visitor, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-gray-900">
+                              {visitor.username || 'Anonymous'}
+                            </span>
+                            <span className={`text-xs px-2 py-1 rounded-full ${visitor.isAuthenticated ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'
+                              }`}>
+                              {visitor.isAuthenticated ? 'User' : 'Guest'}
+                            </span>
+                          </div>
+                          <span className="text-sm text-gray-600">{visitor.pageViews} views</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         );
       case 'users':
         return (
@@ -1117,6 +1196,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Time (EAT)</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Players</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Winner</th>
                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Stake/Pot</th>
@@ -1129,6 +1209,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                         <tr key={rev._id || rev.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                             {new Date(rev.timestamp).toLocaleDateString()}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap font-mono text-xs">
+                            {new Date(rev.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Mogadishu' })}
                           </td>
                           <td className="px-3 py-2">
                             {rev.gameDetails?.players.length > 0 ? (
