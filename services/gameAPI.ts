@@ -1,5 +1,5 @@
 import { API_URL } from '../lib/apiConfig';
-import { instrumentedFetch } from './api';
+import { instrumentedFetch } from './apiService';
 
 interface ActiveGameResponse {
   hasActiveGame: boolean;

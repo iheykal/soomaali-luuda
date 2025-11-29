@@ -1,6 +1,6 @@
 import { API_URL } from '../lib/apiConfig';
 import type { User } from '../types';
-import { instrumentedFetch } from './api';
+import { instrumentedFetch } from './apiService';
 
 interface LoginResponse {
   user: User;
@@ -24,7 +24,7 @@ export const authAPI = {
         password,
       }),
     };
-    
+
     try {
       const { responseData } = await instrumentedFetch(url, options);
 
@@ -39,7 +39,7 @@ export const authAPI = {
 
       return responseData as LoginResponse;
     } catch (error: any) {
-      if(error.responseData) {
+      if (error.responseData) {
         const { response, responseData } = error;
         let errorMessage = responseData.message || 'Login failed';
 
@@ -54,11 +54,11 @@ export const authAPI = {
         }
         throw new Error(errorMessage);
       }
-      
+
       if (error.message && error.message.includes('Failed to fetch')) {
         throw new Error('Cannot connect to server. Please ensure the backend is running on port 5000.');
       }
-      
+
       throw new Error(error.message || 'Failed to connect to server');
     }
   },
@@ -66,16 +66,16 @@ export const authAPI = {
   async register(fullName: string, phone: string, password: string): Promise<LoginResponse> {
     const url = `${getAuthUrl()}/auth/register`;
     const options = {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fullName,
-          phone,
-          password,
-        }),
-      };
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fullName,
+        phone,
+        password,
+      }),
+    };
 
     try {
       const { responseData } = await instrumentedFetch(url, options);
@@ -87,20 +87,20 @@ export const authAPI = {
 
       return responseData as LoginResponse;
     } catch (error: any) {
-       if(error.responseData) {
+      if (error.responseData) {
         const { response, responseData } = error;
         let errorMessage = responseData.message || 'Registration failed';
-        
+
         if (response.status === 0 || response.status >= 500) {
           errorMessage = 'Cannot connect to server. Please ensure the backend is running on port 5000.';
         }
         throw new Error(errorMessage);
       }
-      
+
       if (error.message && error.message.includes('Failed to fetch')) {
         throw new Error('Cannot connect to server. Please ensure the backend is running on port 5000.');
       }
-      
+
       throw new Error(error.message || 'Failed to register');
     }
   },
@@ -108,7 +108,7 @@ export const authAPI = {
   async getCurrentUser(): Promise<User> {
     const token = localStorage.getItem('ludo_token');
     const url = `${getAuthUrl()}/auth/me`;
-    
+
     if (!token) {
       throw new Error('No authentication token');
     }
@@ -125,9 +125,9 @@ export const authAPI = {
       const { responseData } = await instrumentedFetch(url, options);
       return responseData;
     } catch (error: any) {
-      if(error.responseData) {
+      if (error.responseData) {
         const { response } = error;
-         if (response.status === 401 || response.status === 403) {
+        if (response.status === 401 || response.status === 403) {
           throw new Error(`Unauthorized: ${response.status}`);
         }
         if (response.status === 404) {

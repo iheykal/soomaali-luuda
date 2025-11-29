@@ -1,6 +1,6 @@
 import { API_URL } from '../lib/apiConfig';
 import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse } from '../types';
-import { instrumentedFetch } from './api';
+import { instrumentedFetch } from './apiService';
 
 const getApiUrl = () => {
   return API_URL || 'http://localhost:5000/api';

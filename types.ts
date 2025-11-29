@@ -147,7 +147,16 @@ export interface MatchHistory {
   stake: number;
 }
 
+export interface Transaction {
+  type: 'deposit' | 'withdrawal' | 'game_win' | 'game_loss' | 'game_refund' | 'match_stake' | 'match_unstake' | 'admin_deposit' | 'admin_withdrawal';
+  amount: number;
+  matchId?: string;
+  description?: string;
+  timestamp: string;
+}
+
 export interface UserDetailsResponse {
   user: User;
   history: MatchHistory[];
+  transactions: Transaction[];
 }

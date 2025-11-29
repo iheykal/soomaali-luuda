@@ -1113,50 +1113,30 @@ const cache = new NodeCache({
 
 app.get('/api/users/leaderboard', async (req, res) => {
   try {
-    const { userId } = req.params;
+    // Fetch top 3 users sorted by wins (descending)
+    // We use 'stats.gamesWon' as the primary sort key
+    const topPlayers = await User.find({
+      'stats.gamesWon': { $gt: 0 } // Only include players who have won at least one game
+    })
+      .sort({ 'stats.gamesWon': -1 })
+      .limit(3)
+      .select('username avatar stats.gamesWon'); // Select only necessary fields
 
-    if (!userId) {
-      return res.status(400).json({ hasActiveGame: false, game: null });
-    }
-
-    console.log(`🔍 Checking for active game for user: ${userId}`);
-
-    // Find any active game where this user is a player
-    const activeGame = await Game.findOne({
-      'players.userId': userId,
-      status: 'ACTIVE'
-    });
-
-    if (!activeGame) {
-      console.log(`ℹ️ No active game found for user ${userId}`);
-      return res.json({ hasActiveGame: false, game: null });
-    }
-
-    // Find the player's info in the game
-    const playerInfo = activeGame.players.find(p => p.userId === userId);
-
-    if (!playerInfo) {
-      console.log(`⚠️ User ${userId} found in game but not in players array`);
-      return res.json({ hasActiveGame: false, game: null });
-    }
-
-    console.log(`✅ Active game found: ${activeGame.gameId}, player color: ${playerInfo.color}`);
+    // Map to the format expected by the frontend
+    const leaderboard = topPlayers.map(user => ({
+      id: user._id,
+      username: user.username,
+      avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`,
+      wins: user.stats?.gamesWon || 0
+    }));
 
     res.json({
-      hasActiveGame: true,
-      game: {
-        gameId: activeGame.gameId,
-        playerColor: playerInfo.color,
-        isDisconnected: playerInfo.isDisconnected || false,
-        status: activeGame.status,
-        stake: activeGame.stake || 0,
-        winners: activeGame.winners || [],
-        allPawnsHome: activeGame.winners.includes(playerInfo.color)
-      }
+      success: true,
+      leaderboard
     });
   } catch (error) {
-    console.error('Error checking for active game:', error);
-    res.status(500).json({ hasActiveGame: false, game: null, error: error.message });
+    console.error('Error fetching leaderboard:', error);
+    res.status(500).json({ success: false, leaderboard: [], error: error.message });
   }
 });
 
@@ -1719,7 +1699,8 @@ app.get('/api/admin/user/:userId/details', authenticateToken, async (req, res) =
         stats: targetUser.stats,
         balance: targetUser.balance
       },
-      history
+      history,
+      transactions: targetUser.transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     });
 
   } catch (e) {

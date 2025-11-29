@@ -495,7 +495,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         {/* Top 3 Players Leaderboard - Always visible */}
         <div className="mt-8 w-full bg-slate-800/50 rounded-xl p-4 border border-slate-600">
           <h3 className="text-yellow-400 font-bold text-lg mb-3 flex items-center justify-center gap-2">
-            <span>🏆</span> Top 3 Players
+            <span>🏆</span> Top 3 Most Winners
           </h3>
           {leaderboard.length > 0 ? (
             <div className="space-y-2">
