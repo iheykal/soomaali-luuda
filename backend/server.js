@@ -2226,62 +2226,6 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
     };
 
     io.to(userRoom).emit('financial_request_update', notificationData);
-    console.log(`📢 Sent notification to user ${request.userId} in room ${userRoom}:`, notificationData);
-
-    // Send Web Push notification (for when app is closed)
-    try {
-      const targetUser = await User.findById(request.userId);
-      if (targetUser && targetUser.pushSubscriptions && targetUser.pushSubscriptions.length > 0) {
-        const pushPayload = JSON.stringify({
-          title: request.status === 'APPROVED'
-            ? `${request.type === 'DEPOSIT' ? '💵' : '💸'} ${request.type.charAt(0) + request.type.slice(1).toLowerCase()} Approved`
-            : `❌ ${request.type.charAt(0) + request.type.slice(1).toLowerCase()} Rejected`,
-          body: notificationData.message,
-          icon: '/wello.png',
-          badge: '/wello.png',
-          data: {
-            type: request.type,
-            action: request.status,
-            amount: request.amount,
-            url: '/' // URL to open when notification is clicked
-          }
-        });
-
-        // Send push notification to all user's subscriptions
-        const pushPromises = targetUser.pushSubscriptions.map(subscription => {
-          const pushSubscription = {
-            endpoint: subscription.endpoint,
-            keys: {
-              p256dh: subscription.keys.p256dh,
-              auth: subscription.keys.auth
-            }
-          };
-
-          return webPush.sendNotification(pushSubscription, pushPayload)
-            .catch(error => {
-              console.error(`❌ Failed to send push notification to ${subscription.endpoint}:`, error);
-              // If subscription is expired or invalid, remove it
-              if (error.statusCode === 410 || error.statusCode === 404) {
-                console.log(`🗑️ Removing invalid subscription for user ${request.userId}`);
-                targetUser.pushSubscriptions = targetUser.pushSubscriptions.filter(
-                  sub => sub.endpoint !== subscription.endpoint
-                );
-                targetUser.save().catch(err => console.error('Error saving user after removing subscription:', err));
-              }
-            });
-        });
-
-        await Promise.all(pushPromises);
-        console.log(`📲 Sent Web Push notification to ${targetUser.pushSubscriptions.length} device(s) for user ${request.userId}`);
-      }
-    } catch (pushError) {
-      console.error('❌ Error sending Web Push notification:', pushError);
-      // Don't fail the request if push notification fails
-    }
-
-    // In a real app, we would trigger a notification here
-    console.log(`✅ Request ${id} ${action}D by admin ${adminUser.username}. User ${user.username} new balance: $${user.balance}`);
-
     res.json({
       success: true,
       message: `Request ${action}D`,
@@ -3555,7 +3499,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', async () => {
-
     console.log('🔌 Client disconnected:', socket.id);
 
     // Remove from matchmaking queue
@@ -3580,52 +3523,6 @@ io.on('connection', (socket) => {
     console.log('🔌 Client disconnected:', socket.id);
   });
 });
-
-// ... (all your API routes)
-
-// This must be after all other API routes
-// Serve frontend static build when present (same-domain deployment)
-try {
-  const frontendDist = path.join(__dirname, '..', 'dist');
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(frontendDist, 'index.html'));
-    });
-    console.log('✅ Serving frontend from', frontendDist);
-  } else {
-    console.log('ℹ️ Frontend dist not found at', frontendDist);
-  }
-} catch (e) {
-  console.warn('⚠️ Error checking frontend dist:', e.message);
-}
-
-const PORT = process.env.PORT || 5000;
-const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
-
-
-// Startup Cleanup: Mark all players as disconnected in ACTIVE games
-const performStartupCleanup = async () => {
-  try {
-    console.log('🧹 Performing startup cleanup...');
-    const Game = require('./models/Game');
-
-    // Update all ACTIVE games to mark players as disconnected
-    const result = await Game.updateMany(
-      { status: 'ACTIVE' },
-      {
-        $set: {
-          'players.$[].isDisconnected': true,
-          'players.$[].socketId': null
-        }
-      }
-    );
-
-    console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games. This ensures auto-turns will work if players don't reconnect.`);
-  } catch (error) {
-    console.error('❌ Startup cleanup failed:', error);
-  }
-};
 
 // Scheduled Task: Cleanup Stale Games (Every 6 Hours)
 setInterval(async () => {
@@ -3676,9 +3573,49 @@ setInterval(async () => {
   }
 }, 6 * 60 * 60 * 1000);
 
+// Serve frontend static build when present (same-domain deployment)
+try {
+  const frontendDist = path.join(__dirname, '..', 'dist');
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+    console.log('✅ Serving frontend from', frontendDist);
+  } else {
+    console.log('ℹ️ Frontend dist not found at', frontendDist);
+  }
+} catch (e) {
+  console.warn('⚠️ Error checking frontend dist:', e.message);
+}
+
+const PORT = process.env.PORT || 5000;
+const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
+
+// Startup Cleanup: Mark all players as disconnected in ACTIVE games
+const performStartupCleanup = async () => {
+  try {
+    console.log('🧹 Performing startup cleanup...');
+    const Game = require('./models/Game');
+
+    // Update all ACTIVE games to mark players as disconnected
+    const result = await Game.updateMany(
+      { status: 'ACTIVE' },
+      {
+        $set: {
+          'players.$[].isDisconnected': true,
+          'players.$[].socketId': null
+        }
+      }
+    );
+
+    console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games. This ensures auto-turns will work if players don't reconnect.`);
+  } catch (error) {
+    console.error('❌ Startup cleanup failed:', error);
+  }
+};
+
 // Start server after ensuring DB connection and performing startup cleanup.
-// We explicitly await the Mongo connection to avoid making DB queries before
-// mongoose is connected (fixes errors like "Cannot call `users.findOne()` before initial connection is complete").
 (async () => {
   try {
     await ensureMongoConnect();
