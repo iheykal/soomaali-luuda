@@ -17,9 +17,9 @@
  * ✅ Players with no pawns on track and no 6 roll are stuck
  * 
  * Part 3: Movement & Interaction
- * ✅ Capturing: Landing on opponent's pawn sends it back to Base
+ * ✅ Capturing: Landing on single opponent pawn sends it back to Base
+ * ✅ Safe blocks: 2+ opponent pawns form protective block (no capture, pawns coexist)
  * ✅ Safe squares: No captures on designated safe squares
- * ✅ Blockades: Two same-color pawns block opponent passage
  * ✅ Home stretch: Color-specific final path, safe from capture
  * 
  * Part 4: Winning Conditions
@@ -218,8 +218,19 @@ const processGameSettlement = async (game) => {
         });
 
         console.log(`✅ Settlement complete for game ${game.gameId}`);
+
+        // Return settlement data for win notification
+        return {
+            winnerId: winner._id.toString(),
+            winnerUsername: winner.username,
+            grossWin: totalPot,
+            netAmount: winnings,
+            commission: commission,
+            stake: stake
+        };
     } catch (error) {
         console.error(`❌ Error processing settlement for game ${game.gameId}:`, error);
+        return null;
     }
 };
 
@@ -314,53 +325,69 @@ exports.handleJoinGame = async (gameId, userId, playerColor, socketId) => {
         console.error(`Error fetching user ${userId}:`, e);
     }
 
+    // ATOMIC UPDATE: Replace game.save() with updateOne
     const playerIndex = game.players.findIndex(p => p.color === playerColor);
     if (playerIndex !== -1) {
-        // Anti-Hijack: Only allow reconnect if userId matches or seat is empty (rare)
-        const existingPlayer = game.players[playerIndex];
-        if (existingPlayer.userId === userId || existingPlayer.isDisconnected) {
-            // Update socket and clear disconnect flag
-            existingPlayer.socketId = socketId;
-            existingPlayer.username = username; // Update username in case it changed
-            if (existingPlayer.isDisconnected) {
-                existingPlayer.isDisconnected = false; // REJOIN: Clear disconnect flag
-                game.message = `${username} reconnected!`;
-                console.log(`✅ Player ${userId} (${playerColor}) reconnected to game ${gameId}`);
-            } else {
-                // Same player reconnecting with new socket (not disconnected state)
-                game.message = `${username} reconnected!`;
-                console.log(`✅ Player ${userId} (${playerColor}) updated socket connection for game ${gameId}`);
+        // Update existing player
+        await Game.updateOne(
+            { gameId, "players.color": playerColor },
+            {
+                $set: {
+                    "players.$.socketId": socketId,
+                    "players.$.username": username,
+                    "players.$.isDisconnected": false,
+                    message: `${username} reconnected!`
+                }
             }
-        } else {
-            console.warn(`Unauthorized join attempt for game ${gameId} - userId mismatch`);
-            return { success: false, state: game };
-        }
-    } else {
-        // Restrict to 2 players only (Green and Blue)
-        if (game.players.length >= 2) {
-            console.warn(`Game ${gameId} is full (2 players max)`);
-            return { success: false, state: game };
-        }
+        );
 
+        // Update in-memory object to return correct state
+        game.players[playerIndex].socketId = socketId;
+        game.players[playerIndex].username = username;
+        game.players[playerIndex].isDisconnected = false;
+        game.message = `${username} reconnected!`;
+        console.log(`✅ Player ${userId} (${playerColor}) reconnected to game ${gameId} (Atomic Update)`);
+
+    } else {
+        // Add new player
         const newTokens = Array.from({ length: 4 }, (_, i) => ({
             id: `${playerColor}-${i}`,
             color: playerColor,
             position: { type: 'YARD', index: i }
         }));
 
-        game.players.push({
+        const newPlayer = {
             color: playerColor,
             userId,
-            username, // Store username
+            username,
             socketId,
-            isAI: false, // Always false for multiplayer games - human players only
-            isDisconnected: false // Always false when joining - player is connected
-        });
-        console.log(`✅ Added new player ${userId} (${playerColor}) to game ${gameId} - isAI: false, isDisconnected: false`);
-        game.tokens.push(...newTokens);
+            isAI: false,
+            isDisconnected: false
+        };
+
+        if (game.isNew) {
+            game.players.push(newPlayer);
+            game.tokens.push(...newTokens);
+            await game.save();
+            console.log(`✅ Created new game ${gameId} with player ${userId} (${playerColor})`);
+        } else {
+            await Game.updateOne(
+                { gameId },
+                {
+                    $push: {
+                        players: newPlayer,
+                        tokens: { $each: newTokens }
+                    }
+                }
+            );
+
+            // Update in-memory object
+            game.players.push(newPlayer);
+            game.tokens.push(...newTokens);
+            console.log(`✅ Added new player ${userId} (${playerColor}) to game ${gameId} (Atomic Update)`);
+        }
     }
 
-    await game.save();
     return { success: true, state: game };
 };
 
@@ -374,12 +401,26 @@ exports.handleDisconnect = async (gameId, socketId) => {
 
         const player = game.players.find(p => p.socketId === socketId);
         if (player) {
-            player.isDisconnected = true;
-            player.socketId = null; // Clear socket
-            game.message = `${player.username || player.color} disconnected. Bot taking over...`;
-            await game.save();
+            // ATOMIC UPDATE: Replace game.save()
+            const disconnectMessage = `${player.username || player.color} disconnected. Bot taking over...`;
 
-            console.log(`[disconnect] Player ${player.color} in game ${gameId} marked as disconnected.`);
+            await Game.updateOne(
+                { gameId, "players.socketId": socketId },
+                {
+                    $set: {
+                        "players.$.isDisconnected": true,
+                        "players.$.socketId": null,
+                        message: disconnectMessage
+                    }
+                }
+            );
+
+            // Update in-memory object
+            player.isDisconnected = true;
+            player.socketId = null;
+            game.message = disconnectMessage;
+
+            console.log(`[disconnect] Player ${player.color} in game ${gameId} marked as disconnected. (Atomic Update)`);
 
             return {
                 state: game,
@@ -427,7 +468,19 @@ exports.handleRollDice = async (gameId, socketId) => {
         // --- Perform the roll and save the intermediate state ---
         executeRollDice(game); // Modifies 'game' in place. `diceValue` is now set.
 
-        await game.save();
+        // ATOMIC UPDATE: Replace game.save()
+        await Game.updateOne(
+            { gameId },
+            {
+                $set: {
+                    diceValue: game.diceValue,
+                    turnState: game.turnState,
+                    message: game.message,
+                    legalMoves: game.legalMoves,
+                    timer: game.timer
+                }
+            }
+        );
 
         const plainState = game.toObject ? game.toObject() : game;
         return { success: true, state: plainState };
@@ -452,17 +505,35 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
             return { success: false, message };
         }
 
-        // If there's a settlement promise, await it.
+        // If there's a settlement promise, await it and capture the data
+        let settlementData = null;
         if (settlementPromise) {
-            await settlementPromise;
+            settlementData = await settlementPromise;
         }
 
         // Now, save the final state to the database
-        await updatedGameState.save();
+        // ATOMIC UPDATE: Replace game.save()
+        await Game.updateOne(
+            { gameId },
+            {
+                $set: {
+                    tokens: updatedGameState.tokens,
+                    turnState: updatedGameState.turnState,
+                    currentPlayerIndex: updatedGameState.currentPlayerIndex,
+                    diceValue: updatedGameState.diceValue,
+                    legalMoves: updatedGameState.legalMoves,
+                    message: updatedGameState.message,
+                    timer: updatedGameState.timer,
+                    winners: updatedGameState.winners,
+                    status: updatedGameState.status,
+                    settlementProcessed: updatedGameState.settlementProcessed
+                }
+            }
+        );
 
         const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
 
-        return { success: true, state: plainState };
+        return { success: true, state: plainState, settlementData };
     } catch (error) {
         console.error(`❌ Error in handleMoveToken for game ${gameId}:`, error);
         return { success: false, message: error.message || 'Error moving token' };
@@ -495,7 +566,19 @@ exports.handleAutoRoll = async (gameId, force = false) => {
     executeRollDice(game); // Modifies 'game' in place
 
     // Save the state with the diceValue, so the frontend can animate it
-    await game.save();
+    // ATOMIC UPDATE: Replace game.save()
+    await Game.updateOne(
+        { gameId },
+        {
+            $set: {
+                diceValue: game.diceValue,
+                turnState: game.turnState,
+                message: game.message,
+                legalMoves: game.legalMoves,
+                timer: game.timer
+            }
+        }
+    );
 
     return { success: true, state: game.toObject ? game.toObject() : game };
 };
@@ -519,7 +602,19 @@ exports.handleAutoMove = async (gameId) => {
         game.turnState = 'ROLLING';
         game.diceValue = null;
         game.legalMoves = [];
-        await game.save();
+
+        // ATOMIC UPDATE: Replace game.save()
+        await Game.updateOne(
+            { gameId },
+            {
+                $set: {
+                    currentPlayerIndex: game.currentPlayerIndex,
+                    turnState: game.turnState,
+                    diceValue: game.diceValue,
+                    legalMoves: game.legalMoves
+                }
+            }
+        );
         return { success: true, state: game.toObject ? game.toObject() : game };
     }
 
@@ -547,7 +642,24 @@ exports.handleAutoMove = async (gameId) => {
         await moveResult.settlementPromise;
     }
 
-    await game.save();
+    // ATOMIC UPDATE: Replace game.save()
+    await Game.updateOne(
+        { gameId },
+        {
+            $set: {
+                tokens: game.tokens,
+                turnState: game.turnState,
+                currentPlayerIndex: game.currentPlayerIndex,
+                diceValue: game.diceValue,
+                legalMoves: game.legalMoves,
+                message: game.message,
+                timer: game.timer,
+                winners: game.winners,
+                status: game.status,
+                settlementProcessed: game.settlementProcessed
+            }
+        }
+    );
 
     return { success: true, state: game.toObject ? game.toObject() : game };
 };
@@ -571,7 +683,19 @@ exports.handlePassTurn = async (gameId) => {
     const nextPlayer = game.players[nextPlayerIndex];
     game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color}...`;
 
-    await game.save();
+    // ATOMIC UPDATE: Replace game.save()
+    await Game.updateOne(
+        { gameId },
+        {
+            $set: {
+                currentPlayerIndex: game.currentPlayerIndex,
+                turnState: game.turnState,
+                diceValue: game.diceValue,
+                legalMoves: game.legalMoves,
+                message: game.message
+            }
+        }
+    );
     return { success: true, state: game.toObject ? game.toObject() : game };
 };
 
@@ -622,6 +746,27 @@ function executeMoveToken(game, tokenId) {
         return t;
     });
 
+    // 🎯 ARROWS RULE: Check if pawn landed on 4th square from start
+    let arrowsTriggered = false;
+    if (move.finalPosition.type === 'PATH') {
+        const startPos = START_POSITIONS[player.color];
+        const squaresFromStart = (move.finalPosition.index - startPos + 52) % 52;
+
+        if (squaresFromStart === 4) {
+            // 🎯 Arrows Rule triggered!
+            arrowsTriggered = true;
+            const newIndex = (move.finalPosition.index + 1) % 52;
+            game.tokens = game.tokens.map(t => {
+                if (t.id === tokenId) {
+                    t.position = { type: 'PATH', index: newIndex };
+                }
+                return t;
+            });
+            game.message = `🎯 Arrows Rule! ${player.username || player.color} landed on 4th square, jumps to 5th + EXTRA ROLL!`;
+            console.log(`🎯 ARROWS RULE: ${player.color} pawn ${tokenId} landed on 4th square (${move.finalPosition.index}), auto-jumped to 5th (${newIndex})`);
+        }
+    }
+
     // Capture Logic
     if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
         const targetPos = move.finalPosition.index;
@@ -643,18 +788,25 @@ function executeMoveToken(game, tokenId) {
         console.log("--------------------------");
 
 
-        if (opponentTokensAtTarget.length > 0) { // CHANGED from === 1 to > 0
-            console.log(`⚔️ COMBAT: ${player.color} landed on ${targetPos} (Non-Safe). Killing ${opponentTokensAtTarget.length} opponent(s).`);
+        // 🛡️ SAFE POSITION RULE: 2+ opponent pawns form a protective block (no capture)
+        if (opponentTokensAtTarget.length === 1) {
+            // ⚔️ Single opponent pawn - capture it!
+            console.log(`⚔️ COMBAT: ${player.color} landed on ${targetPos} (Non-Safe). Capturing single opponent pawn.`);
             captured = true;
-            const victimIds = opponentTokensAtTarget.map(vt => vt.id); // Get all victim IDs
+            const victimToken = opponentTokensAtTarget[0];
             game.tokens = game.tokens.map(t => {
-                if (victimIds.includes(t.id)) { // Check if token is one of the victims
+                if (t.id === victimToken.id) {
                     // Send back to yard
                     return { ...t, position: { type: 'YARD', index: parseInt(t.id.split('-')[1]) } };
                 }
                 return t;
             });
-            game.message = `${player.username || player.color} killed ${opponentTokensAtTarget[0].color} token(s)!`; // Updated message
+            game.message = `⚔️ ${player.username || player.color} captured ${victimToken.color} pawn!`;
+        } else if (opponentTokensAtTarget.length >= 2) {
+            // 🛡️ Safe block - 2+ opponent pawns protect each other
+            console.log(`🛡️ SAFE BLOCK: ${player.color} joined position ${targetPos} with ${opponentTokensAtTarget.length} opponent pawns. All pawns safe!`);
+            const opponentColor = opponentTokensAtTarget[0].color;
+            game.message = `🛡️ Safe position! ${player.username || player.color} joined the ${opponentColor} block`;
         }
     }
     // This is an async operation that needs to be handled by the caller.
@@ -685,7 +837,7 @@ function executeMoveToken(game, tokenId) {
         }
     }
 
-    const grantExtraTurn = game.diceValue === 6 || captured || move.finalPosition.type === 'HOME';
+    const grantExtraTurn = game.diceValue === 6 || captured || move.finalPosition.type === 'HOME' || arrowsTriggered;
 
     console.log(`🎯 Move completed: diceValue=${game.diceValue}, grantExtraTurn=${grantExtraTurn}, captured=${captured}, reachedHome=${move.finalPosition.type === 'HOME'}`);
     console.log(`🎯 Turn transition: currentIndex=${game.currentPlayerIndex}, nextIndex=${getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn)}`);

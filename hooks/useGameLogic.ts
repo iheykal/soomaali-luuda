@@ -1,6 +1,6 @@
 import { useReducer, useCallback, useEffect, useRef } from 'react';
 import type { GameState, Player, PlayerColor, Token, LegalMove, TokenPosition, MultiplayerMessage, MultiplayerGame } from '../types';
-import { PLAYER_COLORS, START_POSITIONS, HOME_ENTRANCES, HOME_PATH_LENGTH, SAFE_SQUARES } from '../lib/boardLayout';
+import { PLAYER_COLORS, START_POSITIONS, HOME_ENTRANCES, HOME_PATH_LENGTH, SAFE_SQUARES, ARROW_SQUARES } from '../lib/boardLayout';
 import { SOCKET_URL } from '../lib/apiConfig';
 import { io, Socket } from 'socket.io-client';
 import { debugService } from '../services/debugService';
@@ -197,6 +197,25 @@ const _reducer = (state: GameState, action: Action): GameState => {
                 t.id === move.tokenId ? { ...t, position: move.finalPosition } : { ...t }
             );
 
+            // 🎯 ARROWS RULE: Check if pawn landed on arrow square
+            let arrowsTriggered = false;
+            if (move.finalPosition.type === 'PATH') {
+                if (ARROW_SQUARES.includes(move.finalPosition.index)) {
+                    // 🎯 Arrows Rule triggered!
+                    arrowsTriggered = true;
+                    const newIndex = (move.finalPosition.index + 1) % 52;
+                    newTokens = newTokens.map(t => {
+                        if (t.id === move.tokenId) {
+                            return { ...t, position: { type: 'PATH', index: newIndex } };
+                        }
+                        return t;
+                    });
+                    // IMPORTANT: Update message so GameBoard detects it for animation
+                    state.message = `🎯 Arrows Rule! ${currentPlayerColor} landed on arrow square!`;
+                    console.log(`🎯 ARROWS RULE (Offline): ${currentPlayerColor} pawn ${move.tokenId} landed on arrow square (${move.finalPosition.index}), auto-jumped to (${newIndex})`);
+                }
+            }
+
             if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
                 const targetPos = move.finalPosition.index;
                 const opponentTokensAtTarget = newTokens.filter(t =>
@@ -219,7 +238,7 @@ const _reducer = (state: GameState, action: Action): GameState => {
                 }
             }
 
-            const grantExtraTurn = diceValue === 6 || captured || move.finalPosition.type === 'HOME';
+            const grantExtraTurn = diceValue === 6 || captured || move.finalPosition.type === 'HOME' || arrowsTriggered;
 
             const winners = [...state.winners];
             const playerTokens = newTokens.filter(t => t.color === currentPlayerColor);

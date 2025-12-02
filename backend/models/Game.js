@@ -48,7 +48,7 @@ const GameSchema = new mongoose.Schema({
   settlementProcessed: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
-});
+}, { optimisticConcurrency: false });
 
 // ===== INDEX OPTIMIZATION =====
 // Compound index for finding active/completed games sorted by date

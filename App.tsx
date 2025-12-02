@@ -6,7 +6,9 @@ import GameSetup from './components/GameSetup';
 import PlayerInfo from './components/PlayerInfo';
 import GameOverModal from './components/GameOverModal';
 import QuickChat from './components/QuickChat';
+import WinNotification from './components/WinNotification';
 import { useGameLogic } from './hooks/useGameLogic';
+import { useGlobalSocket } from './hooks/useGlobalSocket';
 import MultiplayerLobby from './components/MultiplayerLobby';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
@@ -15,6 +17,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import type { Player, PlayerColor, MultiplayerGame } from './types';
 import { debugService } from './services/debugService';
 import DebugConsole from './components/DebugConsole';
+import { notificationService, WinNotificationData } from './services/notificationService';
 
 
 import SuperAdminDashboard from './components/superadmin/SuperAdminDashboard';
@@ -42,6 +45,10 @@ const AppContent: React.FC = () => {
   const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
   const [showWallet, setShowWallet] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any | null>(null);
+  const [winNotification, setWinNotification] = useState<WinNotificationData | null>(null);
+
+  // Connect to global socket for financial notifications
+  useGlobalSocket(user?.id || user?._id, isAuthenticated);
 
   // Render Super Admin Overlay
   const renderSuperAdminOverlay = () => {
@@ -99,6 +106,26 @@ const AppContent: React.FC = () => {
       channel.close();
     };
   }, [multiplayerConfig]);
+
+  // Effect to listen for win notifications from socket
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleWinNotification = (data: WinNotificationData) => {
+      console.log('🎉 Win notification received:', data);
+      // Only show notification if this user is the winner
+      if (user && (data.winnerId === user.id || data.winnerId === user._id)) {
+        notificationService.showWinNotification(data);
+        setWinNotification(data);
+      }
+    };
+
+    socket.on('win_notification', handleWinNotification);
+
+    return () => {
+      socket.off('win_notification', handleWinNotification);
+    };
+  }, [socket, user]);
 
 
   useEffect(() => {
@@ -334,6 +361,16 @@ const AppContent: React.FC = () => {
     <>
       {renderSuperAdminOverlay()}
       {showWallet && <Wallet onClose={handleExitWallet} />}
+      {winNotification && (
+        <WinNotification
+          playerName={winNotification.winnerUsername}
+          grossWin={winNotification.grossWin}
+          netAmount={winNotification.netAmount}
+          platformFee={winNotification.commission}
+          onClose={() => setWinNotification(null)}
+          onNavigateToWallet={handleEnterWallet}
+        />
+      )}
 
       {view === 'setup' && (
         <GameSetup

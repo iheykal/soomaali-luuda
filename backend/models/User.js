@@ -23,6 +23,18 @@ const UserSchema = new mongoose.Schema({
     totalWinnings: { type: Number, default: 0 },
     totalLosses: { type: Number, default: 0 },
   },
+
+  // Web Push subscriptions (for notifications when app is closed)
+  pushSubscriptions: [{
+    endpoint: String,
+    keys: {
+      p256dh: String,
+      auth: String
+    },
+    expirationTime: Date,
+    userAgent: String,
+    createdAt: { type: Date, default: Date.now }
+  }],
   transactions: [{
     type: {
       type: String,

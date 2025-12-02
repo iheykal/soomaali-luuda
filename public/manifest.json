@@ -1,20 +1,28 @@
 {
   "short_name": "Ludo Game",
   "name": "Ludo Multiplayer Game",
+  "description": "Play Ludo online with friends",
   "icons": [
     {
-      "src": "/icons/laddea.png",
+      "src": "/wello.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "512x512",
+      "purpose": "any maskable"
     },
     {
       "src": "/icons/laddea.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "192x192"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "theme_color": "#0f172a",
-  "background_color": "#0f172a"
+  "background_color": "#0f172a",
+  "orientation": "portrait",
+  "categories": [
+    "games",
+    "entertainment"
+  ],
+  "lang": "en-US"
 }

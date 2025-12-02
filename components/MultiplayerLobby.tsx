@@ -1,25 +1,26 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../lib/apiConfig';
 import { useAuth } from '../context/AuthContext';
-import type { Player, PlayerColor, MultiplayerGame, GameState, MultiplayerMessage } from '../types';
-import { PLAYER_TAILWIND_COLORS, PLAYER_COLORS } from '../lib/boardLayout';
+import type { Player, PlayerColor } from '../types';
+import MatchRequestList from './MatchRequestList';
+import { Loader2, X } from 'lucide-react';
 
 interface MultiplayerLobbyProps {
-  onStartGame: (players: Player[], config: { gameId: string, localPlayerColor: PlayerColor, sessionId: string, stake: number }) => void;
-  onExit: () => void;
+    onStartGame: (players: Player[], config: { gameId: string, localPlayerColor: PlayerColor, sessionId: string, stake: number }) => void;
+    onExit: () => void;
 }
 
-interface QueueItem {
-    gameId: string;
+interface MatchRequest {
+    requestId: string;
+    userId: string;
+    userName: string;
     stake: number;
-    hostSessionId: string;
-    timestamp: number;
+    timeRemaining: number;
+    canAccept: boolean;
 }
 
 const BET_OPTIONS = [0.25, 0.50, 1.00];
-const QUEUE_KEY = 'ludo_matchmaking_queue';
 
 const getSessionId = () => {
     let id = sessionStorage.getItem('ludoSessionId');
@@ -65,203 +66,156 @@ const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean
 // --- Main Component ---
 
 const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit }) => {
-    const [status, setStatus] = useState<'SELECT' | 'SEARCHING' | 'FOUND' | 'STARTING'>('SELECT');
+    const [status, setStatus] = useState<'SELECT' | 'CREATING' | 'WAITING' | 'STARTING'>('SELECT');
     const [selectedStake, setSelectedStake] = useState<number | null>(null);
+    const [activeRequests, setActiveRequests] = useState<MatchRequest[]>([]);
+    const [myRequestId, setMyRequestId] = useState<string | null>(null);
     const [countdown, setCountdown] = useState<number | null>(null);
     const [statusMessage, setStatusMessage] = useState('');
     const { user } = useAuth();
-    
+
     const sessionId = getSessionId();
     const socketRef = useRef<Socket | null>(null);
-    const channelRef = useRef<BroadcastChannel | null>(null);
 
-    // Initialize Socket.IO connection for matchmaking
+    // Initialize Socket.IO connection
     useEffect(() => {
-        // Check if we already have a connection from another tab
         const existingSocket = (window as any).matchmakingSocket;
         if (existingSocket && existingSocket.connected) {
             console.log('🔄 Reusing global matchmaking socket connection');
             socketRef.current = existingSocket;
-            return;
+        } else {
+            const socketUrl = SOCKET_URL;
+            console.log('🔌 Creating new Socket.IO connection for matchmaking:', socketUrl);
+            socketRef.current = io(socketUrl, {
+                reconnection: true,
+                transports: ['websocket', 'polling'],
+                forceNew: false
+            });
+            (window as any).matchmakingSocket = socketRef.current;
         }
 
-        const socketUrl = SOCKET_URL;
-
-        console.log('🔌 Creating new Socket.IO connection for matchmaking:', socketUrl);
-        socketRef.current = io(socketUrl, {
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            reconnectionAttempts: Infinity,
-            transports: ['websocket', 'polling'],
-            timeout: 20000,
-            forceNew: false
-        });
-
-        // Store globally to prevent multiple connections
-        (window as any).matchmakingSocket = socketRef.current;
-
         const socket = socketRef.current;
-        
+
         socket.on('connect', () => {
-            console.log('✅ Connected to matchmaking server, socket ID:', socket.id);
-            // Clear any previous error messages on successful connection
-            if (status === 'SEARCHING' && statusMessage.includes('Error')) {
-                setStatusMessage('Searching for an opponent...');
-            }
+            console.log('✅ Connected to matchmaking server');
+            // Fetch active requests on connect
+            socket.emit('get_active_requests', { userId: user?.id || sessionId });
         });
 
-        socket.on('connect_error', (error) => {
-            console.error('❌ Matchmaking socket connection error:', error);
-            console.error('❌ Attempted URL:', socketUrl);
-            setStatusMessage(`Connection error to ${socketUrl}. Please ensure the backend is running and accessible.`);
+        // --- Match Request Events ---
+
+        socket.on('active_requests', ({ requests }: { requests: MatchRequest[] }) => {
+            setActiveRequests(requests);
         });
 
-        socket.on('reconnect', (attemptNumber) => {
-            console.log('🔄 Reconnected to matchmaking server after', attemptNumber, 'attempt(s)');
+        socket.on('new_match_request', ({ request }: { request: MatchRequest }) => {
+            // Filter out own requests if they come through broadcast
+            if (request.userId === (user?.id || sessionId)) return;
+
+            // Check if user has balance to accept
+            const userBalance = user?.balance || 0;
+            const enhancedRequest = {
+                ...request,
+                canAccept: userBalance >= request.stake,
+                timeRemaining: 60 // Fresh request
+            };
+
+            setActiveRequests(prev => {
+                // Avoid duplicates
+                if (prev.find(r => r.requestId === request.requestId)) return prev;
+                return [...prev, enhancedRequest];
+            });
         });
 
-        socket.on('reconnect_attempt', (attemptNumber) => {
-            console.log('🔄 Matchmaking reconnection attempt', attemptNumber);
+        socket.on('match_request_removed', ({ requestId }: { requestId: string }) => {
+            setActiveRequests(prev => prev.filter(r => r.requestId !== requestId));
         });
 
-        socket.on('reconnect_error', (error) => {
-            console.error('❌ Matchmaking reconnection error:', error);
+        socket.on('match_request_created', ({ requestId }: { requestId: string }) => {
+            setMyRequestId(requestId);
+            setStatus('WAITING');
+            setStatusMessage('Waiting for opponent...');
         });
 
-        socket.on('disconnect', (reason) => {
-            console.log('❌ Disconnected from matchmaking server:', reason);
-            if (reason === 'io server disconnect') {
-                console.log('⚠️ Server disconnected, attempting to reconnect...');
-                socket.connect();
-            }
-        });
-        
-        // Listen for match found event
-        socket.on('match_found', ({ gameId, playerColor, opponent, stake }: any) => {
-            console.log('✅ Match found!', { gameId, playerColor, opponent, stake });
-            setStatus('FOUND');
-            setStatusMessage(`Opponent Found! (${opponent.userName || opponent.userId})`);
-
-            // Clean up matchmaking socket to avoid conflicts
-            // But don't disconnect immediately - let the game socket connect first
-            if (socketRef.current) {
-                socketRef.current.off('match_found');
-                socketRef.current.off('searching');
-                socketRef.current.off('search_cancelled');
-                socketRef.current.off('ERROR');
-
-                // Disconnect after a short delay to allow game socket to connect
-                // This prevents conflicts between matchmaking and game sockets
-                setTimeout(() => {
-                    if (socketRef.current && socketRef.current.connected) {
-                        console.log('🔌 Disconnecting matchmaking socket after match found');
-                        socketRef.current.disconnect();
-                    }
-                }, 2000); // 2 second delay
-            }
-
-            // Immediately start the game after a short delay
-            setTimeout(() => {
-                console.log('🚀 Starting game after match found...');
-                // Two-player game: Green and Blue (placeholder, server will sync actual state)
-                const defaultPlayers: Player[] = [
-                    { color: 'green', isAI: false },
-                    { color: 'blue', isAI: false }
-                ];
-
-                startCountdown(() => {
-                    console.log('🎯 Calling onStartGame with multiplayer config');
-                    const playerId = user?.id || sessionId; // prefer authenticated user id
-                    onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId, playerId, stake });
-                });
-            }, 1000); // 1 second delay to allow both players to receive the match_found event
-        });
-        
-        // Listen for searching status
-        socket.on('searching', ({ stake, message }: any) => {
-            console.log('🔍 Searching...', { stake, message });
-            setStatus('SEARCHING');
-            setStatusMessage(message || 'Searching for opponent...');
-        });
-        
-        // Listen for search cancelled
-        socket.on('search_cancelled', () => {
-            console.log('❌ Search cancelled');
+        socket.on('match_request_cancel_success', () => {
+            setMyRequestId(null);
             setStatus('SELECT');
             setSelectedStake(null);
+            setStatusMessage('');
         });
-        
-        // Listen for errors
+
+        socket.on('match_request_accepted', ({ requestId, acceptorName }: { requestId: string, acceptorName: string }) => {
+            if (requestId === myRequestId) {
+                setStatusMessage(`Accepted by ${acceptorName}! Starting...`);
+                // Game start logic handled by match_found/game_created event
+            }
+        });
+
+        // --- Game Start Events ---
+
+        socket.on('match_found', ({ gameId, playerColor, opponent, stake }: any) => {
+            console.log('✅ Match found!', { gameId, playerColor, opponent, stake });
+            setStatus('STARTING');
+
+            // Clean up socket listeners but keep connection for a moment
+            if (socketRef.current) {
+                socketRef.current.off('match_found');
+                socketRef.current.off('active_requests');
+                socketRef.current.off('new_match_request');
+            }
+
+            // Start game
+            const defaultPlayers: Player[] = [
+                { color: 'green', isAI: false },
+                { color: 'blue', isAI: false }
+            ];
+
+            startCountdown(() => {
+                const playerId = user?.id || sessionId;
+                onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId, playerId, stake });
+            });
+        });
+
         socket.on('ERROR', ({ message }: any) => {
             console.error('Matchmaking error:', message);
+            setStatusMessage(`Error: ${message}`);
 
-            // Provide user-friendly error messages and decide whether the UI should
-            // return to the selection screen or remain (transient) searching.
-            let userMessage = message;
-            let resetToSelect = true;
-
-            if (message.includes('User not found')) {
-                userMessage = 'Authentication error. Please try logging in again.';
-                // After showing the message, return to selection (and clear message shortly)
+            if (message.includes('Insufficient funds') || message.includes('Super Admin')) {
                 setTimeout(() => {
                     setStatus('SELECT');
-                    setStatusMessage('');
-                }, 3000);
-            } else if (message.includes('Insufficient funds')) {
-                userMessage = 'Insufficient balance. Please deposit funds or choose a lower stake.';
-            } else if (message.includes('Failed to enter matchmaking')) {
-                // This looks like a transient network/back-end problem; keep the UI in SEARCHING
-                // and show a retrying message so user knows we are attempting recovery.
-                userMessage = 'Connection issue while entering matchmaking. Retrying...';
-                resetToSelect = false;
-                setStatus('SEARCHING');
-            } else if (message.toLowerCase().includes('super admin')) {
-                // Server-enforced restriction; show message and return to selector
-                userMessage = 'Super Admin accounts cannot participate in matchmaking.';
+                    setMyRequestId(null);
+                }, 2000);
             }
-
-            setStatusMessage(`Error: ${userMessage}`);
-            if (resetToSelect) setStatus('SELECT'); // Only reset for non-transient errors
         });
-        
+
         return () => {
-            console.log('Cleaning up matchmaking socket connection');
             if (socketRef.current) {
-                // Only disconnect if this is the last reference
-                const globalSocket = (window as any).matchmakingSocket;
-                if (globalSocket === socketRef.current) {
-                    if (socketRef.current.connected) {
-                        socketRef.current.emit('cancel_search');
-                    }
-                    socketRef.current.disconnect();
-                    (window as any).matchmakingSocket = null;
-                }
-                socketRef.current = null;
-            }
-            if (channelRef.current) {
-                channelRef.current.close();
-                channelRef.current = null;
+                socketRef.current.off('active_requests');
+                socketRef.current.off('new_match_request');
+                socketRef.current.off('match_request_removed');
+                socketRef.current.off('match_request_created');
+                socketRef.current.off('match_request_cancel_success');
+                socketRef.current.off('match_request_accepted');
+                socketRef.current.off('match_found');
+                socketRef.current.off('ERROR');
             }
         };
-    }, [user, sessionId, onStartGame]);
+    }, [user, sessionId, onStartGame, myRequestId]);
 
-    const removeFromQueue = (gameId: string) => {
-        try {
-            const queueStr = localStorage.getItem(QUEUE_KEY);
-            if (queueStr) {
-                const queue: QueueItem[] = JSON.parse(queueStr);
-                const newQueue = queue.filter(i => i.gameId !== gameId);
-                localStorage.setItem(QUEUE_KEY, JSON.stringify(newQueue));
-            }
-        } catch (e) { console.error(e); }
-    };
+    // Cleanup timer for request expiration visualization
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setActiveRequests(prev => prev.map(req => ({
+                ...req,
+                timeRemaining: Math.max(0, req.timeRemaining - 1)
+            })).filter(req => req.timeRemaining > 0));
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     const startCountdown = (onComplete: () => void) => {
-        setStatus('STARTING');
         let count = 3;
         setCountdown(count);
-        
         const timer = setInterval(() => {
             count--;
             if (count < 0) {
@@ -274,135 +228,122 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         }, 1000);
     };
 
-    const handleBetSelection = (amount: number) => {
-        // Validate socket connection
+    const handleCreateRequest = (amount: number) => {
         if (!socketRef.current || !socketRef.current.connected) {
-            setStatusMessage('Not connected to server. Please wait...');
-            console.warn('⚠️ Cannot search for match: Socket not connected');
+            setStatusMessage('Not connected to server');
             return;
         }
 
-        // Get user identifier - prefer authenticated user, fallback to session ID
         const userId = user?.id || sessionId;
         const userName = user?.username || 'Player';
-        
-        // Validate we have at least a session ID
-        if (!userId) {
-            setStatusMessage('Error: Unable to identify user. Please refresh the page.');
-            console.error('❌ Cannot start matchmaking: No user ID or session ID available');
-            return;
-        }
 
-        // Prevent special accounts (super admin) from entering matchmaking
-        // Server enforces this and returns an error; handle it earlier in the client to avoid a failed socket round-trip
+        // Super Admin check
         if (user && ((user.role && user.role.toString().toLowerCase().includes('super')) || (user as any).isSuperAdmin)) {
-            console.warn('⚠️ Super Admin attempted to enter matchmaking - blocked on client');
-            setStatusMessage('Super Admin accounts cannot participate in matchmaking.');
-            setStatus('SELECT');
+            setStatusMessage('Super Admin accounts cannot participate.');
             return;
         }
 
-        console.log('🎮 Starting matchmaking:', { 
-            stake: amount, 
-            userId, 
-            userName, 
-            isAuthenticated: !!user?.id,
-            socketConnected: socketRef.current.connected 
-        });
-
+        console.log('🎮 Creating match request:', { stake: amount, userId });
         setSelectedStake(amount);
-        setStatus('SEARCHING');
-        setStatusMessage('Searching for an opponent...');
+        setStatus('CREATING');
+        setStatusMessage('Creating match request...');
 
-        // Search for match via Socket.IO
-        try {
-            socketRef.current.emit('search_match', {
-                stake: amount,
-                userId: userId,
-                userName: userName
-            });
-        } catch (error) {
-            console.error('❌ Error emitting search_match:', error);
-            setStatusMessage('Error: Failed to start matchmaking. Please try again.');
-            setStatus('SELECT');
-        }
-
-        // Match found event is handled in the socket connection useEffect
+        socketRef.current.emit('create_match_request', {
+            stake: amount,
+            userId,
+            userName
+        });
     };
 
-    const handleCancel = () => {
-        if (socketRef.current && socketRef.current.connected) {
-            socketRef.current.emit('cancel_search', { userId: user?.id || getSessionId(), stake: selectedStake });
+    const handleAcceptRequest = (requestId: string) => {
+        if (!socketRef.current || !socketRef.current.connected) return;
+
+        const userId = user?.id || sessionId;
+        const userName = user?.username || 'Player';
+
+        console.log('🤝 Accepting match request:', requestId);
+        socketRef.current.emit('accept_match_request', {
+            requestId,
+            userId,
+            userName
+        });
+    };
+
+    const handleCancelRequest = () => {
+        if (myRequestId && socketRef.current) {
+            socketRef.current.emit('cancel_match_request', {
+                requestId: myRequestId,
+                userId: user?.id || sessionId
+            });
         }
-        setStatus('SELECT');
-        setSelectedStake(null);
-        setStatusMessage('');
     };
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 p-4 relative overflow-hidden">
             {/* Background Elements */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none opacity-20">
-                 <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/30 rounded-full blur-3xl"></div>
-                 <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-600/30 rounded-full blur-3xl"></div>
+                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/30 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-600/30 rounded-full blur-3xl"></div>
             </div>
 
             {countdown !== null && <CountdownOverlay count={countdown} />}
-            
-            <div className="z-10 w-full max-w-3xl text-center">
-                <h1 className="text-5xl font-black text-white mb-2 tracking-tight">Multiplayer Arena</h1>
-                <p className="text-slate-400 text-lg mb-12">Select your stake to find an opponent instantly.</p>
 
-                {status === 'SELECT' && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {BET_OPTIONS.map((amount) => (
-                            <BetCard 
-                                key={amount} 
-                                amount={amount} 
-                                onClick={() => handleBetSelection(amount)} 
-                                disabled={false}
-                            />
-                        ))}
-                    </div>
-                )}
+            <div className="z-10 w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Left Column: Create Request */}
+                <div className="text-center lg:text-left">
+                    <h1 className="text-5xl font-black text-white mb-2 tracking-tight">Multiplayer Arena</h1>
+                    <p className="text-slate-400 text-lg mb-8">Create a request or join an existing game.</p>
 
-                {(status === 'SEARCHING' || status === 'FOUND') && (
-                    <div className="bg-slate-800/80 backdrop-blur-md p-10 rounded-3xl shadow-2xl border border-slate-700 max-w-md mx-auto animate-in zoom-in duration-300">
-                         <div className="relative w-24 h-24 mx-auto mb-6">
-                            {status === 'SEARCHING' ? (
-                                <>
-                                    <div className="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"></div>
-                                    <div className="absolute inset-0 border-4 border-t-cyan-500 border-r-transparent border-b-cyan-500 border-l-transparent rounded-full animate-spin"></div>
-                                    <div className="absolute inset-0 flex items-center justify-center text-3xl">🔍</div>
-                                </>
-                            ) : (
-                                <div className="w-24 h-24 bg-green-500 rounded-full flex items-center justify-center text-4xl text-white shadow-lg animate-bounce">
-                                    ✓
-                                </div>
-                            )}
-                         </div>
-                         <h2 className="text-2xl font-bold text-white mb-2">{statusMessage}</h2>
-                         <p className="text-slate-400 mb-6">Stake: <span className="text-cyan-400 font-bold">${selectedStake?.toFixed(2)}</span></p>
-                         
-                         {status === 'SEARCHING' && (
-                             <button 
-                                onClick={handleCancel}
-                                className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-full font-medium transition-colors"
+                    {status === 'SELECT' ? (
+                        <div className="space-y-6">
+                            <h3 className="text-xl font-bold text-white mb-4">Create Match Request</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                {BET_OPTIONS.map((amount) => (
+                                    <BetCard
+                                        key={amount}
+                                        amount={amount}
+                                        onClick={() => handleCreateRequest(amount)}
+                                        disabled={false}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ) : status === 'WAITING' || status === 'CREATING' ? (
+                        <div className="bg-slate-800/80 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700 animate-in zoom-in duration-300 text-center">
+                            <div className="relative w-20 h-20 mx-auto mb-4">
+                                <div className="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"></div>
+                                <Loader2 className="w-full h-full text-cyan-500 animate-spin p-2" />
+                            </div>
+                            <h2 className="text-xl font-bold text-white mb-2">{statusMessage}</h2>
+                            <p className="text-slate-400 mb-6">Stake: <span className="text-cyan-400 font-bold">${selectedStake?.toFixed(2)}</span></p>
+
+                            <button
+                                onClick={handleCancelRequest}
+                                className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-full font-medium transition-colors flex items-center gap-2 mx-auto"
                             >
-                                Cancel Search
+                                <X className="w-4 h-4" /> Cancel Request
                             </button>
-                         )}
-                    </div>
-                )}
+                        </div>
+                    ) : null}
 
-                {status === 'SELECT' && (
-                    <button 
-                        onClick={onExit}
-                        className="text-slate-500 hover:text-white transition-colors font-medium flex items-center justify-center mx-auto space-x-2"
-                    >
-                        <span>&larr; Back to Menu</span>
-                    </button>
-                )}
+                    {status === 'SELECT' && (
+                        <button
+                            onClick={onExit}
+                            className="mt-12 text-slate-500 hover:text-white transition-colors font-medium flex items-center gap-2"
+                        >
+                            <span>&larr; Back to Menu</span>
+                        </button>
+                    )}
+                </div>
+
+                {/* Right Column: Active Requests List */}
+                <div className="bg-slate-800/50 backdrop-blur-sm rounded-3xl border border-slate-700 p-6 h-[500px] overflow-hidden flex flex-col">
+                    <MatchRequestList
+                        requests={activeRequests}
+                        onAccept={handleAcceptRequest}
+                        currentUserId={user?.id || sessionId}
+                    />
+                </div>
             </div>
         </div>
     );

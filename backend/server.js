@@ -19,9 +19,22 @@ const Game = require('./models/Game');
 const VisitorAnalytics = require('./models/VisitorAnalytics');
 const { smartUserSync, smartUserLookup } = require('./utils/userSync');
 const NodeCache = require('node-cache'); // For caching performance optimization
+const webPush = require('web-push'); // For Web Push notifications
 
 // Load environment variables
 require('dotenv').config();
+
+// Configure web-push with VAPID keys
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webPush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:admin@ludo-game.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+  console.log('✅ Web Push configured with VAPID keys');
+} else {
+  console.warn('⚠️ VAPID keys not configured. Web Push notifications disabled.');
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -628,6 +641,103 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     res.status(500).json({ error: error.message || 'Failed to get user' });
   }
 });
+
+// --- WEB PUSH SUBSCRIPTION ROUTES ---
+
+// POST: Subscribe to push notifications
+app.post('/api/push/subscribe', authenticateToken, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ error: 'Valid subscription object required' });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if this subscription already exists
+    const existingIndex = user.pushSubscriptions.findIndex(
+      sub => sub.endpoint === subscription.endpoint
+    );
+
+    const subscriptionData = {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth
+      },
+      expirationTime: subscription.expirationTime,
+      userAgent: req.headers['user-agent'],
+      createdAt: new Date()
+    };
+
+    if (existingIndex !== -1) {
+      // Update existing subscription
+      user.pushSubscriptions[existingIndex] = subscriptionData;
+      console.log(`🔄 Updated push subscription for user ${user.username}`);
+    } else {
+      // Add new subscription
+      user.pushSubscriptions.push(subscriptionData);
+      console.log(`✅ Added new push subscription for user ${user.username}`);
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Successfully subscribed to push notifications',
+      subscriptionCount: user.pushSubscriptions.length
+    });
+  } catch (error) {
+    console.error('Push subscribe error:', error);
+    res.status(500).json({ error: error.message || 'Failed to subscribe to push notifications' });
+  }
+});
+
+// POST: Unsubscribe from push notifications
+app.post('/api/push/unsubscribe', authenticateToken, async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+
+    if (!endpoint) {
+      return res.status(400).json({ error: 'Endpoint required' });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const initialCount = user.pushSubscriptions.length;
+    user.pushSubscriptions = user.pushSubscriptions.filter(
+      sub => sub.endpoint !== endpoint
+    );
+
+    if (user.pushSubscriptions.length < initialCount) {
+      await user.save();
+      console.log(`🗑️ Removed push subscription for user ${user.username}`);
+      res.json({ success: true, message: 'Successfully unsubscribed from push notifications' });
+    } else {
+      res.json({ success: true, message: 'Subscription not found (may already be removed)' });
+    }
+  } catch (error) {
+    console.error('Push unsubscribe error:', error);
+    res.status(500).json({ error: error.message || 'Failed to unsubscribe from push notifications' });
+  }
+});
+
+// GET: Get VAPID public key
+app.get('/api/push/vapid-public-key', (req, res) => {
+  if (process.env.VAPID_PUBLIC_KEY) {
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+  } else {
+    res.status(503).json({ error: 'Push notifications not configured' });
+  }
+});
+
 
 // POST: Request Password Reset
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -2104,6 +2214,71 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
       adminComment: request.adminComment || ''
     };
 
+    // Send real-time notification to user via Socket.IO
+    const userRoom = `user_${request.userId}`;
+    const notificationData = {
+      type: request.type,
+      action: request.status,
+      amount: request.amount,
+      message: request.status === 'APPROVED'
+        ? `Your ${request.type.toLowerCase()} of $${request.amount.toFixed(2)} has been approved`
+        : `Your ${request.type.toLowerCase()} request has been rejected: ${request.adminComment || 'No reason provided'}`
+    };
+
+    io.to(userRoom).emit('financial_request_update', notificationData);
+    console.log(`📢 Sent notification to user ${request.userId} in room ${userRoom}:`, notificationData);
+
+    // Send Web Push notification (for when app is closed)
+    try {
+      const targetUser = await User.findById(request.userId);
+      if (targetUser && targetUser.pushSubscriptions && targetUser.pushSubscriptions.length > 0) {
+        const pushPayload = JSON.stringify({
+          title: request.status === 'APPROVED'
+            ? `${request.type === 'DEPOSIT' ? '💵' : '💸'} ${request.type.charAt(0) + request.type.slice(1).toLowerCase()} Approved`
+            : `❌ ${request.type.charAt(0) + request.type.slice(1).toLowerCase()} Rejected`,
+          body: notificationData.message,
+          icon: '/wello.png',
+          badge: '/wello.png',
+          data: {
+            type: request.type,
+            action: request.status,
+            amount: request.amount,
+            url: '/' // URL to open when notification is clicked
+          }
+        });
+
+        // Send push notification to all user's subscriptions
+        const pushPromises = targetUser.pushSubscriptions.map(subscription => {
+          const pushSubscription = {
+            endpoint: subscription.endpoint,
+            keys: {
+              p256dh: subscription.keys.p256dh,
+              auth: subscription.keys.auth
+            }
+          };
+
+          return webPush.sendNotification(pushSubscription, pushPayload)
+            .catch(error => {
+              console.error(`❌ Failed to send push notification to ${subscription.endpoint}:`, error);
+              // If subscription is expired or invalid, remove it
+              if (error.statusCode === 410 || error.statusCode === 404) {
+                console.log(`🗑️ Removing invalid subscription for user ${request.userId}`);
+                targetUser.pushSubscriptions = targetUser.pushSubscriptions.filter(
+                  sub => sub.endpoint !== subscription.endpoint
+                );
+                targetUser.save().catch(err => console.error('Error saving user after removing subscription:', err));
+              }
+            });
+        });
+
+        await Promise.all(pushPromises);
+        console.log(`📲 Sent Web Push notification to ${targetUser.pushSubscriptions.length} device(s) for user ${request.userId}`);
+      }
+    } catch (pushError) {
+      console.error('❌ Error sending Web Push notification:', pushError);
+      // Don't fail the request if push notification fails
+    }
+
     // In a real app, we would trigger a notification here
     console.log(`✅ Request ${id} ${action}D by admin ${adminUser.username}. User ${user.username} new balance: $${user.balance}`);
 
@@ -2123,114 +2298,34 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
   }
 });
 
-// --- MATCHMAKING QUEUE ---
-const matchmakingQueue = new Map(); // stake -> [{ socketId, userId, userName, timestamp }]
+// --- MATCH REQUEST SYSTEM (Replaces automatic matchmaking) ---
+const activeMatchRequests = new Map(); // requestId -> { userId, userName, stake, timestamp, socketId, expiresAt }
+const requestTimers = new Map(); // requestId -> timeoutId
 
-const findMatch = (stake, socketId, userId, userName) => {
-  // First, clean up stale entries (older than 5 minutes) and refund them
+// Clean up expired requests periodically
+setInterval(() => {
   const now = Date.now();
-  matchmakingQueue.forEach((players, stakeKey) => {
-    // Identify and log stale entries without modifying balance, as it's only reserved on match creation
-    const staleEntries = players.filter(p => now - p.timestamp >= 300000);
-    staleEntries.forEach(stalePlayer => {
-      console.log(`🧹 Removing stale matchmaking queue entry for user ${stalePlayer.userId} (stake ${stakeKey}). No refund needed as balance was not yet reserved.`);
-      // Optionally notify the user that their search timed out
-      const socket = io.sockets.sockets.get(stalePlayer.socketId);
+  activeMatchRequests.forEach((request, requestId) => {
+    if (now >= request.expiresAt) {
+      console.log(`⏰ Match request ${requestId} expired`);
+      // Notify creator
+      const socket = io.sockets.sockets.get(request.socketId);
       if (socket) {
-        socket.emit('search_cancelled', { message: 'Your match search timed out.' });
+        socket.emit('match_request_expired', { requestId });
       }
-    });
+      // Broadcast removal to everyone
+      io.emit('match_request_removed', { requestId });
 
-    const filtered = players.filter(p => now - p.timestamp < 300000);
-    if (filtered.length === 0) {
-      matchmakingQueue.delete(stakeKey);
-    } else {
-      matchmakingQueue.set(stakeKey, filtered);
-    }
-  });
-
-  // Find a player with the same stake who is not the current player (by socketId)
-  // Note: Same userId is allowed (same user in different tabs/browsers)
-  const queueForStake = matchmakingQueue.get(stake) || [];
-  console.log(`[MM-DEBUG] findMatch for ${userName} (${socketId}). Current queue for stake ${stake}:`, JSON.stringify(queueForStake.map(p => ({ u: p.userName, s: p.socketId }))));
-  console.log(`🔍 Checking queue for stake ${stake}: ${queueForStake.length} players waiting`);
-  console.log(`🔍 Current player: ${userName || userId} (${socketId}), looking for opponent...`);
-
-  // Find an opponent with a different socketId AND a different userId
-  const matchIndex = queueForStake.findIndex(p => p.socketId !== socketId && p.userId !== userId && p.socketId);
-
-  if (matchIndex !== -1) {
-    // Found a match!
-    const opponent = queueForStake[matchIndex];
-    console.log(`[MM-DEBUG] Found opponent for ${userName}:`, JSON.stringify(opponent));
-    // Remove opponent from queue
-    queueForStake.splice(matchIndex, 1);
-    if (queueForStake.length === 0) {
-      matchmakingQueue.delete(stake);
-    } else {
-      matchmakingQueue.set(stake, queueForStake);
-    }
-
-    console.log(`✅ Match found in queue: ${opponent.userName || opponent.userId} (${opponent.socketId}) matched with ${userName || userId} (${socketId}) for stake ${stake}`);
-    return opponent;
-  }
-
-  // No match found, add to queue
-  console.log(`[MM-DEBUG] No opponent found. Adding ${userName} to queue.`);
-  const player = { socketId, userId, userName, timestamp: Date.now(), stake };
-  if (!matchmakingQueue.has(stake)) {
-    matchmakingQueue.set(stake, []);
-  }
-  matchmakingQueue.get(stake).push(player);
-  console.log(`[MM-DEBUG] Queue for stake ${stake} is now:`, JSON.stringify(matchmakingQueue.get(stake).map(p => ({ u: p.userName, s: p.socketId }))));
-
-  const queueSize = matchmakingQueue.get(stake).length;
-  console.log(`⏳ Player ${userName || userId} (${socketId}) added to queue for stake ${stake}. Queue size: ${queueSize}`);
-
-  // If queue now has 2+ players, trigger immediate matchmaking check
-  if (queueSize >= 2) {
-    console.log(`🚀 Queue has ${queueSize} players, triggering immediate matchmaking check...`);
-    // Use setImmediate to ensure this runs after current execution
-    setImmediate(() => {
-      processMatchmaking();
-    });
-  }
-
-  return null;
-};
-
-// Periodic matchmaking check to handle race conditions
-const processMatchmaking = async () => {
-  let matchesFound = 0;
-  matchmakingQueue.forEach((players, stake) => {
-    // If there are 2 or more players with the same stake, match them
-    if (players.length >= 2) {
-      const player1 = players[0];
-      const player2 = players[1];
-
-      // Only match if they have different socketIds (can be same userId)
-      if (player1.socketId !== player2.socketId) {
-        // Remove both from queue
-        matchmakingQueue.set(stake, players.slice(2));
-        if (matchmakingQueue.get(stake).length === 0) {
-          matchmakingQueue.delete(stake);
-        }
-
-        console.log(`🔄 Periodic match found: ${player1.userName || player1.userId} (${player1.socketId}) matched with ${player2.userName || player2.userId} (${player2.socketId}) for stake ${stake}`);
-
-        // Create match for both players
-        createMatch(player1, player2, stake);
-        matchesFound++;
-      } else {
-        console.log(`⚠️ Skipping match - same socketId detected: ${player1.socketId}`);
+      // Cleanup
+      activeMatchRequests.delete(requestId);
+      const timer = requestTimers.get(requestId);
+      if (timer) {
+        clearTimeout(timer);
+        requestTimers.delete(requestId);
       }
     }
   });
-
-  if (matchesFound > 0) {
-    console.log(`✅ processMatchmaking: Found ${matchesFound} match(es)`);
-  }
-};
+}, 5000); // Check every 5 seconds
 
 // Helper function to create a match between two players
 const createMatch = async (player1, player2, stake) => {
@@ -2471,17 +2566,25 @@ const createMatch = async (player1, player2, stake) => {
 };
 
 const removeFromQueue = (socketId) => {
-  matchmakingQueue.forEach((players, stake) => {
-    const index = players.findIndex(p => p.socketId === socketId);
-    if (index !== -1) {
-      players.splice(index, 1);
-      if (players.length === 0) {
-        matchmakingQueue.delete(stake);
-      } else {
-        matchmakingQueue.set(stake, players);
+  // Find and remove any active match requests for this socket
+  for (const [requestId, request] of activeMatchRequests.entries()) {
+    if (request.socketId === socketId) {
+      console.log(`❌ Removing match request ${requestId} due to creator disconnect`);
+
+      // Clear timer
+      const timer = requestTimers.get(requestId);
+      if (timer) {
+        clearTimeout(timer);
+        requestTimers.delete(requestId);
       }
+
+      // Remove request
+      activeMatchRequests.delete(requestId);
+
+      // Notify others
+      io.emit('match_request_removed', { requestId });
     }
-  });
+  }
 };
 
 const humanPlayerTimers = new Map(); // gameId -> timer reference
@@ -2965,73 +3068,144 @@ runStateConsistencyChecker();
 io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
 
-  // --- MATCHMAKING EVENTS ---
-
-  // Search for a match
-  socket.on('search_match', async ({ stake, userId, userName }) => {
-    console.log(`🔍 Player ${userName || userId} (${socket.id}) searching for match with stake: ${stake}`);
+  // --- USER REGISTRATION FOR NOTIFICATIONS ---
+  socket.on('register_user', ({ userId }) => {
+    if (userId) {
+      const userRoom = `user_${userId}`;
+      socket.join(userRoom);
+      console.log(`👤 User ${userId} registered for notifications in room: ${userRoom}`);
+    }
+  });
+  // Accept a match request
+  socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
+    console.log(`✋ Player ${userName || userId} accepting match request ${requestId}`);
 
     try {
-      // Try to find user in database
-      let user = await User.findById(userId);
-      let userBalance = 0;
-      let shouldReserveFunds = false;
-
-      if (user) {
-        // Check if user is Super Admin - prevent them from playing
-        if (user.role === 'SUPER_ADMIN') {
-          console.log(`🚫 Super Admin ${user.username} tried to join matchmaking - blocking`);
-          socket.emit('ERROR', { message: 'Super Admin cannot participate in games' });
-          return;
-        }
-
-        // User exists in database - check balance
-        userBalance = user.balance || 0;
-        // FIXED: Use <= to allow exact stake amount (0.25 balance should allow 0.25 stake)
-        if (userBalance < stake - 0.001) { // Allow tiny floating point error
-          socket.emit('ERROR', { message: 'Insufficient funds' });
-          return;
-        }
-
-        console.log(`✅ Player ${userName || userId} has sufficient funds for stake ${stake}.`);
-      } else {
-        // User doesn't exist in database - allow matchmaking for demo/testing
-        // In production, you might want to require authentication
-        console.log(`⚠️ User ${userId} not found in database, allowing matchmaking without balance check (demo mode)`);
-        userBalance = 1000; // Default balance for demo users
+      const request = activeMatchRequests.get(requestId);
+      if (!request) {
+        socket.emit('ERROR', { message: 'Match request no longer available' });
+        return;
       }
 
-      const opponent = findMatch(stake, socket.id, userId, userName);
-
-      if (opponent) {
-        // Match found immediately! Create match
-        console.log(`🎯 Immediate match found! Creating game...`);
-        await createMatch(opponent, { socketId: socket.id, userId, userName }, stake);
-      } else {
-        // No match, added to queue - also trigger periodic check
-        socket.emit('searching', { stake, message: 'Searching for opponent...' });
-
-        // Check if we can match immediately after adding to queue
-        // Use setImmediate to ensure queue is updated before checking
-        setImmediate(() => {
-          processMatchmaking();
-        });
+      // Prevent self-acceptance
+      if (request.userId === userId) {
+        socket.emit('ERROR', { message: 'Cannot accept your own match request' });
+        return;
       }
+
+      // Validate acceptor
+      const acceptor = await User.findById(userId);
+      if (!acceptor) {
+        socket.emit('ERROR', { message: 'User not found' });
+        return;
+      }
+
+      if (acceptor.role === 'SUPER_ADMIN') {
+        socket.emit('ERROR', { message: 'Super Admin cannot participate in games' });
+        return;
+      }
+
+      if (acceptor.balance < request.stake - 0.001) {
+        socket.emit('ERROR', { message: 'Insufficient funds' });
+        return;
+      }
+
+      // Validate creator still has balance
+      const creator = await User.findById(request.userId);
+      if (!creator || creator.balance < request.stake - 0.001) {
+        // Cancel request
+        activeMatchRequests.delete(requestId);
+        const timer = requestTimers.get(requestId);
+        if (timer) {
+          clearTimeout(timer);
+          requestTimers.delete(requestId);
+        }
+        io.emit('match_request_removed', { requestId });
+        socket.emit('ERROR', { message: 'Request creator no longer has sufficient funds' });
+        return;
+      }
+
+      // Remove request from active list
+      activeMatchRequests.delete(requestId);
+      const timer = requestTimers.get(requestId);
+      if (timer) {
+        clearTimeout(timer);
+        requestTimers.delete(requestId);
+      }
+
+      // Broadcast removal
+      io.emit('match_request_accepted', { requestId, acceptorName: userName || acceptor.username });
+
+      // Create the match
+      console.log(`🎯 Creating match between ${request.userName} and ${userName || acceptor.username}`);
+      await createMatch(
+        { socketId: request.socketId, userId: request.userId, userName: request.userName },
+        { socketId: socket.id, userId, userName: userName || acceptor.username },
+        request.stake
+      );
+
+      console.log(`✅ Match request ${requestId} accepted, game created`);
     } catch (error) {
-      console.error('Error in search_match:', error);
-      socket.emit('ERROR', { message: 'Failed to enter matchmaking: ' + error.message });
+      console.error('Error in accept_match_request:', error);
+      socket.emit('ERROR', { message: 'Failed to accept match request: ' + error.message });
     }
   });
 
-  // Cancel matchmaking search
-  socket.on('cancel_search', async (payload) => {
-    if (!payload) {
-      console.error('❌ cancel_search: Received empty payload');
-      return;
+  // Cancel own match request
+  socket.on('cancel_match_request', async ({ requestId, userId }) => {
+    console.log(`❌ Player ${userId} canceling match request ${requestId}`);
+
+    try {
+      const request = activeMatchRequests.get(requestId);
+      if (!request) {
+        socket.emit('ERROR', { message: 'Match request not found' });
+        return;
+      }
+
+      // Verify ownership
+      if (request.userId !== userId) {
+        socket.emit('ERROR', { message: 'Cannot cancel another player\'s request' });
+        return;
+      }
+
+      // Remove request
+      activeMatchRequests.delete(requestId);
+      const timer = requestTimers.get(requestId);
+      if (timer) {
+        clearTimeout(timer);
+        requestTimers.delete(requestId);
+      }
+
+      // Broadcast cancellation
+      io.emit('match_request_cancelled', { requestId });
+
+      socket.emit('match_request_cancel_success', { requestId });
+      console.log(`✅ Match request ${requestId} cancelled`);
+    } catch (error) {
+      console.error('Error in cancel_match_request:', error);
+      socket.emit('ERROR', { message: 'Failed to cancel match request: ' + error.message });
     }
-    removeFromQueue(socket.id);
-    console.log(`❌ Player ${socket.id} cancelled matchmaking`);
-    socket.emit('search_cancelled');
+  });
+
+  // Get all active match requests
+  socket.on('get_active_requests', async ({ userId }) => {
+    try {
+      const user = await User.findById(userId);
+      const userBalance = user ? user.balance : 0;
+
+      const requests = Array.from(activeMatchRequests.values())
+        .filter(req => req.userId !== userId) // Exclude own requests
+        .map(req => ({
+          ...req,
+          canAccept: userBalance >= req.stake,
+          timeRemaining: Math.max(0, Math.floor((req.expiresAt - Date.now()) / 1000))
+        }));
+
+      socket.emit('active_requests', { requests });
+    } catch (error) {
+      console.error('Error in get_active_requests:', error);
+      socket.emit('ERROR', { message: 'Failed to get active requests' });
+    }
   });
 
   // --- GAME EVENTS ---
@@ -3289,6 +3463,21 @@ io.on('connection', (socket) => {
       }
 
       io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+
+      // Emit win notification if settlement data is present
+      if (result.settlementData) {
+        console.log('🎉 Emitting win_notification with data:', result.settlementData);
+        // Send notification directly to winner's socket
+        const winnerPlayer = plainState.players.find(p => p.userId === result.settlementData.winnerId);
+        if (winnerPlayer && winnerPlayer.socketId) {
+          io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
+          console.log(`📢 Win notification sent to ${winnerPlayer.username} (${winnerPlayer.socketId})`);
+        } else {
+          // Fallback: broadcast to room (client will filter by winnerId)
+          io.to(gameId).emit('win_notification', result.settlementData);
+          console.log(`📢 Win notification broadcast to game room ${gameId}`);
+        }
+      }
 
       // Check the next player from database, not from the state object
       const Game = require('./models/Game');
