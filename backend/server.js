@@ -729,6 +729,71 @@ app.post('/api/push/unsubscribe', authenticateToken, async (req, res) => {
   }
 });
 
+// Helper function to send Web Push notifications to a user
+async function sendPushNotificationToUser(userId, payload) {
+  try {
+    const user = await User.findById(userId);
+    if (!user || !user.pushSubscriptions || user.pushSubscriptions.length === 0) {
+      console.log(`⚠️ No push subscriptions found for user ${userId}`);
+      return { success: false, reason: 'no_subscriptions' };
+    }
+
+    console.log(`📤 Sending push notification to ${user.username} (${user.pushSubscriptions.length} subscriptions)`);
+
+    const notificationPayload = JSON.stringify(payload);
+    const results = [];
+    const invalidSubscriptions = [];
+
+    // Send to all subscriptions
+    for (let i = 0; i < user.pushSubscriptions.length; i++) {
+      const subscription = user.pushSubscriptions[i];
+      try {
+        await webPush.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: {
+              p256dh: subscription.keys.p256dh,
+              auth: subscription.keys.auth
+            }
+          },
+          notificationPayload
+        );
+        console.log(`✅ Push notification sent to ${user.username} (subscription ${i + 1})`);
+        results.push({ success: true, index: i });
+      } catch (error) {
+        console.error(`❌ Failed to send push notification to subscription ${i}:`, error.message);
+
+        // If subscription is invalid/expired (410 Gone), mark for removal
+        if (error.statusCode === 410 || error.statusCode === 404) {
+          console.log(`🗑️ Marking invalid subscription ${i} for removal`);
+          invalidSubscriptions.push(i);
+        }
+        results.push({ success: false, index: i, error: error.message });
+      }
+    }
+
+    // Remove invalid subscriptions
+    if (invalidSubscriptions.length > 0) {
+      user.pushSubscriptions = user.pushSubscriptions.filter((_, index) =>
+        !invalidSubscriptions.includes(index)
+      );
+      await user.save();
+      console.log(`🧹 Removed ${invalidSubscriptions.length} invalid subscription(s) from ${user.username}`);
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    return {
+      success: successCount > 0,
+      totalSent: successCount,
+      totalFailed: results.length - successCount,
+      results
+    };
+  } catch (error) {
+    console.error('Error sending push notification:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 // GET: Get VAPID public key
 app.get('/api/push/vapid-public-key', (req, res) => {
   if (process.env.VAPID_PUBLIC_KEY) {
@@ -2226,6 +2291,32 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
     };
 
     io.to(userRoom).emit('financial_request_update', notificationData);
+
+    // Send Web Push notification
+    const pushPayload = {
+      title: request.status === 'APPROVED'
+        ? `✅ ${request.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} Approved`
+        : `❌ ${request.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} Rejected`,
+      body: request.status === 'APPROVED'
+        ? `Your ${request.type.toLowerCase()} of $${request.amount.toFixed(2)} has been approved. ${request.type === 'DEPOSIT' ? 'Funds added to your wallet.' : 'Funds sent to your account.'}`
+        : `Your ${request.type.toLowerCase()} of $${request.amount.toFixed(2)} was rejected. ${request.adminComment || 'No reason provided.'}`,
+      icon: '/icon-192x192.png',
+      badge: '/badge-96x96.png',
+      data: {
+        type: 'financial_request',
+        requestType: request.type,
+        status: request.status,
+        amount: request.amount,
+        url: '/wallet'
+      }
+    };
+
+    // Send push notification (non-blocking)
+    sendPushNotificationToUser(request.userId, pushPayload).catch(error => {
+      console.error('Failed to send push notification:', error);
+      // Don't fail the request if push notification fails
+    });
+
     res.json({
       success: true,
       message: `Request ${action}D`,
