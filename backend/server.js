@@ -3310,7 +3310,7 @@ setInterval(() => {
   }
 }, 10000); // Check every 10 seconds
 
-// Stuck state detection - check every 30 seconds
+// Stuck state detection - check every 60 seconds (reduced from 30s for less aggressiveness)
 setInterval(async () => {
   try {
     const now = Date.now();
@@ -3319,7 +3319,7 @@ setInterval(async () => {
     const stuckGames = await Game.find({
       status: 'ACTIVE',
       turnState: { $ne: 'GAMEOVER' },
-      updatedAt: { $lt: new Date(now - 120000) } // Find games inactive for at least 2 minutes
+      updatedAt: { $lt: new Date(now - 300000) } // Find games inactive for at least 5 minutes (was 2 min)
     }).limit(10); // Process max 10 stuck games per check
 
     for (const game of stuckGames) {
@@ -3331,9 +3331,9 @@ setInterval(async () => {
       if (!currentPlayer) continue;
 
       // Determine timeout based on player type
-      // Human players get 5 minutes (more lenient), AI/disconnected get 2 minutes
-      const HUMAN_STUCK_TIMEOUT = 300000;  // 5 minutes for human players
-      const AI_STUCK_TIMEOUT = 120000;     // 2 minutes for AI/disconnected players
+      // Human players get 10 minutes (more lenient), AI/disconnected get 5 minutes
+      const HUMAN_STUCK_TIMEOUT = 600000;  // 10 minutes for human players (was 5 min)
+      const AI_STUCK_TIMEOUT = 300000;     // 5 minutes for AI/disconnected players (was 2 min)
 
       const isHumanPlayer = currentPlayer.socketId && !currentPlayer.isAI && !currentPlayer.isDisconnected;
       const stuckTimeout = isHumanPlayer ? HUMAN_STUCK_TIMEOUT : AI_STUCK_TIMEOUT;
@@ -3384,7 +3384,7 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Error in stuck state detection:', error);
   }
-}, 30000); // Check every 30 seconds
+}, 60000); // Check every 60 seconds (was 30s, reduced aggressiveness)
 
 io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
@@ -3820,6 +3820,20 @@ io.on('connection', (socket) => {
         console.log(`🧹 Cleared pending auto-roll timer for game ${gameId} (player rolling manually)`);
       }
 
+      // FIX: Player is actively rolling - clear isDisconnected flag to prevent bot takeover
+      const Game = require('./models/Game');
+      const gameBeforeRoll = await Game.findOne({ gameId });
+      if (gameBeforeRoll) {
+        const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
+        if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
+          console.log(`🔧 Player ${currentPlayer.color} is rolling dice - clearing isDisconnected flag`);
+          await Game.updateOne(
+            { gameId, 'players.socketId': socket.id },
+            { $set: { 'players.$.isDisconnected': false } }
+          );
+        }
+      }
+
       const result = await gameEngine.handleRollDice(gameId, socket.id);
 
       if (!result) {
@@ -3957,6 +3971,20 @@ io.on('connection', (socket) => {
     if (humanPlayerTimers.has(gameId)) {
       clearTimeout(humanPlayerTimers.get(gameId));
       humanPlayerTimers.delete(gameId);
+    }
+
+    // FIX: Player is actively moving - clear isDisconnected flag to prevent bot takeover
+    const Game = require('./models/Game');
+    const gameBeforeMove = await Game.findOne({ gameId });
+    if (gameBeforeMove) {
+      const currentPlayer = gameBeforeMove.players[gameBeforeMove.currentPlayerIndex];
+      if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
+        console.log(`🔧 Player ${currentPlayer.color} is moving token - clearing isDisconnected flag`);
+        await Game.updateOne(
+          { gameId, 'players.socketId': socket.id },
+          { $set: { 'players.$.isDisconnected': false } }
+        );
+      }
     }
 
     const result = await gameEngine.handleMoveToken(gameId, socket.id, tokenId);
