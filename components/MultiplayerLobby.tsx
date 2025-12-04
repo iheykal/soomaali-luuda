@@ -89,6 +89,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             console.log('🔌 Creating new Socket.IO connection for matchmaking:', socketUrl);
             socketRef.current = io(socketUrl, {
                 reconnection: true,
+                reconnectionAttempts: 10,
+                reconnectionDelay: 1000,
                 transports: ['websocket', 'polling'],
                 forceNew: false
             });
@@ -96,19 +98,62 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         }
 
         const socket = socketRef.current;
+        const userId = user?._id || user?.id || sessionId;
+
+        // Helper to register user for notifications
+        const registerUser = () => {
+            if (userId) {
+                console.log('👤 Registering user for matchmaking notifications:', userId);
+                socket.emit('register_user', { userId });
+            }
+        };
 
         socket.on('connect', () => {
-            console.log('✅ Connected to matchmaking server');
-            // Fetch active requests on connect - use _id for authenticated users
-            const userId = user?._id || user?.id || sessionId;
-            socket.emit('get_active_requests', { userId });
+            console.log('✅ Connected to matchmaking server, socket ID:', socket.id);
 
-            // CRITICAL: Register user for notifications/recovery
-            // This ensures the socket joins the user_${userId} room so backend can find it
-            // even if socketId lookup fails (common on Render/production)
-            socket.emit('register_user', { userId });
-            console.log('👤 Registered for matchmaking notifications:', userId);
+            // Register for notifications
+            registerUser();
+
+            // Fetch active requests on connect
+            socket.emit('get_active_requests', { userId });
         });
+
+        // Handle reconnection
+        socket.on('reconnect', (attemptNumber: number) => {
+            console.log(`🔄 Reconnected to matchmaking server after ${attemptNumber} attempt(s)`);
+
+            // Re-register after reconnection (CRITICAL for Render/production)
+            registerUser();
+
+            // Re-fetch active requests
+            socket.emit('get_active_requests', { userId });
+        });
+
+        // Listen for registration confirmation
+        socket.on('registration_confirmed', ({ userId: confirmedUserId, room, socketId }: any) => {
+            console.log(`✅ Registration confirmed for user ${confirmedUserId} in room ${room}, socket ${socketId}`);
+        });
+
+        // Monitor connection state
+        socket.on('disconnect', (reason: string) => {
+            console.warn(`⚠️ Disconnected from matchmaking server. Reason: ${reason}`);
+            if (reason === 'io server disconnect') {
+                // Server disconnected us, reconnect manually
+                socket.connect();
+            }
+        });
+
+        socket.on('connect_error', (error: Error) => {
+            console.error('❌ Connection error:', error.message);
+        });
+
+        // Periodic re-registration to ensure we stay in the room (every 30 seconds)
+        const reregistrationInterval = setInterval(() => {
+            if (socket.connected && userId) {
+                console.log('🔄 Periodic re-registration');
+                registerUser();
+            }
+        }, 30000);
 
         // --- Match Request Events ---
 
@@ -236,7 +281,15 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
                 clearTimeout(matchTimeoutRef.current);
             }
 
+            // Clear re-registration interval
+            clearInterval(reregistrationInterval);
+
             if (socketRef.current) {
+                socketRef.current.off('connect');
+                socketRef.current.off('reconnect');
+                socketRef.current.off('disconnect');
+                socketRef.current.off('connect_error');
+                socketRef.current.off('registration_confirmed');
                 socketRef.current.off('active_requests');
                 socketRef.current.off('new_match_request');
                 socketRef.current.off('match_request_removed');

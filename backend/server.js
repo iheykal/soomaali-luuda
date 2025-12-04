@@ -2479,7 +2479,7 @@ const createMatch = async (player1, player2, stake) => {
       player2.socketId
     );
 
-    // Get sockets with improved error handling and recovery
+    // Get sockets with enhanced recovery logic for production environments
     let socket1 = io.sockets.sockets.get(player1.socketId);
     let socket2 = io.sockets.sockets.get(player2.socketId);
 
@@ -2487,26 +2487,40 @@ const createMatch = async (player1, player2, stake) => {
     let usePlayer1Fallback = false;
     let usePlayer2Fallback = false;
 
+    // Track all possible sockets for each player for redundant broadcasting
+    let player1Sockets = [];
+    let player2Sockets = [];
+
+    console.log(`🔍 Socket recovery check - Player1 socketId: ${player1.socketId}, userId: ${player1.userId}`);
+    console.log(`🔍 Socket recovery check - Player2 socketId: ${player2.socketId}, userId: ${player2.userId}`);
+
     if (!socket1) {
       console.warn(`⚠️ Socket not found for player1 (socketId: ${player1.socketId}). Attempting recovery...`);
 
       // Try to find socket by userId in connected sockets
       if (player1.userId) {
         const userSockets = Array.from(io.sockets.sockets.values()).filter(s => {
-          // Check if socket belongs to this user
-          return s.data?.userId === player1.userId || s.handshake?.query?.userId === player1.userId;
+          // Check if socket belongs to this user (multiple ways)
+          return s.data?.userId === player1.userId ||
+            s.handshake?.query?.userId === player1.userId ||
+            s.handshake?.auth?.userId === player1.userId;
         });
 
+        player1Sockets = userSockets; // Store all matching sockets
         if (userSockets.length > 0) {
           socket1 = userSockets[0]; // Use the first matching socket
-          console.log(`✅ Recovered socket for player1 using userId: ${player1.userId}`);
+          console.log(`✅ Recovered socket for player1 using userId: ${player1.userId}, found ${userSockets.length} socket(s)`);
         } else {
           console.warn(`⚠️ No socket found for player1 userId: ${player1.userId}. Will use userId room fallback.`);
           usePlayer1Fallback = true;
         }
       } else {
+        console.warn(`⚠️ Player1 has no userId for recovery`);
         usePlayer1Fallback = true;
       }
+    } else {
+      player1Sockets = [socket1];
+      console.log(`✅ Player1 socket found directly: ${player1.socketId}`);
     }
 
     if (!socket2) {
@@ -2515,19 +2529,26 @@ const createMatch = async (player1, player2, stake) => {
       // Try to find socket by userId in connected sockets
       if (player2.userId) {
         const userSockets = Array.from(io.sockets.sockets.values()).filter(s => {
-          return s.data?.userId === player2.userId || s.handshake?.query?.userId === player2.userId;
+          return s.data?.userId === player2.userId ||
+            s.handshake?.query?.userId === player2.userId ||
+            s.handshake?.auth?.userId === player2.userId;
         });
 
+        player2Sockets = userSockets; // Store all matching sockets
         if (userSockets.length > 0) {
           socket2 = userSockets[0];
-          console.log(`✅ Recovered socket for player2 using userId: ${player2.userId}`);
+          console.log(`✅ Recovered socket for player2 using userId: ${player2.userId}, found ${userSockets.length} socket(s)`);
         } else {
           console.warn(`⚠️ No socket found for player2 userId: ${player2.userId}. Will use userId room fallback.`);
           usePlayer2Fallback = true;
         }
       } else {
+        console.warn(`⚠️ Player2 has no userId for recovery`);
         usePlayer2Fallback = true;
       }
+    } else {
+      player2Sockets = [socket2];
+      console.log(`✅ Player2 socket found directly: ${player2.socketId}`);
     }
 
     // If both sockets are missing and we can't recover, emit error and clean up
@@ -2599,22 +2620,54 @@ const createMatch = async (player1, player2, stake) => {
       stake
     };
 
-    // Emit to player1
-    if (socket1) {
-      socket1.emit('match_found', player1MatchData);
-      console.log(`✅ Emitted match_found to player1 via socket`);
-    } else if (usePlayer1Fallback && player1.userId) {
+    // REDUNDANT BROADCASTING: Emit to ALL discovered sockets AND userId rooms for maximum reliability
+    console.log(`📡 Broadcasting match_found to player1 (${player1Sockets.length} socket(s), fallback: ${usePlayer1Fallback})`);
+    console.log(`📡 Broadcasting match_found to player2 (${player2Sockets.length} socket(s), fallback: ${usePlayer2Fallback})`);
+
+    // Emit to player1 - use ALL available methods for redundancy
+    let player1NotificationsSent = 0;
+
+    // Method 1: Direct socket(s)
+    if (player1Sockets.length > 0) {
+      player1Sockets.forEach(s => {
+        s.emit('match_found', player1MatchData);
+        player1NotificationsSent++;
+      });
+      console.log(`✅ Emitted match_found to player1 via ${player1Sockets.length} direct socket(s)`);
+    }
+
+    // Method 2: userId room (ALWAYS try this for redundancy)
+    if (player1.userId) {
       io.to(`user_${player1.userId}`).emit('match_found', player1MatchData);
+      player1NotificationsSent++;
       console.log(`✅ Emitted match_found to player1 via userId room: user_${player1.userId}`);
     }
 
-    // Emit to player2
-    if (socket2) {
-      socket2.emit('match_found', player2MatchData);
-      console.log(`✅ Emitted match_found to player2 via socket`);
-    } else if (usePlayer2Fallback && player2.userId) {
+    if (player1NotificationsSent === 0) {
+      console.error(`❌ CRITICAL: No notifications sent to player1!`);
+    }
+
+    // Emit to player2 - use ALL available methods for redundancy
+    let player2NotificationsSent = 0;
+
+    // Method 1: Direct socket(s)
+    if (player2Sockets.length > 0) {
+      player2Sockets.forEach(s => {
+        s.emit('match_found', player2MatchData);
+        player2NotificationsSent++;
+      });
+      console.log(`✅ Emitted match_found to player2 via ${player2Sockets.length} direct socket(s)`);
+    }
+
+    // Method 2: userId room (ALWAYS try this for redundancy)
+    if (player2.userId) {
       io.to(`user_${player2.userId}`).emit('match_found', player2MatchData);
+      player2NotificationsSent++;
       console.log(`✅ Emitted match_found to player2 via userId room: user_${player2.userId}`);
+    }
+
+    if (player2NotificationsSent === 0) {
+      console.error(`❌ CRITICAL: No notifications sent to player2!`);
     }
 
     // Send initial game state to both players after a short delay
@@ -3360,7 +3413,16 @@ io.on('connection', (socket) => {
       socket.data.userId = userId; // Store userId for recovery logic
       const userRoom = `user_${userId}`;
       socket.join(userRoom);
+
+      // Log all rooms this socket is in for debugging
+      const rooms = Array.from(socket.rooms);
       console.log(`👤 User ${userId} registered for notifications in room: ${userRoom}`);
+      console.log(`📋 Socket ${socket.id} is now in rooms: ${rooms.join(', ')}`);
+
+      // Send confirmation back to client
+      socket.emit('registration_confirmed', { userId, room: userRoom, socketId: socket.id });
+    } else {
+      console.warn(`⚠️ register_user called without userId from socket ${socket.id}`);
     }
   });
 
