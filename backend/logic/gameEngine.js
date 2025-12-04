@@ -219,10 +219,25 @@ const processGameSettlement = async (game) => {
                 amount: commission,
                 totalPot: totalPot,
                 winnerId: winner._id,
-                timestamp: new Date()
+                timestamp: new Date(),
+                reason: `Game ${game.gameId} completed - ${winner.username} won`,
+                gameDetails: {
+                    players: game.players.map(p => ({
+                        userId: p.userId,
+                        username: p.username || `Player ${p.color}`,
+                        color: p.color
+                    })),
+                    winner: {
+                        userId: winner._id,
+                        username: winner.username,
+                        color: game.players.find(p => p.userId === winner._id.toString())?.color || 'unknown'
+                    },
+                    stake: stake,
+                    gameId: game.gameId
+                }
             });
             await revenue.save();
-            console.log(`   💵 Revenue recorded: $${commission.toFixed(2)}`);
+            console.log(`   💵 Revenue recorded: $${commission.toFixed(2)} with game details`);
         } catch (revError) {
             console.error(`   ❌ Error recording revenue for game ${game.gameId}:`, revError);
         }
