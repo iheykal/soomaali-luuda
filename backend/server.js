@@ -3821,7 +3821,6 @@ io.on('connection', (socket) => {
       }
 
       // FIX: Player is actively rolling - clear isDisconnected flag to prevent bot takeover
-      const Game = require('./models/Game');
       const gameBeforeRoll = await Game.findOne({ gameId });
       if (gameBeforeRoll) {
         const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
@@ -3974,7 +3973,6 @@ io.on('connection', (socket) => {
     }
 
     // FIX: Player is actively moving - clear isDisconnected flag to prevent bot takeover
-    const Game = require('./models/Game');
     const gameBeforeMove = await Game.findOne({ gameId });
     if (gameBeforeMove) {
       const currentPlayer = gameBeforeMove.players[gameBeforeMove.currentPlayerIndex];
