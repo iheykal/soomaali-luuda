@@ -14,12 +14,12 @@ class AudioService {
     const audio = new Audio(path);
     audio.volume = this.volume;
     audio.preload = 'auto';
-    
+
     // Handle loading errors gracefully
     audio.addEventListener('error', (e) => {
       console.warn(`⚠️ Failed to load audio: ${name}`, e);
     });
-    
+
     this.sounds.set(name, audio);
     return audio;
   }
@@ -29,7 +29,7 @@ class AudioService {
    */
   constructor() {
     this.loadSound('diceRoll', '/audio/sfx_dice_roll.mp3');
-    this.loadSound('tokenKilled', '/audio/sfx_token_killed.mp3');
+    this.loadSound('tokenKilled', '/audio/kill-opp.mp3');
     this.loadSound('inHome', '/audio/sfx_in_home.mp3');
     this.loadSound('tokenMove', '/audio/sfx_token_move.mp3');
     this.loadSound('win', '/audio/sfx_win.mp3');
@@ -55,9 +55,10 @@ class AudioService {
       // Clone the audio element to allow overlapping sounds
       const audioClone = audio.cloneNode() as HTMLAudioElement;
       audioClone.volume = this.volume;
+      console.log(`🎵 Playing sound: ${soundName}, volume: ${this.volume}`);
       audioClone.play().catch((error) => {
-        // Silently handle autoplay restrictions
-        console.debug(`Audio play prevented (likely autoplay restriction): ${soundName}`);
+        // Log autoplay restrictions with more detail
+        console.warn(`⚠️ Audio play prevented for ${soundName}:`, error.message);
       });
     } catch (error) {
       console.warn(`⚠️ Error playing sound ${soundName}:`, error);

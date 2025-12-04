@@ -235,6 +235,11 @@ const _reducer = (state: GameState, action: Action): GameState => {
                         }
                         return t;
                     });
+
+                    // Play kill sound effect when capture happens
+                    if (captured) {
+                        audioService.play('tokenKilled');
+                    }
                 }
             }
 
@@ -370,13 +375,22 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         console.log('🔌 Connecting to Socket.IO for game:', socketUrl);
 
+        // Exponential backoff for reconnection
+        let reconnectionAttempt = 0;
+        const calculateReconnectionDelay = () => {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+            const delay = Math.min(1000 * Math.pow(2, reconnectionAttempt), 30000);
+            reconnectionAttempt++;
+            return delay;
+        };
+
         // Try websocket first, but fallback to polling if websocket fails
         socket = io(socketUrl, {
             transports: ['polling', 'websocket'], // Try polling first, then upgrade
             reconnection: true, // Enable auto-reconnection
             reconnectionAttempts: Infinity, // Never stop trying to reconnect
             reconnectionDelay: 1000, // Start with 1s delay
-            reconnectionDelayMax: 5000, // Max 5s between reconnection attempts
+            reconnectionDelayMax: 30000, // Max 30s between reconnection attempts
             timeout: 45000, // 45s connection timeout (matches server)
             // Additional stability settings
             forceNew: false, // Reuse existing connection if possible
@@ -386,6 +400,24 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             upgrade: true, // Allow transport upgrades
             rememberUpgrade: true, // Remember the upgraded transport
         });
+
+        // Heartbeat mechanism - send every 10 seconds
+        let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+        const startHeartbeat = () => {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(() => {
+                if (socket && socket.connected) {
+                    socket.emit('heartbeat');
+                }
+            }, 10000); // Every 10 seconds
+        };
+
+        // Track game for connection monitoring
+        const trackGame = () => {
+            if (socket && socket.connected && multiplayerConfig?.gameId) {
+                socket.emit('track_game', { gameId: multiplayerConfig.gameId });
+            }
+        };
 
         // Join helpers: retry join_game until GAME_STATE_UPDATE is received
         const MAX_JOIN_ATTEMPTS = 3;
@@ -420,6 +452,15 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         socket.on('connect', () => {
             debugService.socket({ event: 'connect', socketId: socket?.id });
+
+            // Reset reconnection attempt counter on successful connection
+            reconnectionAttempt = 0;
+
+            // Start heartbeat
+            startHeartbeat();
+
+            // Track game
+            trackGame();
 
             if (!socket || !socket.connected) {
                 debugService.error('Socket not connected, cannot join game');
@@ -459,6 +500,14 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         socket.on('reconnect', (attemptNumber) => {
             debugService.socket({ event: 'reconnect', attemptNumber });
+            console.log(`🔄 Reconnected after ${attemptNumber} attempts`);
+
+            // Restart heartbeat
+            startHeartbeat();
+
+            // Track game again
+            trackGame();
+
             if (multiplayerConfig) {
                 // On reconnect, re-run the same join + retry logic as on connect
                 const emitJoin = () => {
@@ -481,6 +530,19 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         socket.on('disconnect', (reason) => {
             debugService.socket({ event: 'disconnect', reason });
+            console.log(`🔌 Disconnected: ${reason}`);
+
+            // Stop heartbeat
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        });
+
+        // Handle heartbeat acknowledgment
+        socket.on('heartbeat_ack', ({ timestamp }) => {
+            // Heartbeat received - connection is alive
+            debugService.socket({ event: 'heartbeat_ack', latency: Date.now() - timestamp });
         });
 
         socket.on('GAME_STATE_UPDATE', (data: { state: GameState }) => {
@@ -494,11 +556,15 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
 
             // Play audio based on game events
-            if (correctedState.message) {
+            if (correctedState.lastEvent === 'CAPTURE') {
+                console.log('🎵 KILL SOUND TRIGGERED by lastEvent');
+                audioService.play('tokenKilled');
+            } else if (correctedState.message) {
                 const msg = correctedState.message.toLowerCase();
 
-                // Token killed sound
-                if (msg.includes('killed') || msg.includes('eliminated')) {
+                // Token killed sound (fallback for older server versions)
+                if (msg.includes('killed') || msg.includes('eliminated') || msg.includes('captured')) {
+                    console.log('🎵 KILL SOUND TRIGGERED by message:', msg);
                     audioService.play('tokenKilled');
                 }
 
@@ -546,6 +612,12 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             debugService.socket({ event: 'receive', type: 'TIMER_TICK', timer: data.timer });
             // Update timer to server's value to keep all clients in sync
             localDispatchRef.current({ type: 'SET_TIMER', timer: data.timer });
+        });
+
+        // Listen for TOKEN_KILLED event to play kill sound
+        socket.on('TOKEN_KILLED', (data: { killedTokenId: string }) => {
+            console.log('🎵 TOKEN_KILLED event received, playing kill sound for:', data.killedTokenId);
+            audioService.play('tokenKilled');
         });
 
         socket.on('ERROR', (data: { message: string }) => {

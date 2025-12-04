@@ -44,6 +44,7 @@ export interface GameState {
   gameId?: string;
   status?: string;
   createdAt?: string;
+  lastEvent?: string | null; // Track last game event (e.g., 'CAPTURE')
 }
 
 // New type for simulating a multiplayer game session

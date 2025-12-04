@@ -16,7 +16,7 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({ player, tokens, isCurrentPlayer
   const colors = PLAYER_TAILWIND_COLORS[player.color];
   const playerTokens = tokens.filter(t => t.color === player.color);
   const homeCount = playerTokens.filter(t => t.position.type === 'HOME').length;
-  const rank = winners.indexOf(player.color);
+
 
   return (
     <div className={`p-4 rounded-lg border-4 ${isCurrentPlayer ? colors.border : 'border-slate-600'} ${colors.darkBg} transition-all shadow-lg relative`}>
@@ -38,11 +38,7 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({ player, tokens, isCurrentPlayer
           {player.isDisconnected && <span className="text-xs text-slate-400 font-mono">(Bot Active)</span>}
         </div>
 
-        {rank !== -1 && (
-          <span className="text-xl font-bold bg-yellow-400 text-slate-900 px-3 py-1 rounded-full">
-            {rank === 0 ? '🏆' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank + 1}`}
-          </span>
-        )}
+
       </div>
       <div className="mt-2 flex space-x-2">
         {Array.from({ length: playerTokens.length }).map((_, i) => (

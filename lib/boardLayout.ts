@@ -22,7 +22,7 @@ export const HOME_ENTRANCES: Record<PlayerColor, number> = { red: 37, green: 50,
 
 // Starred squares + player start squares are safe
 // Added Home Entrances (11, 24, 37, 50) to be safe as well
-export const SAFE_SQUARES = [0, 8, 13, 21, 26, 34, 39, 47, 11, 24, 37, 50];
+export const SAFE_SQUARES = [0, 8, 13, 21, 26, 34, 39, 47];
 
 // Arrow squares: Fixed positions where ANY player gets auto-jump + extra roll
 // Pattern: Every 13th square starting from 4 (4, 17, 30, 43)

@@ -98,8 +98,9 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
         socket.on('connect', () => {
             console.log('✅ Connected to matchmaking server');
-            // Fetch active requests on connect
-            socket.emit('get_active_requests', { userId: user?.id || sessionId });
+            // Fetch active requests on connect - use _id for authenticated users
+            const userId = user?._id || user?.id || sessionId;
+            socket.emit('get_active_requests', { userId });
         });
 
         // --- Match Request Events ---
@@ -110,14 +111,15 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
         socket.on('new_match_request', ({ request }: { request: MatchRequest }) => {
             // Filter out own requests if they come through broadcast
-            if (request.userId === (user?.id || sessionId)) return;
+            const currentUserId = user?._id || user?.id || sessionId;
+            if (request.userId === currentUserId) return;
 
             // Check if user has balance to accept
             const userBalance = user?.balance || 0;
             const enhancedRequest = {
                 ...request,
                 canAccept: userBalance >= request.stake,
-                timeRemaining: 60 // Fresh request
+                timeRemaining: 120 // Fresh request (2 minutes)
             };
 
             setActiveRequests(prev => {
@@ -146,7 +148,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
         socket.on('match_request_accepted', ({ requestId, acceptorName }: { requestId: string, acceptorName: string }) => {
             if (requestId === myRequestId) {
-                setStatusMessage(`Accepted by ${acceptorName}! Starting...`);
+                setStatusMessage('Match accepted! Starting...');
                 // Game start logic handled by match_found/game_created event
             }
         });
@@ -171,7 +173,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             ];
 
             startCountdown(() => {
-                const playerId = user?.id || sessionId;
+                // CRITICAL: Use _id for playerId
+                const playerId = user?._id || user?.id || sessionId;
                 onStartGame(defaultPlayers, { gameId, localPlayerColor: playerColor, sessionId, playerId, stake });
             });
         });
@@ -234,7 +237,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             return;
         }
 
-        const userId = user?.id || sessionId;
+        // CRITICAL: Use _id for MongoDB lookup, fallback to id, then sessionId for guests
+        const userId = user?._id || user?.id || sessionId;
         const userName = user?.username || 'Player';
 
         // Super Admin check
@@ -243,7 +247,20 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             return;
         }
 
-        console.log('🎮 Creating match request:', { stake: amount, userId });
+        // AUTO-ACCEPT LOGIC: Check if there's an existing request with the same stake
+        const matchingRequest = activeRequests.find(req =>
+            req.stake === amount &&
+            req.canAccept &&
+            req.userId !== userId
+        );
+
+        if (matchingRequest) {
+            console.log('🎯 Auto-accepting matching request:', matchingRequest.requestId);
+            handleAcceptRequest(matchingRequest.requestId);
+            return;
+        }
+
+        console.log('🎮 Creating match request:', { stake: amount, userId, isAuthenticated: !!user });
         setSelectedStake(amount);
         setStatus('CREATING');
         setStatusMessage('Creating match request...');
@@ -258,10 +275,11 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
     const handleAcceptRequest = (requestId: string) => {
         if (!socketRef.current || !socketRef.current.connected) return;
 
-        const userId = user?.id || sessionId;
+        // CRITICAL: Use _id for MongoDB lookup
+        const userId = user?._id || user?.id || sessionId;
         const userName = user?.username || 'Player';
 
-        console.log('🤝 Accepting match request:', requestId);
+        console.log('🤝 Accepting match request:', requestId, { userId, isAuthenticated: !!user });
         socketRef.current.emit('accept_match_request', {
             requestId,
             userId,
@@ -271,9 +289,11 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
     const handleCancelRequest = () => {
         if (myRequestId && socketRef.current) {
+            // CRITICAL: Use _id for MongoDB lookup
+            const userId = user?._id || user?.id || sessionId;
             socketRef.current.emit('cancel_match_request', {
                 requestId: myRequestId,
-                userId: user?.id || sessionId
+                userId
             });
         }
     };

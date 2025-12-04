@@ -22,22 +22,9 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
   const [showRejoinBanner, setShowRejoinBanner] = useState(false);
 
   const [checkingActiveGame, setCheckingActiveGame] = useState(true);
-  const [leaderboard, setLeaderboard] = useState<any[]>([]);
 
-  // Fetch Leaderboard
-  useEffect(() => {
-    const fetchLeaderboard = async () => {
-      try {
-        const result = await gameAPI.getLeaderboard();
-        if (result.success) {
-          setLeaderboard(result.leaderboard);
-        }
-      } catch (error) {
-        console.error('Failed to fetch leaderboard:', error);
-      }
-    };
-    fetchLeaderboard();
-  }, []);
+
+
 
   // Debug: Log when onRejoinGame prop changes
   useEffect(() => {
@@ -492,42 +479,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
           )}
         </div>
 
-        {/* Top 3 Players Leaderboard - Always visible */}
-        <div className="mt-8 w-full bg-slate-800/50 rounded-xl p-4 border border-slate-600">
-          <h3 className="text-yellow-400 font-bold text-lg mb-3 flex items-center justify-center gap-2">
-            <span>🏆</span> Top 3 Most Winners
-          </h3>
-          {leaderboard.length > 0 ? (
-            <div className="space-y-2">
-              {leaderboard.map((player, index) => (
-                <div key={player.id} className={`flex items-center justify-between p-2 rounded-lg ${index === 0 ? 'bg-yellow-500/20 border border-yellow-500/50' :
-                  index === 1 ? 'bg-gray-400/20 border border-gray-400/50' :
-                    'bg-orange-700/20 border border-orange-700/50'
-                  }`}>
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <img src={player.avatar} alt={player.username} className="w-8 h-8 rounded-full border border-white/20" />
-                      <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${index === 0 ? 'bg-yellow-500' :
-                        index === 1 ? 'bg-gray-400' :
-                          'bg-orange-600'
-                        }`}>
-                        {index + 1}
-                      </div>
-                    </div>
-                    <span className="text-slate-200 font-medium text-sm">{player.username}</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-400">Wins: <span className="text-green-400 font-bold">{player.wins}</span></p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-4">
-              <p className="text-slate-400 text-sm">No ranked players yet. Be the first to win!</p>
-            </div>
-          )}
-        </div>
+
       </div>
     </div >
   );

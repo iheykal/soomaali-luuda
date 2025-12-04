@@ -102,20 +102,25 @@ const getSocketUrl = () => {
 
     // If explicitly set in environment variable, use it
     if (import.meta.env.VITE_SOCKET_URL && import.meta.env.VITE_SOCKET_URL.trim() !== '') {
-        const envUrl = import.meta.env.VITE_SOCKET_URL.trim();
-        console.log('🔧 Using VITE_SOCKET_URL from env for development:', envUrl);
-        return envUrl;
+      const envUrl = import.meta.env.VITE_SOCKET_URL.trim();
+      console.log('🔧 Using VITE_SOCKET_URL from env for development:', envUrl);
+      return envUrl;
     }
-    
+
     // Auto-detect for mobile/network development
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const protocol = window.location.protocol;
-      
+
       // If accessed via network IP (mobile/remote), use that IP for the socket
       if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
         const url = `${protocol}//${hostname}:5000`;
         console.log('🔧 Auto-detected network Socket URL:', url);
+        console.warn('⚠️ NETWORK ACCESS DETECTED! Make sure backend is running on:', url);
+        console.warn('⚠️ If connection fails, ensure:');
+        console.warn('   1. Backend server is running: npm run dev');
+        console.warn('   2. Backend is accessible on your network (check firewall)');
+        console.warn('   3. OR access via http://localhost:5173 instead');
         return url;
       }
     }

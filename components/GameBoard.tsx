@@ -281,7 +281,18 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
       return !animation || token.id !== animation.tokenId;
     });
 
-    return tokensToRender.map((token) => {
+    // CRITICAL FIX: Sort tokens so movable ones render LAST (on top) to be clickable
+    // This ensures your pawns are always clickable even when sharing squares with opponents
+    const sortedTokens = [...tokensToRender].sort((a, b) => {
+      const aMovable = legalMoves.some(m => m.tokenId === a.id);
+      const bMovable = legalMoves.some(m => m.tokenId === b.id);
+      // Non-movable tokens first, movable tokens last (rendered on top)
+      if (aMovable && !bMovable) return 1;
+      if (!aMovable && bMovable) return -1;
+      return 0;
+    });
+
+    return sortedTokens.map((token) => {
       const coords = getTokenPositionCoords(token);
       if (!coords) return null;
 

@@ -86,10 +86,19 @@ const io = new Server(server, {
   },
   transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
   allowEIO3: true, // Allow Engine.IO v3 clients
-  pingTimeout: 60000, // Increase ping timeout for network connections
-  pingInterval: 25000, // Increase ping interval
+  // Optimized for low-resource servers (0.1 CPU, 512MB RAM)
+  pingTimeout: 30000, // Reduced from 60s - faster detection of dead connections
+  pingInterval: 10000, // Reduced from 25s - more frequent health checks
   upgradeTimeout: 10000, // Timeout for transport upgrade
-  maxHttpBufferSize: 1e6 // 1MB max buffer size
+  maxHttpBufferSize: 500000, // Reduced from 1MB to 500KB - lower memory usage
+  // Performance optimizations
+  perMessageDeflate: false, // Disable compression to save CPU (already using app-level compression)
+  httpCompression: false, // Disable HTTP compression (handled by express compression middleware)
+  // Connection management
+  connectTimeout: 45000, // 45s connection timeout
+  // Memory optimization
+  destroyUpgrade: true, // Destroy upgrade req after use
+  destroyUpgradeTimeout: 1000
 });
 
 app.use(express.json());
@@ -2293,6 +2302,9 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
     io.to(userRoom).emit('financial_request_update', notificationData);
 
     // Send Web Push notification
+    console.log(`🔔 [PUSH DEBUG] Preparing push notification for user ${request.userId} (${user.username})`);
+    console.log(`🔔 [PUSH DEBUG] Request type: ${request.type}, Status: ${request.status}, Amount: $${request.amount}`);
+
     const pushPayload = {
       title: request.status === 'APPROVED'
         ? `✅ ${request.type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} Approved`
@@ -2311,11 +2323,17 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
       }
     };
 
+    console.log(`🔔 [PUSH DEBUG] Push payload:`, JSON.stringify(pushPayload, null, 2));
+    console.log(`🔔 [PUSH DEBUG] Calling sendPushNotificationToUser...`);
+
     // Send push notification (non-blocking)
-    sendPushNotificationToUser(request.userId, pushPayload).catch(error => {
-      console.error('Failed to send push notification:', error);
-      // Don't fail the request if push notification fails
-    });
+    sendPushNotificationToUser(request.userId, pushPayload)
+      .then(result => {
+        console.log(`🔔 [PUSH DEBUG] Push notification result:`, result);
+      })
+      .catch(error => {
+        console.error('🔔 [PUSH DEBUG] Push notification error:', error);
+      });
 
     res.json({
       success: true,
@@ -3100,8 +3118,143 @@ const runStateConsistencyChecker = () => {
 // Start the consistency checker
 runStateConsistencyChecker();
 
+// =============================================================================
+// CONNECTION HEALTH MONITORING & STUCK STATE DETECTION
+// =============================================================================
+
+// Track connection health for each socket
+const connectionHealth = new Map(); // socketId -> { lastHeartbeat, lastActivity, gameId }
+
+// Heartbeat monitoring - check every 10 seconds
+setInterval(() => {
+  const now = Date.now();
+  const HEARTBEAT_TIMEOUT = 20000; // 20 seconds without heartbeat = consider dead
+
+  for (const [socketId, health] of connectionHealth.entries()) {
+    const timeSinceHeartbeat = now - health.lastHeartbeat;
+
+    if (timeSinceHeartbeat > HEARTBEAT_TIMEOUT) {
+      console.log(`💔 Socket ${socketId} missed heartbeat (${Math.floor(timeSinceHeartbeat / 1000)}s), forcing disconnect`);
+
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        // Trigger disconnect handler
+        socket.disconnect(true);
+      }
+
+      connectionHealth.delete(socketId);
+    }
+  }
+}, 10000); // Check every 10 seconds
+
+// Stuck state detection - check every 30 seconds
+setInterval(async () => {
+  try {
+    const now = Date.now();
+    const STUCK_TIMEOUT = 120000; // 2 minutes without state change = stuck
+
+    const Game = require('./models/Game');
+    const stuckGames = await Game.find({
+      status: 'ACTIVE',
+      turnState: { $ne: 'GAMEOVER' },
+      updatedAt: { $lt: new Date(now - STUCK_TIMEOUT) }
+    }).limit(10); // Process max 10 stuck games per check
+
+    for (const game of stuckGames) {
+      console.log(`⚠️ Detected stuck game ${game.gameId} - last update ${Math.floor((now - game.updatedAt.getTime()) / 1000)}s ago`);
+
+      // Check if current player is stuck
+      const currentPlayer = game.players[game.currentPlayerIndex];
+      if (!currentPlayer) continue;
+
+      // Force bot takeover if player has no active socket
+      if (!currentPlayer.socketId || !io.sockets.sockets.has(currentPlayer.socketId)) {
+        console.log(`🤖 Forcing bot takeover for stuck player ${currentPlayer.color} in game ${game.gameId}`);
+
+        // Mark as disconnected and trigger auto-turn
+        currentPlayer.isDisconnected = true;
+        currentPlayer.socketId = null;
+        await game.save();
+
+        // Broadcast updated state
+        const plainState = game.toObject ? game.toObject() : game;
+        io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+
+        // Trigger auto-turn
+        scheduleAutoTurn(game.gameId, 1000);
+      }
+    }
+
+    // Cleanup completed games older than 5 minutes
+    const CLEANUP_THRESHOLD = 300000; // 5 minutes
+    const oldGames = await Game.find({
+      status: 'COMPLETED',
+      updatedAt: { $lt: new Date(now - CLEANUP_THRESHOLD) }
+    }).limit(20); // Cleanup max 20 games per check
+
+    if (oldGames.length > 0) {
+      const gameIds = oldGames.map(g => g.gameId);
+      await Game.deleteMany({ gameId: { $in: gameIds } });
+      console.log(`🧹 Cleaned up ${oldGames.length} completed games`);
+    }
+
+  } catch (error) {
+    console.error('❌ Error in stuck state detection:', error);
+  }
+}, 30000); // Check every 30 seconds
+
 io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
+
+  // Initialize connection health tracking
+  connectionHealth.set(socket.id, {
+    lastHeartbeat: Date.now(),
+    lastActivity: Date.now(),
+    gameId: null
+  });
+
+  // Heartbeat handler - client should send this every 10 seconds
+  socket.on('heartbeat', () => {
+    const health = connectionHealth.get(socket.id);
+    if (health) {
+      health.lastHeartbeat = Date.now();
+      health.lastActivity = Date.now();
+    }
+    // Send acknowledgment
+    socket.emit('heartbeat_ack', { timestamp: Date.now() });
+  });
+
+  // Connection health check request
+  socket.on('connection_health_check', () => {
+    socket.emit('connection_health_response', {
+      status: 'ok',
+      timestamp: Date.now(),
+      latency: 0  // Client will calculate actual latency
+    });
+  });
+
+  // Track game association
+  socket.on('track_game', ({ gameId }) => {
+    const health = connectionHealth.get(socket.id);
+    if (health) {
+      health.gameId = gameId;
+    }
+  });
+
+  // Update last activity on any event
+  const originalEmit = socket.emit;
+  socket.emit = function (...args) {
+    const health = connectionHealth.get(socket.id);
+    if (health) {
+      health.lastActivity = Date.now();
+    }
+    return originalEmit.apply(socket, args);
+  };
+
+  // Cleanup on disconnect
+  socket.on('disconnect', () => {
+    connectionHealth.delete(socket.id);
+  });
 
   // --- USER REGISTRATION FOR NOTIFICATIONS ---
   socket.on('register_user', ({ userId }) => {
@@ -3111,6 +3264,134 @@ io.on('connection', (socket) => {
       console.log(`👤 User ${userId} registered for notifications in room: ${userRoom}`);
     }
   });
+
+  // --- MATCH REQUEST CREATION ---
+  socket.on('create_match_request', async ({ stake, userId, userName }) => {
+    console.log(`🎮 Creating match request: User ${userName || userId}, Stake: $${stake}`);
+
+    try {
+      // --- FIX: Convert stake to number immediately for consistent type handling ---
+      const numericStake = parseFloat(stake);
+
+      // Validate stake
+      if (!numericStake || numericStake <= 0 || isNaN(numericStake)) {
+        socket.emit('ERROR', { message: 'Invalid stake amount' });
+        return;
+      }
+
+      // Validate user
+      const user = await User.findById(userId);
+      if (!user) {
+        socket.emit('ERROR', { message: 'User not found' });
+        return;
+      }
+
+      // Check if user is Super Admin
+      if (user.role === 'SUPER_ADMIN') {
+        socket.emit('ERROR', { message: 'Super Admin cannot create match requests' });
+        return;
+      }
+
+      // Check balance
+      if (user.balance < numericStake - 0.001) {
+        socket.emit('ERROR', { message: 'Insufficient funds to create match request' });
+        return;
+      }
+
+      // Generate unique request ID
+      const requestId = crypto.randomBytes(8).toString('hex');
+      const expiresAt = Date.now() + 120000; // 2 minutes
+
+      // Create request object
+      const request = {
+        requestId,
+        userId,
+        userName: userName || user.username,
+        stake: numericStake,
+        socketId: socket.id,
+        expiresAt,
+        createdAt: Date.now()
+      };
+
+      // Store request
+      activeMatchRequests.set(requestId, request);
+
+      // Set expiration timer
+      const timer = setTimeout(() => {
+        console.log(`⏰ Match request ${requestId} expired`);
+        activeMatchRequests.delete(requestId);
+        requestTimers.delete(requestId);
+
+        // Notify creator
+        const creatorSocket = io.sockets.sockets.get(request.socketId);
+        if (creatorSocket) {
+          creatorSocket.emit('match_request_expired', { requestId });
+        }
+
+        // Broadcast removal
+        io.emit('match_request_removed', { requestId });
+      }, 120000); // 2 minutes
+
+      requestTimers.set(requestId, timer);
+
+      // Confirm creation to creator
+      socket.emit('match_request_created', { requestId });
+
+      // Broadcast new request to all clients EXCEPT creator
+      const broadcastRequest = {
+        requestId,
+        userId,
+        userName: userName || user.username,
+        stake: numericStake,
+        timeRemaining: 60
+      };
+
+      socket.broadcast.emit('new_match_request', { request: broadcastRequest });
+
+      // 📲 SEND PUSH NOTIFICATIONS to eligible players
+      try {
+        // Find all users with sufficient balance who are not the creator or Super Admin
+        const eligibleUsers = await User.find({
+          _id: { $ne: userId }, // Not the creator
+          role: { $ne: 'SUPER_ADMIN' }, // Not Super Admin
+          balance: { $gte: numericStake }, // Has sufficient funds (using numeric type)
+          pushSubscriptions: { $exists: true, $ne: [] } // Has push subscriptions
+        });
+
+        console.log(`📤 Found ${eligibleUsers.length} eligible users for push notification about match request (stake: $${numericStake})`);
+
+        // Send push notification to each eligible user
+        for (const eligibleUser of eligibleUsers) {
+          const pushPayload = {
+            title: '🎮 New Match Request!',
+            body: `${userName || user.username} wants to play for $${numericStake}`,
+            icon: '/icon-192x192.png',
+            badge: '/icon-192x192.png',
+            data: {
+              type: 'match_request',
+              requestId,
+              stake: numericStake,
+              userName: userName || user.username,
+              url: '/multiplayer'
+            }
+          };
+
+          await sendPushNotificationToUser(eligibleUser._id, pushPayload);
+        }
+
+        console.log(`✅ Push notifications sent for match request ${requestId} to ${eligibleUsers.length} eligible players`);
+      } catch (pushError) {
+        console.error('❌ Error sending push notifications for match request:', pushError);
+        // Don't fail the request creation just because push failed
+      }
+
+      console.log(`✅ Match request ${requestId} created by ${userName || userId}, broadcasting to ${io.sockets.sockets.size - 1} other clients`);
+    } catch (error) {
+      console.error('❌ Error in create_match_request:', error);
+      socket.emit('ERROR', { message: 'Failed to create match request: ' + error.message });
+    }
+  });
+
   // Accept a match request
   socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
     console.log(`✋ Player ${userName || userId} accepting match request ${requestId}`);
@@ -3490,6 +3771,13 @@ io.on('connection', (socket) => {
       // Ensure state is a plain object
       const plainState = result.state.toObject ? result.state.toObject() : result.state;
       console.log(`📤 Sending GAME_STATE_UPDATE after move with diceValue: ${plainState.diceValue}, turnState: ${plainState.turnState}, currentPlayerIndex: ${plainState.currentPlayerIndex}, currentPlayer: ${plainState.players?.[plainState.currentPlayerIndex]?.color}`);
+
+      // --- NEW: Emit a specific event if a token was killed ---
+      if (result.killedTokenId) {
+        console.log(`💥 Emitting TOKEN_KILLED event for token: ${result.killedTokenId}`);
+        // Broadcast to everyone in the game so they all hear the sound
+        io.to(gameId).emit('TOKEN_KILLED', { killedTokenId: result.killedTokenId });
+      }
 
       // Ensure turnState is ROLLING for next player
       if (plainState.turnState !== 'ROLLING' && plainState.diceValue === null) {

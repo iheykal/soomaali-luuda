@@ -55,6 +55,10 @@ const HOME_ENTRANCES = { red: 37, green: 50, yellow: 11, blue: 24 };
 // --- Wallet Settlement Function ---
 const processGameSettlement = async (game) => {
     try {
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`💰 SETTLEMENT STARTED for game ${game.gameId}`);
+        console.log(`${'='.repeat(80)}`);
+
         // Prevent double settlement
         if (game.settlementProcessed) {
             console.log(`⚠️ Settlement already processed for game ${game.gameId}`);
@@ -127,97 +131,151 @@ const processGameSettlement = async (game) => {
             return;
         }
 
-        // Process winner payout
-        if (winner) {
-            const totalPot = stake * 2;
-            const commission = totalPot * 0.10;
-            const winnings = totalPot - commission; // Winner gets 1.8 * stake
-            const profit = winnings - stake; // Winner's net profit is 0.8 * stake
+        // ============================================================================
+        // DETAILED PRE-SETTLEMENT AUDIT
+        // ============================================================================
+        console.log(`\n📊 PRE-SETTLEMENT BALANCES:`);
+        console.log(`   Winner (${winner.username}):`);
+        console.log(`      - Balance: $${winner.balance.toFixed(2)}`);
+        console.log(`      - Reserved: $${winner.reservedBalance.toFixed(2)}`);
+        console.log(`      - Total Available: $${(winner.balance).toFixed(2)}`);
+        console.log(`   Loser (${loser.username}):`);
+        console.log(`      - Balance: $${loser.balance.toFixed(2)}`);
+        console.log(`      - Reserved: $${loser.reservedBalance.toFixed(2)}`);
+        console.log(`      - Total Available: $${(loser.balance).toFixed(2)}`);
 
-            winner.balance += winnings;
-            winner.reservedBalance -= stake;
+        // ============================================================================
+        // SETTLEMENT CALCULATIONS
+        // ============================================================================
+        const totalPot = stake * 2;
+        const commission = totalPot * 0.10;
+        const winnings = totalPot - commission; // Winner gets 1.8 * stake
+        const profit = winnings - stake; // Winner's net profit is 0.8 * stake
 
-            if (!winner.stats) winner.stats = {};
-            winner.stats.gamesPlayed = (winner.stats.gamesPlayed || 0) + 1;
-            winner.stats.wins = (winner.stats.wins || 0) + 1;
-            winner.stats.gamesWon = (winner.stats.gamesWon || 0) + 1;
-            winner.stats.totalWinnings = (winner.stats.totalWinnings || 0) + profit;
+        console.log(`\n🧮 SETTLEMENT CALCULATIONS:`);
+        console.log(`   Stake per player: $${stake.toFixed(2)}`);
+        console.log(`   Total pot (stake × 2): $${totalPot.toFixed(2)}`);
+        console.log(`   Commission (10%): $${commission.toFixed(2)}`);
+        console.log(`   Winnings (pot - commission): $${winnings.toFixed(2)}`);
+        console.log(`   Net profit (winnings - stake): $${profit.toFixed(2)}`);
 
-            winner.transactions.push({
-                type: 'game_win',
-                amount: profit,
-                matchId: game.gameId,
-                description: `Winnings from game ${game.gameId}`
-            });
-            winner.transactions.push({
-                type: 'match_unstake',
-                amount: stake,
-                matchId: game.gameId,
-                description: `Stake returned and settled from winning game ${game.gameId}`
-            });
-
-            await winner.save();
-
-            try {
-                const revenue = new Revenue({
-                    gameId: game.gameId,
-                    amount: commission,
-                    totalPot: totalPot,
-                    winnerId: winner._id,
-                    timestamp: new Date()
-                });
-                await revenue.save();
-                console.log(`💰 Revenue recorded: $${commission} for game ${game.gameId}`);
-            } catch (revError) {
-                console.error(`❌ Error recording revenue for game ${game.gameId}:`, revError);
-            }
-
-            console.log(`✅ Winner ${winner.username} credited with $${winnings}. New balance: ${winner.balance}`);
+        // ============================================================================
+        // VALIDATION: Check reserved balance
+        // ============================================================================
+        if (winner.reservedBalance < stake) {
+            console.error(`🚨 CRITICAL ERROR: Winner's reserved balance ($${winner.reservedBalance}) is less than stake ($${stake})!`);
+            console.error(`   This should NEVER happen! Investigation required.`);
+            // We'll continue but log this as critical
+        }
+        if (loser.reservedBalance < stake) {
+            console.error(`🚨 CRITICAL ERROR: Loser's reserved balance ($${loser.reservedBalance}) is less than stake ($${stake})!`);
+            console.error(`   This should NEVER happen! Investigation required.`);
         }
 
-        // Process loser deduction
-        if (loser) {
-            loser.reservedBalance -= stake;
+        // ============================================================================
+        // PROCESS WINNER PAYOUT
+        // ============================================================================
+        console.log(`\n💰 PROCESSING WINNER PAYOUT:`);
+        const winnerBalanceBefore = winner.balance;
+        const winnerReservedBefore = winner.reservedBalance;
 
-            if (!loser.stats) loser.stats = {};
-            loser.stats.gamesPlayed = (loser.stats.gamesPlayed || 0) + 1;
-            loser.stats.gamesLost = (loser.stats.gamesLost || 0) + 1;
-            loser.stats.totalLosses = (loser.stats.totalLosses || 0) + stake;
+        winner.balance += winnings;
+        winner.reservedBalance -= stake;
 
-            loser.transactions.push({
-                type: 'game_loss',
-                amount: -stake,
-                matchId: game.gameId,
-                description: `Stake consumed from loss in game ${game.gameId}`
-            });
+        console.log(`   Balance change: $${winnerBalanceBefore.toFixed(2)} + $${winnings.toFixed(2)} = $${winner.balance.toFixed(2)}`);
+        console.log(`   Reserved change: $${winnerReservedBefore.toFixed(2)} - $${stake.toFixed(2)} = $${winner.reservedBalance.toFixed(2)}`);
+        console.log(`   Net effect: +$${profit.toFixed(2)} (profit only, stake was already in reserved)`);
 
-            await loser.save();
-            console.log(`✅ Loser ${loser.username} stake of ${stake} consumed from reserved balance. New balance: ${loser.balance}`);
-        }
+        if (!winner.stats) winner.stats = {};
+        winner.stats.gamesPlayed = (winner.stats.gamesPlayed || 0) + 1;
+        winner.stats.wins = (winner.stats.wins || 0) + 1;
+        winner.stats.gamesWon = (winner.stats.gamesWon || 0) + 1;
+        winner.stats.totalWinnings = (winner.stats.totalWinnings || 0) + profit;
 
-        game.settlementProcessed = true;
-        if (winner) {
-            const profit = (stake * 2 * 0.9) - stake;
-            game.message = `${winner.username} won ${profit.toFixed(2)} dollars`;
-        }
-
-        // AUDIT LOG: Complete settlement record
-        console.log(`✅ SETTLEMENT AUDIT COMPLETE:`, {
-            gameId: game.gameId,
-            winnerUserId: winner._id.toString(),
-            winnerUsername: winner.username,
-            winnerColor: winnerColor,
-            winnerNewBalance: winner.balance,
-            loserUserId: loser._id.toString(),
-            loserUsername: loser.username,
-            loserColor: loserPlayer.color,
-            loserNewBalance: loser.balance,
-            stake: stake,
-            winnings: (stake * 2 * 0.9),
-            commission: (stake * 2 * 0.10)
+        // Record TWO transactions for clarity
+        winner.transactions.push({
+            type: 'game_win',
+            amount: profit,
+            matchId: game.gameId,
+            description: `Profit from winning game ${game.gameId} (Total pot: $${totalPot.toFixed(2)}, Commission: $${commission.toFixed(2)})`
+        });
+        winner.transactions.push({
+            type: 'match_unstake',
+            amount: stake,
+            matchId: game.gameId,
+            description: `Stake returned from winning game ${game.gameId}`
         });
 
-        console.log(`✅ Settlement complete for game ${game.gameId}`);
+        console.log(`   📝 Transactions recorded:`);
+        console.log(`      1. game_win: +$${profit.toFixed(2)}`);
+        console.log(`      2. match_unstake: +$${stake.toFixed(2)}`);
+        console.log(`      Total shown in transactions: +$${(profit + stake).toFixed(2)}`);
+
+        await winner.save();
+
+        try {
+            const revenue = new Revenue({
+                gameId: game.gameId,
+                amount: commission,
+                totalPot: totalPot,
+                winnerId: winner._id,
+                timestamp: new Date()
+            });
+            await revenue.save();
+            console.log(`   💵 Revenue recorded: $${commission.toFixed(2)}`);
+        } catch (revError) {
+            console.error(`   ❌ Error recording revenue for game ${game.gameId}:`, revError);
+        }
+
+        // ============================================================================
+        // PROCESS LOSER DEDUCTION
+        // ============================================================================
+        console.log(`\n💸 PROCESSING LOSER DEDUCTION:`);
+        const loserBalanceBefore = loser.balance;
+        const loserReservedBefore = loser.reservedBalance;
+
+        loser.reservedBalance -= stake;
+
+        console.log(`   Balance change: $${loserBalanceBefore.toFixed(2)} (no change - stake was in reserved)`);
+        console.log(`   Reserved change: $${loserReservedBefore.toFixed(2)} - $${stake.toFixed(2)} = $${loser.reservedBalance.toFixed(2)}`);
+        console.log(`   Net effect: -$${stake.toFixed(2)} (stake consumed from reserved)`);
+
+        if (!loser.stats) loser.stats = {};
+        loser.stats.gamesPlayed = (loser.stats.gamesPlayed || 0) + 1;
+        loser.stats.gamesLost = (loser.stats.gamesLost || 0) + 1;
+        loser.stats.totalLosses = (loser.stats.totalLosses || 0) + stake;
+
+        loser.transactions.push({
+            type: 'game_loss',
+            amount: -stake,
+            matchId: game.gameId,
+            description: `Lost game ${game.gameId} - stake consumed`
+        });
+
+        console.log(`   📝 Transaction recorded: game_loss: -$${stake.toFixed(2)}`);
+
+        await loser.save();
+
+        game.settlementProcessed = true;
+        game.message = `${winner.username} won $${profit.toFixed(2)} dollars`;
+
+        // ============================================================================
+        // POST-SETTLEMENT AUDIT
+        // ============================================================================
+        console.log(`\n📊 POST-SETTLEMENT BALANCES:`);
+        console.log(`   Winner (${winner.username}):`);
+        console.log(`      - Balance: $${winner.balance.toFixed(2)} (was $${winnerBalanceBefore.toFixed(2)})`);
+        console.log(`      - Reserved: $${winner.reservedBalance.toFixed(2)} (was $${winnerReservedBefore.toFixed(2)})`);
+        console.log(`      - Total Available: $${(winner.balance).toFixed(2)}`);
+        console.log(`      - ✅ Net gain: +$${(winner.balance - winnerBalanceBefore).toFixed(2)}`);
+        console.log(`   Loser (${loser.username}):`);
+        console.log(`      - Balance: $${loser.balance.toFixed(2)} (was $${loserBalanceBefore.toFixed(2)})`);
+        console.log(`      - Reserved: $${loser.reservedBalance.toFixed(2)} (was $${loserReservedBefore.toFixed(2)})`);
+        console.log(`      - Total Available: $${(loser.balance).toFixed(2)}`);
+        console.log(`      - ✅ Balance unchanged (stake was already reserved)`);
+
+        console.log(`\n✅ SETTLEMENT COMPLETE FOR GAME ${game.gameId}`);
+        console.log(`${'='.repeat(80)}\n`);
 
         // Return settlement data for win notification
         return {
@@ -230,6 +288,7 @@ const processGameSettlement = async (game) => {
         };
     } catch (error) {
         console.error(`❌ Error processing settlement for game ${game.gameId}:`, error);
+        console.error(`Stack trace:`, error.stack);
         return null;
     }
 };
@@ -477,7 +536,8 @@ exports.handleRollDice = async (gameId, socketId) => {
                     turnState: game.turnState,
                     message: game.message,
                     legalMoves: game.legalMoves,
-                    timer: game.timer
+                    timer: game.timer,
+                    lastEvent: game.lastEvent
                 }
             }
         );
@@ -526,7 +586,8 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
                     timer: updatedGameState.timer,
                     winners: updatedGameState.winners,
                     status: updatedGameState.status,
-                    settlementProcessed: updatedGameState.settlementProcessed
+                    settlementProcessed: updatedGameState.settlementProcessed,
+                    lastEvent: updatedGameState.lastEvent
                 }
             }
         );
@@ -575,7 +636,8 @@ exports.handleAutoRoll = async (gameId, force = false) => {
                 turnState: game.turnState,
                 message: game.message,
                 legalMoves: game.legalMoves,
-                timer: game.timer
+                timer: game.timer,
+                lastEvent: game.lastEvent
             }
         }
     );
@@ -656,7 +718,8 @@ exports.handleAutoMove = async (gameId) => {
                 timer: game.timer,
                 winners: game.winners,
                 status: game.status,
-                settlementProcessed: game.settlementProcessed
+                settlementProcessed: game.settlementProcessed,
+                lastEvent: game.lastEvent
             }
         }
     );
@@ -667,6 +730,7 @@ exports.handleAutoMove = async (gameId) => {
 exports.handlePassTurn = async (gameId) => {
     const game = await Game.findOne({ gameId });
     if (!game) return { success: false, message: 'Game not found' };
+    game.lastEvent = null;
 
     // This function is called when a player has no legal moves after a roll.
     // We pass the turn to the next player.
@@ -692,7 +756,8 @@ exports.handlePassTurn = async (gameId) => {
                 turnState: game.turnState,
                 diceValue: game.diceValue,
                 legalMoves: game.legalMoves,
-                message: game.message
+                message: game.message,
+                lastEvent: game.lastEvent
             }
         }
     );
@@ -705,6 +770,7 @@ exports.handlePassTurn = async (gameId) => {
 function executeRollDice(game) {
     const player = game.players[game.currentPlayerIndex];
     const roll = crypto.randomInt(1, 7);
+    game.lastEvent = null;
 
     console.log(`🎲 executeRollDice: player=${player.color}, roll=${roll}`);
 
@@ -739,37 +805,40 @@ function executeMoveToken(game, tokenId) {
         // Return a special object or throw an error to indicate an illegal move
         return { success: false, message: 'Illegal move' };
     }
+    game.lastEvent = null; // Clear last event
 
     let captured = false;
+    let killedTokenId = null; // Track killed token ID for audio
+
+    // 🎯 ARROWS RULE: Check if pawn will land on special arrow squares BEFORE moving
+    let arrowsTriggered = false;
+    let actualFinalPosition = move.finalPosition; // Track actual position after potential teleport
+    const ARROW_SQUARES = [4, 17, 30, 43]; // Absolute positions with arrow markers
+
+    if (move.finalPosition.type === 'PATH' && ARROW_SQUARES.includes(move.finalPosition.index)) {
+        // 🎯 Arrows Rule triggered! Jump to next square instead
+        arrowsTriggered = true;
+        const landedSquare = move.finalPosition.index;
+        const newIndex = (landedSquare + 1) % 52;
+
+        // Update the actual final position to the jumped position (5th square)
+        actualFinalPosition = { type: 'PATH', index: newIndex };
+
+        game.message = `🎯 Arrows Rule! ${player.username || player.color} landed on arrow square ${landedSquare}, jumps to ${newIndex} + EXTRA ROLL!`;
+        console.log(`🎯 ARROWS RULE TRIGGERED: ${player.color} pawn ${tokenId} arrow square ${landedSquare} → jumping to ${newIndex}, granting extra turn`);
+    }
+
+    // Now move the token ONCE to the ACTUAL final position (either normal or jumped)
     game.tokens = game.tokens.map(t => {
-        if (t.id === tokenId) t.position = move.finalPosition;
+        if (t.id === tokenId) {
+            t.position = actualFinalPosition;
+        }
         return t;
     });
 
-    // 🎯 ARROWS RULE: Check if pawn landed on 4th square from start
-    let arrowsTriggered = false;
-    if (move.finalPosition.type === 'PATH') {
-        const startPos = START_POSITIONS[player.color];
-        const squaresFromStart = (move.finalPosition.index - startPos + 52) % 52;
-
-        if (squaresFromStart === 4) {
-            // 🎯 Arrows Rule triggered!
-            arrowsTriggered = true;
-            const newIndex = (move.finalPosition.index + 1) % 52;
-            game.tokens = game.tokens.map(t => {
-                if (t.id === tokenId) {
-                    t.position = { type: 'PATH', index: newIndex };
-                }
-                return t;
-            });
-            game.message = `🎯 Arrows Rule! ${player.username || player.color} landed on 4th square, jumps to 5th + EXTRA ROLL!`;
-            console.log(`🎯 ARROWS RULE: ${player.color} pawn ${tokenId} landed on 4th square (${move.finalPosition.index}), auto-jumped to 5th (${newIndex})`);
-        }
-    }
-
-    // Capture Logic
-    if (move.finalPosition.type === 'PATH' && !SAFE_SQUARES.includes(move.finalPosition.index)) {
-        const targetPos = move.finalPosition.index;
+    // Capture Logic - NOW USES ACTUAL FINAL POSITION (after Arrows Rule teleport)
+    if (actualFinalPosition.type === 'PATH' && !SAFE_SQUARES.includes(actualFinalPosition.index)) {
+        const targetPos = actualFinalPosition.index;
         const opponentTokensAtTarget = game.tokens.filter(t =>
             t.color !== player.color &&
             t.position.type === 'PATH' &&
@@ -793,7 +862,9 @@ function executeMoveToken(game, tokenId) {
             // ⚔️ Single opponent pawn - capture it!
             console.log(`⚔️ COMBAT: ${player.color} landed on ${targetPos} (Non-Safe). Capturing single opponent pawn.`);
             captured = true;
+            game.lastEvent = 'CAPTURE';
             const victimToken = opponentTokensAtTarget[0];
+            killedTokenId = victimToken.id; // Store for returning to caller
             game.tokens = game.tokens.map(t => {
                 if (t.id === victimToken.id) {
                     // Send back to yard
@@ -833,7 +904,7 @@ function executeMoveToken(game, tokenId) {
 
             // Set turn state to GAMEOVER
             game.turnState = 'GAMEOVER';
-            return { success: true, state: game, settlementPromise };
+            return { success: true, state: game, settlementPromise, killedTokenId };
         }
     }
 
@@ -867,5 +938,5 @@ function executeMoveToken(game, tokenId) {
         game.diceValue = null;
     }
 
-    return { success: true, state: game, settlementPromise };
+    return { success: true, state: game, settlementPromise, killedTokenId };
 }

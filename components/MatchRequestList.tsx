@@ -51,15 +51,15 @@ const MatchRequestList: React.FC<MatchRequestListProps> = ({ requests, onAccept,
                         className="bg-gradient-to-r from-white/10 to-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between group hover:border-white/20 transition-colors"
                     >
                         <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-black font-bold text-lg shadow-lg">
-                                {req.userName.charAt(0).toUpperCase()}
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                                <DollarSign className="w-6 h-6" />
                             </div>
 
                             <div>
                                 <div className="flex items-center gap-2">
-                                    <span className="font-bold text-white">{req.userName}</span>
-                                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/70 border border-white/10">
-                                        ${req.stake.toFixed(2)}
+                                    <span className="font-bold text-white text-lg">${req.stake.toFixed(2)}</span>
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 border border-green-500/30">
+                                        Stake
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-3 mt-1 text-xs text-white/50">
