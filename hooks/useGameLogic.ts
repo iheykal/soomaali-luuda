@@ -7,8 +7,8 @@ import { debugService } from '../services/debugService';
 import { audioService } from '../services/audioService';
 
 // --- Constants ---
-const ROLL_TIME_LIMIT = 8;
-const MOVE_TIME_LIMIT = 3;
+const ROLL_TIME_LIMIT = 7;  // Match backend auto-roll timer (was 8)
+const MOVE_TIME_LIMIT = 18; // Match backend auto-move timer (was 3)
 
 // --- Socket Service Wrapper ---
 let socket: Socket | null = null;

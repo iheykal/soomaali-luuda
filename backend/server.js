@@ -2750,7 +2750,7 @@ const createMatch = async (player1, player2, stake) => {
           } else if (firstPlayer && !firstPlayer.socketId && (firstPlayer.isAI || firstPlayer.isDisconnected)) {
             // Only auto-roll if player has NO socketId AND is marked as AI/disconnected
             console.log(`🤖 First player ${firstPlayer.color} has no socketId and is AI/disconnected, scheduling auto-turn`);
-            scheduleAutoTurn(gameId, 1500);
+            scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
           } else if (firstPlayer) {
             // Player exists but state is unclear - default to NO AUTO-ROLL for safety
             console.log(`⚠️ First player ${firstPlayer.color} state unclear (socketId: ${firstPlayer.socketId}, isAI: ${firstPlayer.isAI}, isDisconnected: ${firstPlayer.isDisconnected}) - defaulting to NO AUTO-ROLL`);
@@ -2793,6 +2793,18 @@ const removeFromQueue = (socketId) => {
 
 const humanPlayerTimers = new Map(); // gameId -> timer reference
 const timerBroadcasts = new Map(); // gameId -> { intervalId, timeLeft } for countdown broadcast
+
+// ===== AUTO-TURN TIMING CONSTANTS =====
+// Centralized timing configuration for consistent game speed
+const AUTO_TURN_DELAYS = {
+  AI_ROLL: 1500,           // AI thinking time before rolling dice
+  AI_MOVE: 1200,           // AI thinking time before selecting move
+  AI_QUICK_MOVE: 200,      // Quick move immediately after roll (when in MOVING state)
+  ANIMATION_WAIT: 500,     // Wait for frontend animation to complete
+  STUCK_RECOVERY: 1000,    // Delay before recovering stuck game state
+  NO_MOVES_DELAY: 1200     // Delay before auto-passing turn when no moves available
+};
+
 
 // ===== TIMER BROADCAST SYSTEM (Fix for Issue #1: Timer Synchronization) =====
 // Broadcasts timer countdown every second to keep all clients in sync
@@ -2979,7 +2991,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
             scheduleHumanPlayerAutoRoll(gameId);
           } else if (nextPlayer) {
             console.log(`🤖 Auto-move passed turn to AI/bot ${nextPlayer.color}. Scheduling auto-turn.`);
-            scheduleAutoTurn(gameId, 1200);
+            scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_MOVE);
           }
         }
       } else {
@@ -2994,7 +3006,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
 };
 
 
-const scheduleAutoTurn = async (gameId, delay = 1500) => {
+const scheduleAutoTurn = async (gameId, delay = AUTO_TURN_DELAYS.AI_ROLL) => {
   console.log(`🤖 scheduleAutoTurn called for game ${gameId}, delay=${delay}ms`);
 
   // CRITICAL: Before scheduling auto-turn, verify the player is actually AI or disconnected
@@ -3120,7 +3132,7 @@ const runAutoTurn = async (gameId) => {
 
           // Schedule next player's turn if needed
           if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
-            scheduleAutoTurn(gameId, 1500);
+            scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
           }
         }
       }, 1200);
@@ -3134,7 +3146,7 @@ const runAutoTurn = async (gameId) => {
 
     // If we just rolled, we must move
     if (game.turnState === 'MOVING') {
-      scheduleAutoTurn(gameId, 200); // Wait a very short time before the bot moves
+      scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_QUICK_MOVE); // Wait a very short time before the bot moves
       return;
     }
 
@@ -3147,7 +3159,7 @@ const runAutoTurn = async (gameId) => {
         const nextPlayerFromDb = updatedGameRecord.players[nextPlayerIndex];
         if (nextPlayerFromDb && (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected)) {
           console.log(`🤖 Next player ${nextPlayerFromDb.color} is AI or disconnected, scheduling auto-turn`);
-          scheduleAutoTurn(gameId, 1500); // Next player is also bot/afk
+          scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL); // Next player is also bot/afk
         } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
           console.log(`✅ Next player ${nextPlayerFromDb.color} is human and connected, starting 8s timer`);
           scheduleHumanPlayerAutoRoll(gameId);
@@ -3193,7 +3205,7 @@ const scheduleNextAction = async (gameId) => {
     // Schedule next action
     if (currentPlayer.isAI || currentPlayer.isDisconnected) {
       console.log(`[SCHEDULE] Player is AI/Disconnected. Scheduling auto-turn.`);
-      scheduleAutoTurn(gameId, 1500);
+      scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
     } else {
       console.log(`[SCHEDULE] Player is Human. Scheduling auto-roll timer.`);
       scheduleHumanPlayerAutoRoll(gameId);
@@ -3302,25 +3314,43 @@ setInterval(() => {
 setInterval(async () => {
   try {
     const now = Date.now();
-    const STUCK_TIMEOUT = 120000; // 2 minutes without state change = stuck
 
     const Game = require('./models/Game');
     const stuckGames = await Game.find({
       status: 'ACTIVE',
       turnState: { $ne: 'GAMEOVER' },
-      updatedAt: { $lt: new Date(now - STUCK_TIMEOUT) }
+      updatedAt: { $lt: new Date(now - 120000) } // Find games inactive for at least 2 minutes
     }).limit(10); // Process max 10 stuck games per check
 
     for (const game of stuckGames) {
-      console.log(`⚠️ Detected stuck game ${game.gameId} - last update ${Math.floor((now - game.updatedAt.getTime()) / 1000)}s ago`);
+      const timeSinceUpdate = Math.floor((now - game.updatedAt.getTime()) / 1000);
+      console.log(`⚠️ Detected potentially stuck game ${game.gameId} - last update ${timeSinceUpdate}s ago`);
 
       // Check if current player is stuck
       const currentPlayer = game.players[game.currentPlayerIndex];
       if (!currentPlayer) continue;
 
-      // Force bot takeover if player has no active socket
-      if (!currentPlayer.socketId || !io.sockets.sockets.has(currentPlayer.socketId)) {
+      // Determine timeout based on player type
+      // Human players get 5 minutes (more lenient), AI/disconnected get 2 minutes
+      const HUMAN_STUCK_TIMEOUT = 300000;  // 5 minutes for human players
+      const AI_STUCK_TIMEOUT = 120000;     // 2 minutes for AI/disconnected players
+
+      const isHumanPlayer = currentPlayer.socketId && !currentPlayer.isAI && !currentPlayer.isDisconnected;
+      const stuckTimeout = isHumanPlayer ? HUMAN_STUCK_TIMEOUT : AI_STUCK_TIMEOUT;
+      const gameStuckTime = now - game.updatedAt.getTime();
+
+      // Only force takeover if timeout exceeded
+      if (gameStuckTime < stuckTimeout) {
+        console.log(`⏳ Game ${game.gameId} inactive for ${timeSinceUpdate}s, but within ${isHumanPlayer ? 'human' : 'AI'} tolerance (${stuckTimeout / 1000}s)`);
+        continue;
+      }
+
+      // Verify socket is truly disconnected before forcing bot takeover
+      const socketExists = currentPlayer.socketId && io.sockets.sockets.has(currentPlayer.socketId);
+
+      if (!socketExists) {
         console.log(`🤖 Forcing bot takeover for stuck player ${currentPlayer.color} in game ${game.gameId}`);
+        console.log(`   Reason: Socket ${currentPlayer.socketId ? 'disconnected' : 'missing'}, inactive for ${timeSinceUpdate}s`);
 
         // Mark as disconnected and trigger auto-turn
         currentPlayer.isDisconnected = true;
@@ -3331,8 +3361,10 @@ setInterval(async () => {
         const plainState = game.toObject ? game.toObject() : game;
         io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: plainState });
 
-        // Trigger auto-turn
-        scheduleAutoTurn(game.gameId, 1000);
+        // Trigger auto-turn with stuck recovery delay
+        scheduleAutoTurn(game.gameId, AUTO_TURN_DELAYS.STUCK_RECOVERY);
+      } else {
+        console.log(`✋ Skipping bot takeover for ${currentPlayer.color} in game ${game.gameId} - socket still connected despite ${timeSinceUpdate}s inactivity`);
       }
     }
 

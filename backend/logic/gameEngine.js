@@ -843,6 +843,21 @@ function executeMoveToken(game, tokenId) {
         console.log(`🎯 ARROWS RULE TRIGGERED: ${player.color} pawn ${tokenId} arrow square ${landedSquare} → jumping to ${newIndex}, granting extra turn`);
     }
 
+    // 🏠 ENHANCED HOME ENTRY LOGGING - Debug "pawn straight to home" reports
+    if (actualFinalPosition.type === 'HOME') {
+        const movingToken = game.tokens.find(t => t.id === tokenId);
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`🏠 HOME ENTRY DETECTED`);
+        console.log(`${'='.repeat(60)}`);
+        console.log(`   Token ID: ${tokenId}`);
+        console.log(`   Player: ${player.username || player.color} (${player.color})`);
+        console.log(`   Previous position:`, JSON.stringify(movingToken?.position));
+        console.log(`   Dice value: ${game.diceValue}`);
+        console.log(`   Move validated:`, JSON.stringify(move));
+        console.log(`   Arrows triggered: ${arrowsTriggered}`);
+        console.log(`${'='.repeat(60)}\n`);
+    }
+
     // Now move the token ONCE to the ACTUAL final position (either normal or jumped)
     game.tokens = game.tokens.map(t => {
         if (t.id === tokenId) {
