@@ -84,7 +84,7 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
+  transports: ['websocket', 'polling'], // Prioritize websocket and fallback to polling
   allowEIO3: true, // Allow Engine.IO v3 clients
   // Optimized for low-resource servers (0.1 CPU, 512MB RAM)
   pingTimeout: 30000, // Reduced from 60s - faster detection of dead connections
@@ -3652,10 +3652,10 @@ io.on('connection', (socket) => {
     socket.join(gameId);
     socket.gameId = gameId; // Map socket to game for disconnect handling
 
-    const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
+    const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id); // Pass socket.id
 
     if (result.success && result.state) {
-      const game = result.state;
+      const game = result.state.toObject ? result.state.toObject() : result.state;
       const plainState = game.toObject ? game.toObject() : game;
 
       console.log(`✅ Sending GAME_STATE_UPDATE for game ${gameId} after join/rejoin.`);
