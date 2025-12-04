@@ -49,10 +49,10 @@ const getApiUrl = () => {
       const hostname = window.location.hostname;
       const protocol = window.location.protocol;
 
-      // In production mode, use same origin and ensure '/api'
+      // In production mode, use the correct backend URL
       if (import.meta.env.PROD) {
-        const url = ensureApiPath(`${window.location.origin}`);
-        console.log('🔧 Using same origin API URL:', url);
+        const url = 'https://som-bet-backend.onrender.com/api';
+        console.log('🔧 Using hardcoded production API URL:', url);
         return url;
       }
 
@@ -86,7 +86,7 @@ const getApiUrl = () => {
 
 const getSocketUrl = () => {
   try {
-    // For production builds, the socket should connect to the same server that serves the frontend.
+    // For production builds, explicitly use the new backend URL
     if (import.meta.env.PROD) {
       // If explicitly set in environment variable, use it
       if (import.meta.env.VITE_SOCKET_URL && import.meta.env.VITE_SOCKET_URL.trim() !== '') {
@@ -94,8 +94,11 @@ const getSocketUrl = () => {
         console.log('🔧 Using VITE_SOCKET_URL from env for production:', envUrl);
         return envUrl;
       }
-      console.log('🔧 Using origin for production Socket URL:', window.location.origin);
-      return window.location.origin;
+
+      // Hardcoded fallback to the correct backend URL
+      const productionUrl = 'https://som-bet-backend.onrender.com';
+      console.log('🔧 Using hardcoded production Socket URL:', productionUrl);
+      return productionUrl;
     }
 
     // --- DEVELOPMENT LOGIC ---
