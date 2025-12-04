@@ -6,7 +6,24 @@ const RevenueSchema = new mongoose.Schema({
   totalPot: { type: Number, required: true }, // Total stake from all players
   winnerId: { type: String, required: true },
   timestamp: { type: Date, default: Date.now },
-  reason: { type: String, default: 'Game Commission' }
+  reason: { type: String, default: 'Game Commission' },
+  gameDetails: {
+    type: {
+      players: [{
+        userId: String,
+        username: String,
+        color: String
+      }],
+      winner: {
+        userId: String,
+        username: String,
+        color: String
+      },
+      stake: Number,
+      gameId: String
+    },
+    required: false // Optional for backwards compatibility
+  }
 });
 
 // ===== INDEX OPTIMIZATION =====

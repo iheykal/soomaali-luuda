@@ -1851,29 +1851,41 @@ app.get('/api/admin/user/:userId/details', authenticateToken, async (req, res) =
 
     // Format history
     const history = matchHistory.map(game => {
-      const isWinner = game.winners.includes(game.players.find(p => p.userId === userId)?.color);
+      // Find this user's player record in the game
+      const userPlayer = game.players.find(p => p.userId === userId);
+      if (!userPlayer) {
+        return null; // Skip if player not found
+      }
+
+      // Check if this user's color is in the winners array
+      const isWinner = game.winners && game.winners.includes(userPlayer.color);
+
+      // Find the opponent (the other player in the game)
       const opponent = game.players.find(p => p.userId !== userId);
 
       // Calculate amount won/lost
-      // If winner: Won (Pot - Comm) - Stake = Net Gain (approx Stake * 0.8)
-      // If loser: Lost Stake
-      // For simplicity, we'll show the settlement amount or stake lost
+      // If winner: Won (Pot - Commission) which is stake * 2 * 0.9 = stake * 1.8
+      // But user also gets their stake back, so net win is stake * 0.8
+      // If loser: Lost their stake
       let amount = 0;
       if (isWinner) {
-        amount = (game.stake * 2) * 0.9; // 90% of pot
+        // Winner gets 90% of pot (stake * 2), but subtract their original stake
+        // Net gain = (stake * 2 * 0.9) - stake = stake * 0.8
+        amount = (game.stake || 0) * 0.8;
       } else {
-        amount = -game.stake;
+        // Loser loses their stake
+        amount = -(game.stake || 0);
       }
 
       return {
         gameId: game.gameId,
-        date: game.updatedAt,
-        opponentName: opponent?.username || 'Unknown',
+        date: game.updatedAt || game.createdAt,
+        opponentName: opponent?.username || opponent?.color || 'Unknown',
         result: isWinner ? 'WON' : 'LOST',
         amount: amount,
-        stake: game.stake
+        stake: game.stake || 0
       };
-    });
+    }).filter(h => h !== null); // Remove null entries
 
     res.json({
       success: true,
