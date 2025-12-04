@@ -72,6 +72,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
     const [myRequestId, setMyRequestId] = useState<string | null>(null);
     const [countdown, setCountdown] = useState<number | null>(null);
     const [statusMessage, setStatusMessage] = useState('');
+    const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const { user } = useAuth();
 
     const sessionId = getSessionId();
@@ -137,6 +138,11 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             setMyRequestId(requestId);
             setStatus('WAITING');
             setStatusMessage('Waiting for opponent...');
+
+            // Clear any existing timeout
+            if (matchTimeoutRef.current) {
+                clearTimeout(matchTimeoutRef.current);
+            }
         });
 
         socket.on('match_request_cancel_success', () => {
@@ -150,6 +156,20 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             if (requestId === myRequestId) {
                 setStatusMessage('Match accepted! Starting...');
                 // Game start logic handled by match_found/game_created event
+
+                // Set a timeout in case match_found never arrives (5 seconds)
+                if (matchTimeoutRef.current) {
+                    clearTimeout(matchTimeoutRef.current);
+                }
+                matchTimeoutRef.current = setTimeout(() => {
+                    console.error('⏰ Timeout: match_found event not received within 5 seconds');
+                    setStatusMessage('Match creation timed out. Please try again.');
+                    setTimeout(() => {
+                        setStatus('SELECT');
+                        setMyRequestId(null);
+                        setStatusMessage('');
+                    }, 2000);
+                }, 5000);
             }
         });
 
@@ -158,6 +178,12 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         socket.on('match_found', ({ gameId, playerColor, opponent, stake }: any) => {
             console.log('✅ Match found!', { gameId, playerColor, opponent, stake });
             setStatus('STARTING');
+
+            // Clear timeout since we received match_found successfully
+            if (matchTimeoutRef.current) {
+                clearTimeout(matchTimeoutRef.current);
+                matchTimeoutRef.current = null;
+            }
 
             // Clean up socket listeners but keep connection for a moment
             if (socketRef.current) {
@@ -183,15 +209,27 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             console.error('Matchmaking error:', message);
             setStatusMessage(`Error: ${message}`);
 
-            if (message.includes('Insufficient funds') || message.includes('Super Admin')) {
-                setTimeout(() => {
-                    setStatus('SELECT');
-                    setMyRequestId(null);
-                }, 2000);
+            // Clear timeout on error
+            if (matchTimeoutRef.current) {
+                clearTimeout(matchTimeoutRef.current);
+                matchTimeoutRef.current = null;
             }
+
+            // Reset to SELECT state after showing error
+            setTimeout(() => {
+                setStatus('SELECT');
+                setMyRequestId(null);
+                setSelectedStake(null);
+                setStatusMessage('');
+            }, 3000);
         });
 
         return () => {
+            // Cleanup timeout on unmount
+            if (matchTimeoutRef.current) {
+                clearTimeout(matchTimeoutRef.current);
+            }
+
             if (socketRef.current) {
                 socketRef.current.off('active_requests');
                 socketRef.current.off('new_match_request');

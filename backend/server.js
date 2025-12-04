@@ -2479,20 +2479,88 @@ const createMatch = async (player1, player2, stake) => {
       player2.socketId
     );
 
-    // Get sockets
-    const socket1 = io.sockets.sockets.get(player1.socketId);
-    const socket2 = io.sockets.sockets.get(player2.socketId);
+    // Get sockets with improved error handling and recovery
+    let socket1 = io.sockets.sockets.get(player1.socketId);
+    let socket2 = io.sockets.sockets.get(player2.socketId);
 
-    if (!socket1 || !socket2) {
-      console.error('❌ One or both sockets not found');
+    // Track if we need to use userId room fallback
+    let usePlayer1Fallback = false;
+    let usePlayer2Fallback = false;
+
+    if (!socket1) {
+      console.warn(`⚠️ Socket not found for player1 (socketId: ${player1.socketId}). Attempting recovery...`);
+
+      // Try to find socket by userId in connected sockets
+      if (player1.userId) {
+        const userSockets = Array.from(io.sockets.sockets.values()).filter(s => {
+          // Check if socket belongs to this user
+          return s.data?.userId === player1.userId || s.handshake?.query?.userId === player1.userId;
+        });
+
+        if (userSockets.length > 0) {
+          socket1 = userSockets[0]; // Use the first matching socket
+          console.log(`✅ Recovered socket for player1 using userId: ${player1.userId}`);
+        } else {
+          console.warn(`⚠️ No socket found for player1 userId: ${player1.userId}. Will use userId room fallback.`);
+          usePlayer1Fallback = true;
+        }
+      } else {
+        usePlayer1Fallback = true;
+      }
+    }
+
+    if (!socket2) {
+      console.warn(`⚠️ Socket not found for player2 (socketId: ${player2.socketId}). Attempting recovery...`);
+
+      // Try to find socket by userId in connected sockets
+      if (player2.userId) {
+        const userSockets = Array.from(io.sockets.sockets.values()).filter(s => {
+          return s.data?.userId === player2.userId || s.handshake?.query?.userId === player2.userId;
+        });
+
+        if (userSockets.length > 0) {
+          socket2 = userSockets[0];
+          console.log(`✅ Recovered socket for player2 using userId: ${player2.userId}`);
+        } else {
+          console.warn(`⚠️ No socket found for player2 userId: ${player2.userId}. Will use userId room fallback.`);
+          usePlayer2Fallback = true;
+        }
+      } else {
+        usePlayer2Fallback = true;
+      }
+    }
+
+    // If both sockets are missing and we can't recover, emit error and clean up
+    if (!socket1 && !socket2 && !player1.userId && !player2.userId) {
+      console.error('❌ CRITICAL: Both sockets not found and no userId available for fallback. Match creation failed.');
+
+      // Try to refund the stakes since match failed
+      try {
+        user1.balance += stake;
+        user1.reservedBalance = Math.max(0, (user1.reservedBalance || 0) - stake);
+        await user1.save();
+
+        user2.balance += stake;
+        user2.reservedBalance = Math.max(0, (user2.reservedBalance || 0) - stake);
+        await user2.save();
+
+        console.log(`💰 Refunded stakes to both players due to match creation failure`);
+      } catch (refundError) {
+        console.error('❌ Error refunding stakes:', refundError);
+      }
+
       return;
     }
 
-    // Both players join the game room
-    socket1.join(gameId);
-    socket1.gameId = gameId;
-    socket2.join(gameId);
-    socket2.gameId = gameId;
+    // Join game rooms if sockets are available
+    if (socket1) {
+      socket1.join(gameId);
+      socket1.gameId = gameId;
+    }
+    if (socket2) {
+      socket2.join(gameId);
+      socket2.gameId = gameId;
+    }
 
     // Update game state to started with random turn order
     if (guestResult.success && guestResult.state) {
@@ -2516,20 +2584,38 @@ const createMatch = async (player1, player2, stake) => {
       }
     }
 
-    // Notify both players
-    socket1.emit('match_found', {
+    // Notify both players with improved fallback logic
+    const player1MatchData = {
       gameId,
       playerColor: hostColor,
       opponent: { userId: player2.userId, userName: player2.userName },
       stake
-    });
+    };
 
-    socket2.emit('match_found', {
+    const player2MatchData = {
       gameId,
       playerColor: guestColor,
       opponent: { userId: player1.userId, userName: player1.userName },
       stake
-    });
+    };
+
+    // Emit to player1
+    if (socket1) {
+      socket1.emit('match_found', player1MatchData);
+      console.log(`✅ Emitted match_found to player1 via socket`);
+    } else if (usePlayer1Fallback && player1.userId) {
+      io.to(`user_${player1.userId}`).emit('match_found', player1MatchData);
+      console.log(`✅ Emitted match_found to player1 via userId room: user_${player1.userId}`);
+    }
+
+    // Emit to player2
+    if (socket2) {
+      socket2.emit('match_found', player2MatchData);
+      console.log(`✅ Emitted match_found to player2 via socket`);
+    } else if (usePlayer2Fallback && player2.userId) {
+      io.to(`user_${player2.userId}`).emit('match_found', player2MatchData);
+      console.log(`✅ Emitted match_found to player2 via userId room: user_${player2.userId}`);
+    }
 
     // Send initial game state to both players after a short delay
     if (guestResult.success && guestResult.state) {

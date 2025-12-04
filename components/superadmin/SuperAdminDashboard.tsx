@@ -778,18 +778,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
               <div className="max-w-md w-full">
                 <label htmlFor="phone-search" className="block text-sm font-semibold text-gray-700 mb-2">
-                  🔍 Search Users
+                  🔍 Search Users (Name, Phone, or Username)
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-gray-400 text-lg">📞</span>
+                    <span className="text-gray-400 text-lg">🔍</span>
                   </div>
                   <input
                     id="phone-search"
                     type="text"
                     value={phoneSearchQuery}
                     onChange={(e) => setPhoneSearchQuery(e.target.value)}
-                    placeholder="Search by name or phone number..."
+                    placeholder="Type name, username, or phone number..."
                     className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm shadow-sm transition-all"
                   />
                   {phoneSearchQuery && (
@@ -803,7 +803,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 </div>
                 {phoneSearchQuery && (
                   <p className="mt-2 text-xs text-gray-600">
-                    Showing results matching: <span className="font-semibold text-green-600">{phoneSearchQuery}</span>
+                    💡 Showing results matching: <span className="font-semibold text-green-600">{phoneSearchQuery}</span>
                   </p>
                 )}
               </div>
@@ -832,6 +832,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             {!loading && !error && (() => {
               // Fuzzy search function for phone numbers and names
               const fuzzyMatch = (phone: string | undefined, username: string | undefined, query: string): boolean => {
+                console.log('🔍 Fuzzy search - Query:', query, 'Username:', username, 'Phone:', phone);
                 if (!query) return true;
 
                 const queryLower = query.toLowerCase();
@@ -847,6 +848,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
 
                 // Check username
                 if (username && username.toLowerCase().includes(queryLower)) {
+                  console.log('✅ Found match in username!');
                   return true;
                 }
 
