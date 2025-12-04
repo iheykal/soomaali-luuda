@@ -102,6 +102,12 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             // Fetch active requests on connect - use _id for authenticated users
             const userId = user?._id || user?.id || sessionId;
             socket.emit('get_active_requests', { userId });
+
+            // CRITICAL: Register user for notifications/recovery
+            // This ensures the socket joins the user_${userId} room so backend can find it
+            // even if socketId lookup fails (common on Render/production)
+            socket.emit('register_user', { userId });
+            console.log('👤 Registered for matchmaking notifications:', userId);
         });
 
         // --- Match Request Events ---

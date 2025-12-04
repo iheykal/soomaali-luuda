@@ -3357,6 +3357,7 @@ io.on('connection', (socket) => {
   // --- USER REGISTRATION FOR NOTIFICATIONS ---
   socket.on('register_user', ({ userId }) => {
     if (userId) {
+      socket.data.userId = userId; // Store userId for recovery logic
       const userRoom = `user_${userId}`;
       socket.join(userRoom);
       console.log(`👤 User ${userId} registered for notifications in room: ${userRoom}`);
