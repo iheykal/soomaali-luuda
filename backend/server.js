@@ -464,7 +464,7 @@ app.post('/api/auth/register', async (req, res) => {
       balance: 0, // Starting balance set to 0 as requested
       role: 'USER',
       status: 'Active',
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${fullName}`,
+      // avatar will be set via upload, not hardcoded
       stats: {
         gamesPlayed: 0,
         wins: 0
@@ -493,7 +493,7 @@ app.post('/api/auth/register', async (req, res) => {
       email: userData.email,
       balance: userData.balance || 0,
       role: userData.role,
-      avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.username}`,
+      avatar: userData.avatar, // Use database value, don't override with hardcoded URL
       status: userData.status,
       joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
       createdAt: userData.createdAt,
@@ -598,7 +598,7 @@ app.post('/api/auth/login', async (req, res) => {
       email: userData.email,
       balance: userData.balance || 0,
       role: userData.role,
-      avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.username}`,
+      avatar: userData.avatar, // Use database value, don't override with hardcoded URL
       status: userData.status,
       joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
       createdAt: userData.createdAt,
@@ -637,7 +637,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       email: userData.email,
       balance: userData.balance || 0,
       role: userData.role,
-      avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.username}`,
+      avatar: userData.avatar, // Use database value, don't override with hardcoded URL
       status: userData.status,
       joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
       createdAt: userData.createdAt,
@@ -900,6 +900,102 @@ app.post('/api/auth/reset-password', async (req, res) => {
   } catch (error) {
     console.error('Reset password error:', error);
     res.status(500).json({ error: error.message || 'Failed to reset password' });
+  }
+});
+
+// POST: Create User (Admin/SuperAdmin only)
+app.post('/api/auth/create-user', authenticateToken, async (req, res) => {
+  try {
+    const { fullName, phone, password, avatar, balance } = req.body;
+
+    // Check if the requester is a super admin
+    const requester = await User.findById(req.user.userId);
+    if (!requester || requester.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    // Validate required fields
+    if (!fullName || !phone || !password) {
+      return res.status(400).json({ error: 'Full name, phone number, and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Normalize phone number
+    const normalizedPhone = normalizePhone(phone);
+
+    if (normalizedPhone.length < 7) {
+      return res.status(400).json({ error: 'Phone number must be at least 7 digits' });
+    }
+
+    // Check if user already exists
+    const phoneWithPrefix = '+252' + normalizedPhone;
+    const existingUser = await User.findOne({
+      $or: [
+        { username: fullName },
+        { phone: normalizedPhone },
+        { phone: phoneWithPrefix },
+        { phone: phone }
+      ]
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username or phone number already exists' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new user
+    const userId = 'u' + Date.now().toString().slice(-6);
+    const newUser = new User({
+      _id: userId,
+      username: fullName,
+      phone: phoneWithPrefix,
+      password: hashedPassword,
+      balance: balance !== undefined ? parseFloat(balance) : 0,
+      role: 'USER',
+      status: 'Active',
+      avatar: avatar || null, // Use provided avatar URL (from Cloudflare) or null
+      stats: {
+        gamesPlayed: 0,
+        wins: 0
+      }
+    });
+
+    await newUser.save();
+
+    // Return user data (without password)
+    const userData = newUser.toObject();
+    delete userData.password;
+
+    const formattedUser = {
+      id: userData._id,
+      _id: userData._id,
+      username: userData.username,
+      phone: userData.phone,
+      email: userData.email,
+      balance: userData.balance || 0,
+      role: userData.role,
+      avatar: userData.avatar,
+      status: userData.status,
+      joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
+      createdAt: userData.createdAt,
+      stats: userData.stats || { gamesPlayed: 0, wins: 0 }
+    };
+
+    console.log(`✅ SuperAdmin ${requester.username} created new user: ${fullName} (${userId})`);
+
+    res.json({
+      success: true,
+      user: formattedUser,
+      message: 'User created successfully'
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create user' });
   }
 });
 
@@ -1310,7 +1406,7 @@ app.get('/api/users/leaderboard', async (req, res) => {
     const leaderboard = topPlayers.map(user => ({
       id: user._id,
       username: user.username,
-      avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`,
+      avatar: user.avatar, // Use database value, don't override with hardcoded URL
       wins: user.stats?.gamesWon || 0
     }));
 

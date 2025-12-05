@@ -2,108 +2,100 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const User = require('../models/User');
 
-const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/ludo-master';
+// Use environment variable or default
+const MONGO_URI = process.env.MONGODB_URI || 'mongodb+srv://maandhisecorporate_db_user:rnXK7f9eVEve8R0Q@cluster0.dggtyvj.mongodb.net/maandhise?appName=Cluster0';
 
 async function createSuperAdmin() {
   try {
-    await mongoose.connect(MONGO_URI);
-    console.log('✅ MongoDB Connected\n');
+    console.log('🔌 Connecting to MongoDB...');
+    console.log('📊 Database:', MONGO_URI.includes('@') ? MONGO_URI.split('@')[1].split('?')[0] : MONGO_URI);
 
-    const username = '610251014';
-    const password = 'ilyaas321';
-    
-    // Save password as plain text (no hashing)
-    console.log('💾 Saving password as plain text\n');
+    await mongoose.connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 10000,
+    });
 
-    // Check if user exists
-    let user = await User.findOne({
+    console.log('✅ Connected to MongoDB successfully\n');
+
+    // Check if user already exists by phone
+    const phoneWithPrefix = '+252613273911';
+    const existingUser = await User.findOne({
       $or: [
-        { username: username },
-        { phone: username }
+        { phone: '613273911' },
+        { phone: phoneWithPrefix }
       ]
     });
 
-    if (user) {
-      // Update existing user using updateOne and then refetch
-      console.log(`📝 Updating existing user: ${username}`);
-      const userId = user._id;
-      
+    if (existingUser) {
+      console.log('👤 Found existing user:', existingUser._id);
+      console.log('   Current username:', existingUser.username || 'NONE');
+      console.log('   Current phone:', existingUser.phone);
+      console.log('   Current role:', existingUser.role);
+
+      // Update using updateOne to avoid validation issues
       await User.updateOne(
-        { _id: userId },
+        { _id: existingUser._id },
         {
           $set: {
-            username: username,
-            phone: username,
-            password: password, // Plain text password
+            username: 'Admin',
+            phone: phoneWithPrefix,
+            password: 'maandhise11',
             role: 'SUPER_ADMIN',
             status: 'Active',
-            balance: user.balance || 10000,
-            avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
+            avatar: null
           }
         }
       );
-      
-      // Refetch the updated user by username/phone (more reliable)
-      user = await User.findOne({
-        $or: [
-          { username: username },
-          { phone: username }
-        ]
-      });
-      
-      if (!user) {
-        throw new Error('Failed to retrieve updated user');
-      }
-      
-      console.log(`✅ Updated user: ${username} to SUPER_ADMIN\n`);
+
+      console.log('\n✅ Updated existing user to SUPER_ADMIN');
+      console.log('📱 Phone: +252613273911');
+      console.log('👤 Username: Admin');
+      console.log('🔑 Password: maandhise11');
+      console.log('🎭 Role: SUPER_ADMIN');
     } else {
+      console.log('🆕 Creating new SUPER_ADMIN user...');
+
       // Create new user
-      console.log(`➕ Creating new SUPER_ADMIN user: ${username}`);
       const userId = 'u' + Date.now().toString().slice(-6);
-      
-      user = new User({
+      const newUser = new User({
         _id: userId,
-        username: username,
-        phone: username,
-        password: password, // Plain text password
-        balance: 10000, // High balance for super admin
+        username: 'Admin',
+        phone: phoneWithPrefix,
+        password: 'maandhise11',
+        balance: 0,
         role: 'SUPER_ADMIN',
         status: 'Active',
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+        avatar: null,
         stats: {
           gamesPlayed: 0,
           wins: 0
         }
       });
-      
-      await user.save();
-      console.log(`✅ Created SUPER_ADMIN user: ${username}\n`);
+
+      await newUser.save();
+
+      console.log('✅ SuperAdmin created successfully!');
+      console.log('📱 Phone: +252613273911');
+      console.log('👤 Username: Admin');
+      console.log('🔑 Password: maandhise11');
+      console.log('🎭 Role: SUPER_ADMIN');
+      console.log('🆔 ID:', userId);
     }
 
-    // Display user info (without password)
-    const userInfo = user.toObject();
-    delete userInfo.password;
-    delete userInfo.resetPasswordToken;
-    delete userInfo.resetPasswordExpires;
-    
-    console.log('📊 User Information:');
-    console.log(`   Username: ${userInfo.username}`);
-    console.log(`   Phone: ${userInfo.phone || 'N/A'}`);
-    console.log(`   Role: ${userInfo.role}`);
-    console.log(`   Status: ${userInfo.status}`);
-    console.log(`   Balance: $${userInfo.balance}`);
-    console.log(`   ID: ${userInfo._id}`);
-    console.log(`\n✅ Login credentials:`);
-    console.log(`   Username/Phone: ${username}`);
-    console.log(`   Password: ${password}`);
+    console.log('\n🎉 You can now login with:');
+    console.log('   Phone: 613273911');
+    console.log('   Password: maandhise11');
 
     await mongoose.disconnect();
     console.log('\n✅ Disconnected from MongoDB');
+    process.exit(0);
+
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('❌ Error:', error.message);
+    if (error.stack) {
+      console.error(error.stack);
+    }
     process.exit(1);
   }
 }
 
 createSuperAdmin();
-

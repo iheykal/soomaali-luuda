@@ -75,7 +75,7 @@ async function smartUserSync(userId, userName, context = 'unknown') {
       balance: 100, // Default starting balance
       role: 'USER',
       status: 'Active',
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userName || userId}`,
+      // avatar will be set via upload, not hardcoded
       stats: {
         gamesPlayed: 0,
         wins: 0
