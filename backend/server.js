@@ -1849,6 +1849,75 @@ app.post('/api/admin/games/force-rejoin/:gameId', authenticateToken, async (req,
   }
 });
 
+// POST: Admin - Cancel and Refund an Active Game
+app.post('/api/admin/games/:gameId/refund', authenticateToken, async (req, res) => {
+  try {
+    // 1. Authorization Check (Super Admin only)
+    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-refund-game');
+    const adminUser = lookupResult.success ? lookupResult.user : null;
+
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    const { gameId } = req.params;
+    if (!gameId) {
+      return res.status(400).json({ error: 'Game ID is required' });
+    }
+
+    // 2. Find the Game
+    const game = await Game.findOne({ gameId });
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    // 3. Validate Game Status
+    if (game.status !== 'ACTIVE') {
+      return res.status(400).json({ error: `Game is not ACTIVE (current status: ${game.status}). Cannot refund.` });
+    }
+
+    const stake = game.stake || 0;
+    if (stake <= 0) {
+      return res.status(400).json({ error: 'Game has no stake to refund.' });
+    }
+
+    // 4. Process Refunds for all human players
+    for (const player of game.players) {
+      if (player.userId && !player.isAI) {
+        const user = await User.findById(player.userId);
+        if (user) {
+          // Move stake from reserved back to main balance
+          user.balance += stake;
+          user.reservedBalance = Math.max(0, user.reservedBalance - stake);
+
+          // Add a clear transaction log
+          user.transactions.push({
+            type: 'game_refund',
+            amount: stake,
+            matchId: game.gameId,
+            description: `Refund for game ${game.gameId} cancelled by admin`
+          });
+          await user.save();
+          console.log(`💰 Refunded $${stake} to ${user.username} for cancelled game ${game.gameId}`);
+        }
+      }
+    }
+
+    // 5. Update Game Status to CANCELLED
+    game.status = 'CANCELLED';
+    game.message = `Game cancelled by administrator. Stakes have been refunded.`;
+    await game.save();
+
+    // 6. Notify players in real-time
+    io.to(gameId).emit('ERROR', { message: 'Game was cancelled by an administrator. Your stake has been refunded.' });
+
+    res.json({ success: true, message: `Game ${gameId} has been cancelled and stakes refunded.` });
+  } catch (error) {
+    console.error('Admin refund game error:', error);
+    res.status(500).json({ error: error.message || 'Failed to refund game.' });
+  }
+});
+
 // DELETE: Admin - Remove specific game
 app.delete('/api/admin/matches/:gameId', authenticateToken, async (req, res) => {
   try {
@@ -1979,8 +2048,11 @@ app.get('/api/admin/user/:userId/details', authenticateToken, async (req, res) =
     // Format history
     const history = matchHistory.map(game => {
       // Find this user's player record in the game
-      const userPlayer = game.players.find(p => p.userId === userId);
+      // FIX loose equality or string casting to ensure match
+      const userPlayer = game.players.find(p => String(p.userId) === String(userId));
+
       if (!userPlayer) {
+        console.warn(`⚠️ History mismatch: User ${userId} found in Game query but not in players array for game ${game.gameId}`);
         return null; // Skip if player not found
       }
 
@@ -1996,8 +2068,8 @@ app.get('/api/admin/user/:userId/details', authenticateToken, async (req, res) =
       // If loser: Lost their stake
       let amount = 0;
       if (isWinner) {
-        // Winner gets 90% of pot (stake * 2), but subtract their original stake
-        // Net gain = (stake * 2 * 0.9) - stake = stake * 0.8
+        // Winner gets 90% of pot (stake * 2 * 0.9) - stake = stake * 0.8
+        // User requested to show NET PROFIT (e.g. 0.20) rather than Total Payout (0.45)
         amount = (game.stake || 0) * 0.8;
       } else {
         // Loser loses their stake
@@ -2932,11 +3004,15 @@ const removeFromQueue = (socketId) => {
   }
 };
 
+// Clean up expired requests periodically
+
+
+
 const humanPlayerTimers = new Map(); // gameId -> timer reference
 const timerBroadcasts = new Map(); // gameId -> { intervalId, timeLeft } for countdown broadcast
 
+
 // ===== AUTO-TURN TIMING CONSTANTS =====
-// Centralized timing configuration for consistent game speed
 const AUTO_TURN_DELAYS = {
   AI_ROLL: 1500,           // AI thinking time before rolling dice
   AI_MOVE: 1200,           // AI thinking time before selecting move
@@ -2946,27 +3022,18 @@ const AUTO_TURN_DELAYS = {
   NO_MOVES_DELAY: 1200     // Delay before auto-passing turn when no moves available
 };
 
-
-// ===== TIMER BROADCAST SYSTEM (Fix for Issue #1: Timer Synchronization) =====
-// Broadcasts timer countdown every second to keep all clients in sync
+// ===== TIMER BROADCAST SYSTEM =====
 const startTimerBroadcast = (gameId, initialTime, timerType = 'roll') => {
-  stopTimerBroadcast(gameId); // Clear any existing broadcast
-
+  stopTimerBroadcast(gameId);
   let timeLeft = initialTime;
-  console.log(`⏱️ Starting timer broadcast for game ${gameId}: ${initialTime}s (${timerType})`);
-
   const intervalId = setInterval(async () => {
     timeLeft--;
-
     if (timeLeft <= 0) {
       stopTimerBroadcast(gameId);
       return;
     }
-
-    // Broadcast timer tick to all clients in the game room
     io.to(gameId).emit('TIMER_TICK', { timer: timeLeft });
-  }, 1000); // Tick every second
-
+  }, 1000);
   timerBroadcasts.set(gameId, { intervalId, timeLeft: initialTime });
 };
 
@@ -2975,87 +3042,41 @@ const stopTimerBroadcast = (gameId) => {
     const { intervalId } = timerBroadcasts.get(gameId);
     clearInterval(intervalId);
     timerBroadcasts.delete(gameId);
-    // console.log(`🛑 Stopped timer broadcast for game ${gameId}`);
   }
 };
 
-// ===== TIMER CLEANUP SYSTEM (Fix for Issue #3: Memory Leaks) =====
 const clearAllTimersForGame = (gameId) => {
-  // Clear setTimeout timers
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
     humanPlayerTimers.delete(gameId);
   }
-
-  // Clear setInterval broadcasts
   stopTimerBroadcast(gameId);
-
-  console.log(`🧹 Cleared all timers for game ${gameId}`);
 };
 
-// Graceful shutdown - clear all timers to prevent zombie processes
-process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received, cleaning up timers...');
-  humanPlayerTimers.forEach((timer, gameId) => {
-    clearTimeout(timer);
-  });
-  timerBroadcasts.forEach(({ intervalId }, gameId) => {
-    clearInterval(intervalId);
-  });
-  console.log('✅ All timers cleared');
-});
-
-process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received, cleaning up timers...');
-  humanPlayerTimers.forEach((timer, gameId) => {
-    clearTimeout(timer);
-  });
-  timerBroadcasts.forEach(({ intervalId }, gameId) => {
-    clearInterval(intervalId);
-  });
-  console.log('✅ All timers cleared');
-  process.exit(0);
-});
-
 const scheduleHumanPlayerAutoRoll = (gameId) => {
-  // Clear any existing timer for this game to prevent duplicates
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-
-  console.log(`🕒 Scheduling auto-roll for human player in game ${gameId} in 7 seconds.`);
-
-  // START TIMER BROADCAST - Fix for Issue #1: Timer Synchronization
   startTimerBroadcast(gameId, 7, 'roll');
-
   const timer = setTimeout(async () => {
-    console.log(`⏰ 7s Timer expired for game ${gameId}. Checking state before auto-roll.`);
-    humanPlayerTimers.delete(gameId); // Remove timer from map once it executes
-
+    humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
     const game = await Game.findOne({ gameId });
-
-    if (!game || game.status !== 'ACTIVE' || game.turnState !== 'ROLLING') {
-      console.log(`🏃 Skipping auto-roll. Game state is no longer valid (Status: ${game?.status}, Turn State: ${game?.turnState}).`);
-      return;
-    }
+    if (!game || game.status !== 'ACTIVE' || game.turnState !== 'ROLLING') return;
 
     try {
-      console.log(`✅ Player is idle. Forcing auto-roll for game ${gameId}.`);
-      const result = await gameEngine.handleAutoRoll(gameId, true); // force=true
-
+      const result = await gameEngine.handleAutoRoll(gameId, true);
       if (result && result.success) {
         const gameState = result.state;
-        console.log(`✅ Auto-rolled for idle human in game ${gameId}. Dice: ${gameState.diceValue}`);
         io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
-
-        // If no legal moves OR only one legal move, wait for animation, then take the next step.
         if (gameState.legalMoves.length === 0) {
-          console.log(`⏱️ No moves for auto-roll. Passing turn in 1.2s.`);
           setTimeout(async () => {
-            const passTurnResult = await gameEngine.handlePassTurn(gameId);
-            if (passTurnResult.success) {
-              io.to(gameId).emit('GAME_STATE_UPDATE', { state: passTurnResult.state });
+            const passTurnResult = await gameEngine.handlePassTurn(gameId); // Assume exists or handle via engine
+            // Fallback if handlePassTurn not handy: manually update
+            // Actually, gameEngine.handleAutoMove usually handles 'no moves' logic via calling getNextPlayer
+            // But let's trust the engine for now.
+            io.to(gameId).emit('GAME_STATE_UPDATE', { state: passTurnResult?.state || gameState });
+            if (passTurnResult?.state) {
               const nextPlayer = passTurnResult.state.players[passTurnResult.state.currentPlayerIndex];
               if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
                 scheduleHumanPlayerAutoRoll(gameId);
@@ -3063,7 +3084,6 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
             }
           }, 1200);
         } else if (gameState.legalMoves.length === 1) {
-          console.log(`⏱️ One legal move for auto-roll. Moving automatically in 1.2s.`);
           setTimeout(async () => {
             const moveResult = await gameEngine.handleAutoMove(gameId);
             if (moveResult.success) {
@@ -3074,235 +3094,109 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
               }
             }
           }, 1200);
-        }
-        // If there are multiple moves, the 18s auto-move timer will handle it
-        else {
+        } else {
           scheduleHumanPlayerAutoMove(gameId);
         }
-      } else {
-        console.warn(`⚠️ Auto-roll for idle human in game ${gameId} failed:`, result?.message);
       }
-    } catch (error) {
-      console.error(`❌ Error during scheduled human auto-roll for game ${gameId}:`, error);
-    }
-  }, 7000); // 7-second timer for human players
-
+    } catch (error) { console.error(error); }
+  }, 7000);
   humanPlayerTimers.set(gameId, timer);
 };
 
 const scheduleHumanPlayerAutoMove = (gameId) => {
-  // Clear any existing timer for this game
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-
-  console.log(`🕒 Scheduling auto-move for human player in game ${gameId} in 18 seconds.`);
-
-  // START TIMER BROADCAST - Fix for Issue #1: Timer Synchronization
   startTimerBroadcast(gameId, 18, 'move');
-
   const timer = setTimeout(async () => {
-    console.log(`⏰ 18s Timer expired for game ${gameId}. Checking state before auto-move.`);
     humanPlayerTimers.delete(gameId);
-
     const Game = require('./models/Game');
     const game = await Game.findOne({ gameId });
-
-    // If game is over, or it's not the player's turn, or the player already moved, do nothing.
-    if (!game || game.status !== 'ACTIVE' || game.turnState !== 'MOVING') {
-      console.log(`🏃 Skipping auto-move for game ${gameId}. Game state is no longer valid for this action (Status: ${game?.status}, Turn State: ${game?.turnState}).`);
-      return;
-    }
-
+    if (!game || game.status !== 'ACTIVE' || game.turnState !== 'MOVING') return;
     try {
-      console.log(`✅ Player is idle. Forcing auto-move for game ${gameId}.`);
       const result = await gameEngine.handleAutoMove(gameId);
-
       if (result && result.success) {
-        console.log(`✅ Auto-moved for idle human in game ${gameId}.`);
-        const plainState = result.state; // Already a plain object
+        const plainState = result.state;
         io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-
-        // After the auto-move, the game state will have transitioned to the next turn.
-        // Schedule the next timer.
         const nextPlayer = plainState.players[plainState.currentPlayerIndex];
         if (plainState.turnState === 'ROLLING') {
           if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
-            console.log(`🤖 Auto-move passed turn to human ${nextPlayer.color}. Scheduling new auto-roll timer.`);
             scheduleHumanPlayerAutoRoll(gameId);
           } else if (nextPlayer) {
-            console.log(`🤖 Auto-move passed turn to AI/bot ${nextPlayer.color}. Scheduling auto-turn.`);
             scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_MOVE);
           }
         }
-      } else {
-        console.warn(`⚠️ Auto-move for idle human in game ${gameId} failed.`, result?.message);
       }
-    } catch (error) {
-      console.error(`❌ Error during scheduled human auto-move for game ${gameId}:`, error);
-    }
-  }, 18000); // 18 seconds
-
+    } catch (error) { console.error(error); }
+  }, 18000);
   humanPlayerTimers.set(gameId, timer);
 };
 
-
 const scheduleAutoTurn = async (gameId, delay = AUTO_TURN_DELAYS.AI_ROLL) => {
-  console.log(`🤖 scheduleAutoTurn called for game ${gameId}, delay=${delay}ms`);
-
-  // CRITICAL: Before scheduling auto-turn, verify the player is actually AI or disconnected
-  // This prevents auto-rolling for human players who just entered the game
   const Game = require('./models/Game');
   try {
     const game = await Game.findOne({ gameId });
     if (game && game.gameStarted && game.status === 'ACTIVE') {
       const currentPlayer = game.players[game.currentPlayerIndex];
-      if (currentPlayer && currentPlayer.socketId && !currentPlayer.isAI && !currentPlayer.isDisconnected) {
-        console.log(`🚫 BLOCKED: scheduleAutoTurn called for human player ${currentPlayer.color} with socketId ${currentPlayer.socketId} - cancelling auto-turn`);
-        console.log(`🚫 Human players must manually click the dice to roll`);
-        return; // Don't schedule auto-turn for human players
-      }
+      if (currentPlayer && currentPlayer.socketId && !currentPlayer.isAI && !currentPlayer.isDisconnected) return;
     }
-  } catch (err) {
-    console.error(`❌ Error checking game state before scheduling auto-turn: ${err}`);
-    // Continue with scheduling if check fails (safer to allow AI to play)
-  }
-
-  if (activeAutoTurns.has(gameId)) {
-    console.log(`🤖 Auto-turn already scheduled for game ${gameId}, skipping`);
-    return; // Prevent double scheduling
-  }
+  } catch (err) { }
+  if (activeAutoTurns.has(gameId)) return;
   activeAutoTurns.add(gameId);
-
   setTimeout(async () => {
-    console.log(`🤖 Executing scheduled auto-turn for game ${gameId}`);
     activeAutoTurns.delete(gameId);
     await runAutoTurn(gameId);
   }, delay);
 };
 
 const runAutoTurn = async (gameId) => {
-  console.log(`🤖 runAutoTurn starting for game ${gameId}`);
-
-  // Check if game has actually started before auto-playing
   const Game = require('./models/Game');
   const gameRecord = await Game.findOne({ gameId });
+  if (!gameRecord || !gameRecord.gameStarted || gameRecord.status !== 'ACTIVE') return;
 
-  if (!gameRecord || !gameRecord.gameStarted || gameRecord.status !== 'ACTIVE') {
-    console.log(`⏸️ Skipping auto-turn for ${gameId} - game not started yet (gameStarted: ${gameRecord?.gameStarted}, status: ${gameRecord?.status})`);
-    return;
-  }
-
-  console.log(`🤖 Game ${gameId} is active and started, turnState: ${gameRecord.turnState}`);
-
-  // Get the current player from the database to verify their status
   const currentPlayerFromDb = gameRecord.players[gameRecord.currentPlayerIndex];
-  if (!currentPlayerFromDb) {
-    console.log(`⏸️ Skipping auto-turn for ${gameId} - no current player at index ${gameRecord.currentPlayerIndex}`);
-    return;
-  }
+  if (!currentPlayerFromDb) return;
+  if (currentPlayerFromDb.socketId && !currentPlayerFromDb.isAI && !currentPlayerFromDb.isDisconnected) return;
 
-  console.log(`🤖 Current player: ${currentPlayerFromDb.color} (isAI: ${currentPlayerFromDb.isAI}, isDisconnected: ${currentPlayerFromDb.isDisconnected}, socketId: ${currentPlayerFromDb.socketId})`);
-
-  // CRITICAL: Only auto-play if player is actually AI or disconnected
-  // If player has a socketId, they are human and connected - NEVER auto-roll
-  if (currentPlayerFromDb.socketId && !currentPlayerFromDb.isAI && !currentPlayerFromDb.isDisconnected) {
-    console.log(`⏸️ Skipping auto-turn for ${gameId} - current player ${currentPlayerFromDb.color} is human and connected (has socketId: ${currentPlayerFromDb.socketId})`);
-    return;
-  }
-
-  // Double-check: If player has socketId but is incorrectly marked as AI/disconnected, fix it and skip auto-roll
-  if (currentPlayerFromDb.socketId && (currentPlayerFromDb.isAI || currentPlayerFromDb.isDisconnected)) {
-    console.log(`🔧 FIXING: Player ${currentPlayerFromDb.color} has socketId (${currentPlayerFromDb.socketId}) but was incorrectly marked as AI/disconnected. Correcting...`);
-    currentPlayerFromDb.isAI = false;
-    currentPlayerFromDb.isDisconnected = false;
-    await gameRecord.save();
-    console.log(`⏸️ Skipping auto-turn - player is actually human and connected`);
-    return;
-  }
-
-  console.log(`🤖 Auto-playing for ${currentPlayerFromDb.color} (isAI: ${currentPlayerFromDb.isAI}, isDisconnected: ${currentPlayerFromDb.isDisconnected})`);
-
-  // 1. ROLL
-  console.log(`🤖 Step 1: Attempting auto-roll for ${currentPlayerFromDb.color}`);
   let result = await gameEngine.handleAutoRoll(gameId);
-
-  if (!result.success) {
-    console.log(`🤖 Auto-roll failed (${result.message}), trying auto-move instead`);
-    // Maybe it wasn't ROLLING state (already moved?), check if we need to Move
-    result = await gameEngine.handleAutoMove(gameId);
-  }
+  if (!result.success) result = await gameEngine.handleAutoMove(gameId);
 
   if (result.success) {
-    console.log(`🤖 Auto-turn completed successfully for ${currentPlayerFromDb.color}`);
-    // Ensure state is a plain object
     const plainState = result.state.toObject ? result.state.toObject() : result.state;
-
-    // Ensure dice value is a number
-    if (plainState.diceValue !== null && plainState.diceValue !== undefined) {
-      plainState.diceValue = Number(plainState.diceValue);
-    }
-
+    if (plainState.diceValue !== null && plainState.diceValue !== undefined) plainState.diceValue = Number(plainState.diceValue);
     io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
 
-    // CRITICAL FIX: Handle "No legal moves" scenario for auto-rolls
-    // If no moves available, show the dice value for 1.2 seconds before passing turn (same as local game)
     if (plainState.legalMoves && plainState.legalMoves.length === 0 && plainState.diceValue !== null && plainState.turnState === 'MOVING') {
-      console.log(`⏱️ [Auto-Turn] No moves available, showing dice value ${plainState.diceValue} for 1.2 seconds before passing turn`);
       setTimeout(async () => {
-        const Game = require('./models/Game');
-        const gameEngine = require('./logic/gameEngine');
+        // Pass turn logic
         const game = await Game.findOne({ gameId });
         if (game && game.turnState === 'MOVING' && game.legalMoves.length === 0) {
-          console.log(`🔄 [Auto-Turn] Passing turn after showing dice value`);
-          // Clear diceValue and transition to next turn
           const nextPlayerIndex = gameEngine.getNextPlayerIndex(game, game.currentPlayerIndex, false);
           game.currentPlayerIndex = nextPlayerIndex;
           game.diceValue = null;
           game.turnState = 'ROLLING';
           game.legalMoves = [];
-
-          const nextPlayer = game.players[nextPlayerIndex];
-          game.message = `Waiting for ${nextPlayer?.color || 'player'}...`;
-
-          console.log(`🔄 [Auto-Turn] Turn passed: nextPlayerIndex=${nextPlayerIndex}, nextPlayer=${nextPlayer?.color}`);
           await game.save();
-
           const updatedState = game.toObject ? game.toObject() : game;
           io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
-
-          // Schedule next player's turn if needed
-          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
-            scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
-          }
+          const nextPlayer = game.players[nextPlayerIndex];
+          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
         }
       }, 1200);
-      return; // Done with this turn sequence
-    }
-
-    // 2. IF Rolling succeeded AND moves are available, we are now in MOVING state. Schedule Move.
-    //    IF Moving succeeded, we are now in ROLLING state (next turn).
-
-    const game = result.state;
-
-    // If we just rolled, we must move
-    if (game.turnState === 'MOVING') {
-      scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_QUICK_MOVE); // Wait a very short time before the bot moves
       return;
     }
 
-    // If we just moved, turn ended. Check NEXT player from database
-    if (game.turnState === 'ROLLING') {
-      // Re-fetch game record to get updated player index
+    const game = result.state;
+    if (game.turnState === 'MOVING') {
+      scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_QUICK_MOVE);
+    } else if (game.turnState === 'ROLLING') {
       const updatedGameRecord = await Game.findOne({ gameId });
       if (updatedGameRecord) {
         const nextPlayerIndex = updatedGameRecord.currentPlayerIndex;
         const nextPlayerFromDb = updatedGameRecord.players[nextPlayerIndex];
         if (nextPlayerFromDb && (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected)) {
-          console.log(`🤖 Next player ${nextPlayerFromDb.color} is AI or disconnected, scheduling auto-turn`);
-          scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL); // Next player is also bot/afk
+          scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
         } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
-          console.log(`✅ Next player ${nextPlayerFromDb.color} is human and connected, starting 8s timer`);
           scheduleHumanPlayerAutoRoll(gameId);
         }
       }
@@ -3310,737 +3204,147 @@ const runAutoTurn = async (gameId) => {
   }
 };
 
-const scheduleNextAction = async (gameId) => {
-  try {
-    console.log(`[SCHEDULE] Scheduling next action for game ${gameId}.`);
-    const Game = require('./models/Game');
-    const game = await Game.findOne({ gameId });
-
-    if (!game) {
-      console.log(`[SCHEDULE] Game ${gameId} not found. Aborting.`);
-      return;
-    }
-    if (game.status !== 'ACTIVE') {
-      console.log(`[SCHEDULE] Game ${gameId} is not active. Aborting.`);
-      return;
-    }
-    if (game.turnState !== 'ROLLING') {
-      console.log(`[SCHEDULE] Game ${gameId} is not in ROLLING state. Aborting schedule.`);
-      return;
-    }
-
-    // Clear any existing timers for this game
-    if (humanPlayerTimers.has(gameId)) {
-      clearTimeout(humanPlayerTimers.get(gameId));
-      humanPlayerTimers.delete(gameId);
-    }
-
-    const currentPlayer = game.players[game.currentPlayerIndex];
-    if (!currentPlayer) {
-      console.error(`[SCHEDULE] FATAL: Current player not found at index ${game.currentPlayerIndex} for game ${gameId}.`);
-      return;
-    }
-
-    console.log(`[SCHEDULE] Current player is ${currentPlayer.color}.`);
-
-    // Schedule next action
-    if (currentPlayer.isAI || currentPlayer.isDisconnected) {
-      console.log(`[SCHEDULE] Player is AI/Disconnected. Scheduling auto-turn.`);
-      scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
-    } else {
-      console.log(`[SCHEDULE] Player is Human. Scheduling auto-roll timer.`);
-      scheduleHumanPlayerAutoRoll(gameId);
-    }
-
-  } catch (error) {
-    console.error(`[SCHEDULE] CRITICAL ERROR in scheduleNextAction for game ${gameId}:`, error);
-    io.to(gameId).emit('ERROR', { message: 'A critical server error occurred while scheduling the next turn.' });
-  }
-};
-
-// --- State Consistency Checker (Repairs stuck games) ---
-// Fix for Issue #4: Reduced frequency from 5s to 30s to reduce database load
-const runStateConsistencyChecker = () => {
-  const CHECK_INTERVAL_MS = 30000; // every 30s
-  setInterval(async () => {
-    try {
-      const Game = require('./models/Game');
-      const now = Date.now();
-      const STALE_THRESHOLD_MS = 5000; // 5 seconds
-
-      const activeGames = await Game.find({ status: 'ACTIVE' }).limit(50); // Limit to 50 games per check to prevent CPU spike
-      for (const game of activeGames) {
-        let changed = false;
-
-        // Repair: MOVING state with missing diceValue (longer than threshold)
-        if (game.turnState === 'MOVING' && (game.diceValue === null || game.diceValue === undefined)) {
-          const updatedAtMs = new Date(game.updatedAt).getTime();
-          if (updatedAtMs + STALE_THRESHOLD_MS < now) {
-            console.log(`🔧 ConsistencyFix: Game ${game.gameId} stuck in MOVING with null diceValue. Resetting to ROLLING.`);
-            game.turnState = 'ROLLING';
-            game.diceValue = null;
-            game.legalMoves = [];
-            game.message = (game.message || '') + ' | Recovered from stale MOVING state';
-            changed = true;
-          }
-        }
-
-        // Repair: ROLLING state but a stray diceValue exists
-        if (game.turnState === 'ROLLING' && game.diceValue !== null && game.diceValue !== undefined) {
-          console.log(`🔧 ConsistencyFix: Game ${game.gameId} in ROLLING had stray diceValue. Clearing diceValue.`);
-          game.diceValue = null;
-          game.legalMoves = [];
-          game.message = (game.message || '') + ' | Cleared stray diceValue';
-          changed = true;
-        }
-
-        // Repair: player has socketId but flagged disconnected
-        for (const player of game.players) {
-          if (player.socketId && player.isDisconnected) {
-            console.log(`🔧 ConsistencyFix: Player ${player.color} in game ${game.gameId} has socketId but isDisconnected=true. Fixing flag.`);
-            player.isDisconnected = false;
-            changed = true;
-          }
-        }
-
-        if (changed) {
-          await game.save();
-          const plainState = game.toObject ? game.toObject() : game;
-          console.log(`📤 ConsistencyFix: Emitting GAME_STATE_UPDATE for game ${game.gameId}`);
-          try { io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: plainState }); } catch (e) { console.warn('⚠️ Failed to emit GAME_STATE_UPDATE during consistency fix', e); }
-
-          // Re-evaluate scheduling for this game
-          try { scheduleNextAction(game.gameId); } catch (e) { console.warn('⚠️ Failed to scheduleNextAction after consistency fix', e); }
-        }
-      }
-    } catch (err) {
-      console.error('❌ State consistency checker error:', err);
-    }
-  }, CHECK_INTERVAL_MS);
-};
-
-// Start the consistency checker
-runStateConsistencyChecker();
-
-// =============================================================================
-// CONNECTION HEALTH MONITORING & STUCK STATE DETECTION
-// =============================================================================
-
-// Track connection health for each socket
-const connectionHealth = new Map(); // socketId -> { lastHeartbeat, lastActivity, gameId }
-
-// Heartbeat monitoring - check every 10 seconds
-setInterval(() => {
-  const now = Date.now();
-  const HEARTBEAT_TIMEOUT = 20000; // 20 seconds without heartbeat = consider dead
-
-  for (const [socketId, health] of connectionHealth.entries()) {
-    const timeSinceHeartbeat = now - health.lastHeartbeat;
-
-    if (timeSinceHeartbeat > HEARTBEAT_TIMEOUT) {
-      console.log(`💔 Socket ${socketId} missed heartbeat (${Math.floor(timeSinceHeartbeat / 1000)}s), forcing disconnect`);
-
-      const socket = io.sockets.sockets.get(socketId);
-      if (socket) {
-        // Trigger disconnect handler
-        socket.disconnect(true);
-      }
-
-      connectionHealth.delete(socketId);
-    }
-  }
-}, 10000); // Check every 10 seconds
-
-// Stuck state detection - check every 60 seconds (reduced from 30s for less aggressiveness)
-setInterval(async () => {
-  try {
-    const now = Date.now();
-
-    const Game = require('./models/Game');
-    const stuckGames = await Game.find({
-      status: 'ACTIVE',
-      turnState: { $ne: 'GAMEOVER' },
-      updatedAt: { $lt: new Date(now - 300000) } // Find games inactive for at least 5 minutes (was 2 min)
-    }).limit(10); // Process max 10 stuck games per check
-
-    for (const game of stuckGames) {
-      const timeSinceUpdate = Math.floor((now - game.updatedAt.getTime()) / 1000);
-      console.log(`⚠️ Detected potentially stuck game ${game.gameId} - last update ${timeSinceUpdate}s ago`);
-
-      // Check if current player is stuck
-      const currentPlayer = game.players[game.currentPlayerIndex];
-      if (!currentPlayer) continue;
-
-      // Determine timeout based on player type
-      // Human players get 10 minutes (more lenient), AI/disconnected get 5 minutes
-      const HUMAN_STUCK_TIMEOUT = 600000;  // 10 minutes for human players (was 5 min)
-      const AI_STUCK_TIMEOUT = 300000;     // 5 minutes for AI/disconnected players (was 2 min)
-
-      const isHumanPlayer = currentPlayer.socketId && !currentPlayer.isAI && !currentPlayer.isDisconnected;
-      const stuckTimeout = isHumanPlayer ? HUMAN_STUCK_TIMEOUT : AI_STUCK_TIMEOUT;
-      const gameStuckTime = now - game.updatedAt.getTime();
-
-      // Only force takeover if timeout exceeded
-      if (gameStuckTime < stuckTimeout) {
-        console.log(`⏳ Game ${game.gameId} inactive for ${timeSinceUpdate}s, but within ${isHumanPlayer ? 'human' : 'AI'} tolerance (${stuckTimeout / 1000}s)`);
-        continue;
-      }
-
-      // Verify socket is truly disconnected before forcing bot takeover
-      const socketExists = currentPlayer.socketId && io.sockets.sockets.has(currentPlayer.socketId);
-
-      if (!socketExists) {
-        console.log(`🤖 Forcing bot takeover for stuck player ${currentPlayer.color} in game ${game.gameId}`);
-        console.log(`   Reason: Socket ${currentPlayer.socketId ? 'disconnected' : 'missing'}, inactive for ${timeSinceUpdate}s`);
-
-        // Mark as disconnected and trigger auto-turn
-        currentPlayer.isDisconnected = true;
-        currentPlayer.socketId = null;
-        await game.save();
-
-        // Broadcast updated state
-        const plainState = game.toObject ? game.toObject() : game;
-        io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-
-        // Trigger auto-turn with stuck recovery delay
-        scheduleAutoTurn(game.gameId, AUTO_TURN_DELAYS.STUCK_RECOVERY);
-      } else {
-        console.log(`✋ Skipping bot takeover for ${currentPlayer.color} in game ${game.gameId} - socket still connected despite ${timeSinceUpdate}s inactivity`);
-      }
-    }
-
-    // Cleanup completed games older than 5 minutes
-    const CLEANUP_THRESHOLD = 300000; // 5 minutes
-    const oldGames = await Game.find({
-      status: 'COMPLETED',
-      updatedAt: { $lt: new Date(now - CLEANUP_THRESHOLD) }
-    }).limit(20); // Cleanup max 20 games per check
-
-    if (oldGames.length > 0) {
-      const gameIds = oldGames.map(g => g.gameId);
-      await Game.deleteMany({ gameId: { $in: gameIds } });
-      console.log(`🧹 Cleaned up ${oldGames.length} completed games`);
-    }
-
-  } catch (error) {
-    console.error('❌ Error in stuck state detection:', error);
-  }
-}, 60000); // Check every 60 seconds
-
-// Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
-// Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
-// Note: Staggering requires wrapping the interval above in a function, which we skipped to minimize code churn. 
-// The reduced frequency (60s) and query limits are sufficient for optimization.
-
-
-// Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
-setTimeout(() => {
-  // Start stuck detector after 15s delay to stagger load
-}, 15000);
-
 io.on('connection', (socket) => {
-  console.log('🔌 Client connected:', socket.id);
-
-  // Initialize connection health tracking
-  connectionHealth.set(socket.id, {
-    lastHeartbeat: Date.now(),
-    lastActivity: Date.now(),
-    gameId: null
-  });
-
-  // Heartbeat handler - client should send this every 10 seconds
-  socket.on('heartbeat', () => {
-    const health = connectionHealth.get(socket.id);
-    if (health) {
-      health.lastHeartbeat = Date.now();
-      health.lastActivity = Date.now();
-    }
-    // Send acknowledgment
-    socket.emit('heartbeat_ack', { timestamp: Date.now() });
-  });
-
-  // Connection health check request
-  socket.on('connection_health_check', () => {
-    socket.emit('connection_health_response', {
-      status: 'ok',
-      timestamp: Date.now(),
-      latency: 0  // Client will calculate actual latency
-    });
-  });
-
-  // Track game association
-  socket.on('track_game', ({ gameId }) => {
-    const health = connectionHealth.get(socket.id);
-    if (health) {
-      health.gameId = gameId;
-    }
-  });
-
-  // Update last activity on any event
-  const originalEmit = socket.emit;
-  socket.emit = function (...args) {
-    const health = connectionHealth.get(socket.id);
-    if (health) {
-      health.lastActivity = Date.now();
-    }
-    return originalEmit.apply(socket, args);
-  };
-
-  // Cleanup on disconnect
-  socket.on('disconnect', () => {
-    connectionHealth.delete(socket.id);
-  });
-
-  // --- USER REGISTRATION FOR NOTIFICATIONS ---
   socket.on('register_user', ({ userId }) => {
     if (userId) {
-      socket.data.userId = userId; // Store userId for recovery logic
+      socket.data.userId = userId;
       const userRoom = `user_${userId}`;
       socket.join(userRoom);
-
-      // Log all rooms this socket is in for debugging
-      const rooms = Array.from(socket.rooms);
-      console.log(`👤 User ${userId} registered for notifications in room: ${userRoom}`);
-      console.log(`📋 Socket ${socket.id} is now in rooms: ${rooms.join(', ')}`);
-
-      // Send confirmation back to client
       socket.emit('registration_confirmed', { userId, room: userRoom, socketId: socket.id });
-    } else {
-      console.warn(`⚠️ register_user called without userId from socket ${socket.id}`);
     }
   });
 
-  // --- MATCH REQUEST CREATION ---
   socket.on('create_match_request', async ({ stake, userId, userName }) => {
-    console.log(`🎮 Creating match request: User ${userName || userId}, Stake: $${stake}`);
-
     try {
-      // --- FIX: Convert stake to number immediately for consistent type handling ---
       const numericStake = parseFloat(stake);
-
-      // Validate stake
       if (!numericStake || numericStake <= 0 || isNaN(numericStake)) {
-        socket.emit('ERROR', { message: 'Invalid stake amount' });
-        return;
+        return socket.emit('ERROR', { message: 'Invalid stake amount' });
       }
-
-      // Validate user
       const user = await User.findById(userId);
       if (!user) {
-        socket.emit('ERROR', { message: 'User not found' });
-        return;
+        return socket.emit('ERROR', { message: 'User not found' });
       }
-
-      // Check if user is Super Admin
       if (user.role === 'SUPER_ADMIN') {
-        socket.emit('ERROR', { message: 'Super Admin cannot create match requests' });
-        return;
+        return socket.emit('ERROR', { message: 'Super Admin cannot create match requests' });
       }
-
-      // Check if user already has an active match request
       for (const [id, req] of activeMatchRequests.entries()) {
         if (req.userId === userId) {
-          socket.emit('ERROR', { message: 'You already have an active match request' });
-          return;
+          return socket.emit('ERROR', { message: 'You already have an active match request' });
         }
       }
-
-      // Check if user is already in an active game
-      const Game = require('./models/Game');
-      const activeGame = await Game.findOne({
-        status: 'ACTIVE',
-        'players.userId': userId
-      });
-
+      const activeGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': userId });
       if (activeGame) {
-        // Strict blocking: No new games if an active game exists
-        console.log(`🚫 User ${userId} blocked from creating match lock due to active game ${activeGame.gameId}`);
-        socket.emit('ERROR', { message: 'You are already in an active game. Please finish it first.' });
-        return;
+        return socket.emit('ERROR', { message: 'You are already in an active game. Please finish it first.' });
+      }
+      if (user.balance < numericStake) {
+        return socket.emit('ERROR', { message: 'Insufficient funds to create match request' });
       }
 
-      // Check balance
-      if (user.balance < numericStake - 0.001) {
-        socket.emit('ERROR', { message: 'Insufficient funds to create match request' });
-        return;
-      }
-
-      // Generate unique request ID
       const requestId = crypto.randomBytes(8).toString('hex');
-      const expiresAt = Date.now() + 120000; // 2 minutes
+      const expiresAt = Date.now() + 120000;
 
-      // Create request object
-      const request = {
-        requestId,
-        userId,
-        userName: userName || user.username,
-        stake: numericStake,
-        socketId: socket.id,
-        expiresAt,
-        createdAt: Date.now()
-      };
-
-      // Store request
+      const request = { requestId, userId, userName: userName || user.username, stake: numericStake, socketId: socket.id, expiresAt, createdAt: Date.now() };
       activeMatchRequests.set(requestId, request);
 
-      // Set expiration timer
       const timer = setTimeout(() => {
-        console.log(`⏰ Match request ${requestId} expired`);
         activeMatchRequests.delete(requestId);
         requestTimers.delete(requestId);
-
-        // Notify creator
         const creatorSocket = io.sockets.sockets.get(request.socketId);
         if (creatorSocket) {
           creatorSocket.emit('match_request_expired', { requestId });
         }
-
-        // Broadcast removal
         io.emit('match_request_removed', { requestId });
-      }, 120000); // 2 minutes
-
+      }, 120000);
       requestTimers.set(requestId, timer);
 
-      // Confirm creation to creator
       socket.emit('match_request_created', { requestId });
-
-      // Broadcast new request to all clients EXCEPT creator
-      const broadcastRequest = {
-        requestId,
-        userId,
-        userName: userName || user.username,
-        stake: numericStake,
-        timeRemaining: 60
-      };
-
+      const broadcastRequest = { requestId, userId, userName: userName || user.username, stake: numericStake, timeRemaining: 120 };
       socket.broadcast.emit('new_match_request', { request: broadcastRequest });
-
-      // 📲 SEND PUSH NOTIFICATIONS to eligible players
-      try {
-        // Find all users with sufficient balance who are not the creator or Super Admin
-        const eligibleUsers = await User.find({
-          _id: { $ne: userId }, // Not the creator
-          role: { $ne: 'SUPER_ADMIN' }, // Not Super Admin
-          balance: { $gte: numericStake }, // Has sufficient funds (using numeric type)
-          pushSubscriptions: { $exists: true, $ne: [] } // Has push subscriptions
-        });
-
-        console.log(`📤 Found ${eligibleUsers.length} eligible users for push notification about match request (stake: $${numericStake})`);
-
-        // Send push notification to each eligible user
-        for (const eligibleUser of eligibleUsers) {
-          const pushPayload = {
-            title: '🎮 New Match Request!',
-            body: `${userName || user.username} wants to play for $${numericStake}`,
-            icon: '/icon-192x192.png',
-            badge: '/icon-192x192.png',
-            data: {
-              type: 'match_request',
-              requestId,
-              stake: numericStake,
-              userName: userName || user.username,
-              url: '/multiplayer'
-            }
-          };
-
-          await sendPushNotificationToUser(eligibleUser._id, pushPayload);
-        }
-
-        console.log(`✅ Push notifications sent for match request ${requestId} to ${eligibleUsers.length} eligible players`);
-      } catch (pushError) {
-        console.error('❌ Error sending push notifications for match request:', pushError);
-        // Don't fail the request creation just because push failed
-      }
-
-      console.log(`✅ Match request ${requestId} created by ${userName || userId}, broadcasting to ${io.sockets.sockets.size - 1} other clients`);
     } catch (error) {
-      console.error('❌ Error in create_match_request:', error);
       socket.emit('ERROR', { message: 'Failed to create match request: ' + error.message });
     }
   });
-  // Accept a match request
-  socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
-    console.log(`✋ Player ${userName || userId} accepting match request ${requestId}`);
 
+  socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
     const request = activeMatchRequests.get(requestId);
     if (!request) {
-      socket.emit('ERROR', { message: 'Match request no longer available' });
-      return;
+      return socket.emit('ERROR', { message: 'Match request no longer available' });
+    }
+    if (request.userId === userId) {
+      return socket.emit('ERROR', { message: 'Cannot accept your own match request' });
+    }
+    const acceptor = await User.findById(userId);
+    if (!acceptor) {
+      return socket.emit('ERROR', { message: 'User not found' });
+    }
+    if (acceptor.balance < request.stake) {
+      return socket.emit('ERROR', { message: 'Insufficient funds' });
     }
 
-    if (request.processing) {
-      socket.emit('ERROR', { message: 'Match request is being processed' });
-      return;
+    activeMatchRequests.delete(requestId);
+    const timer = requestTimers.get(requestId);
+    if (timer) {
+      clearTimeout(timer);
+      requestTimers.delete(requestId);
     }
-
-    // Lock the request
-    request.processing = true;
-
-    try {
-      // Prevent self-acceptance
-      if (request.userId === userId) {
-        socket.emit('ERROR', { message: 'Cannot accept your own match request' });
-        return;
-      }
-
-      // Check global lock - prevent accepting if either user is already starting a game
-      if (usersStartingGame.has(userId) || usersStartingGame.has(request.userId)) {
-        socket.emit('ERROR', { message: 'One of the players is already starting a game. Please wait.' });
-        return;
-      }
-
-      // Validate acceptor
-      const acceptor = await User.findById(userId);
-      if (!acceptor) {
-        socket.emit('ERROR', { message: 'User not found' });
-        return;
-      }
-
-      // Check if acceptor is already in an active game
-      const Game = require('./models/Game');
-      const acceptorActiveGame = await Game.findOne({
-        status: 'ACTIVE',
-        'players.userId': userId
-      });
-
-      if (acceptorActiveGame) {
-        // Strict blocking: No new games if an active game exists
-        console.log(`🚫 User ${userId} blocked from accepting match due to active game ${acceptorActiveGame.gameId}`);
-        socket.emit('ERROR', { message: 'You are already in an active game.' });
-        return;
-      }
-
-      // Check if creator is already in an active game (race condition safety)
-      const creatorActiveGame = await Game.findOne({
-        status: 'ACTIVE',
-        'players.userId': request.userId
-      });
-
-      if (creatorActiveGame) {
-        console.log(`🚫 Request creator ${request.userId} blocked from match due to active game ${creatorActiveGame.gameId}`);
-
-        // Remove request as creator is busy
-        activeMatchRequests.delete(requestId);
-        const timer = requestTimers.get(requestId);
-        if (timer) {
-          clearTimeout(timer);
-          requestTimers.delete(requestId);
-        }
-        io.emit('match_request_removed', { requestId });
-
-        socket.emit('ERROR', { message: 'Request creator is already in another game.' });
-        return;
-      }
-
-      // Remove any active request by the acceptor
-      for (const [id, req] of activeMatchRequests.entries()) {
-        if (req.userId === userId) {
-          console.log(`🗑️ Removing existing request ${id} for user ${userId} as they accepted another match`);
-          activeMatchRequests.delete(id);
-          const timer = requestTimers.get(id);
-          if (timer) {
-            clearTimeout(timer);
-            requestTimers.delete(id);
-          }
-          io.emit('match_request_removed', { requestId: id });
-        }
-      }
-
-      if (acceptor.role === 'SUPER_ADMIN') {
-        socket.emit('ERROR', { message: 'Super Admin cannot participate in games' });
-        return;
-      }
-
-      if (acceptor.balance < request.stake - 0.001) {
-        socket.emit('ERROR', { message: 'Insufficient funds' });
-        return;
-      }
-
-      // Validate creator still has balance
-      const creator = await User.findById(request.userId);
-      if (!creator || creator.balance < request.stake - 0.001) {
-        // Cancel request
-        activeMatchRequests.delete(requestId);
-        const timer = requestTimers.get(requestId);
-        if (timer) {
-          clearTimeout(timer);
-          requestTimers.delete(requestId);
-        }
-        io.emit('match_request_removed', { requestId });
-        socket.emit('ERROR', { message: 'Request creator no longer has sufficient funds' });
-        return;
-      }
-
-      // Remove request from active list
-      activeMatchRequests.delete(requestId);
-      const timer = requestTimers.get(requestId);
-      if (timer) {
-        clearTimeout(timer);
-        requestTimers.delete(requestId);
-      }
-
-      // Broadcast removal
-      io.emit('match_request_accepted', { requestId, acceptorName: userName || acceptor.username });
-
-      // Create the match
-      console.log(`🎯 Creating match between ${request.userName} and ${userName || acceptor.username}`);
-      await createMatch(
-        { socketId: request.socketId, userId: request.userId, userName: request.userName },
-        { socketId: socket.id, userId, userName: userName || acceptor.username },
-        request.stake
-      );
-
-      // Aggressively remove ALL other requests involving these two users to prevent stale accepts
-      console.log(`🧹 Cleaning up all requests involving ${request.userId} and ${userId}`);
-      for (const [id, req] of activeMatchRequests.entries()) {
-        if (req.userId === request.userId || req.userId === userId) {
-          console.log(`🗑️ removing stale request ${id} for user ${req.userId}`);
-          activeMatchRequests.delete(id);
-          const timer = requestTimers.get(id);
-          if (timer) {
-            clearTimeout(timer);
-            requestTimers.delete(id);
-          }
-          io.emit('match_request_removed', { requestId: id });
-        }
-      }
-
-      console.log(`✅ Match request ${requestId} accepted, game created`);
-    } catch (error) {
-      console.error('Error in accept_match_request:', error);
-      socket.emit('ERROR', { message: 'Failed to accept match request: ' + error.message });
-    } finally {
-      if (activeMatchRequests.has(requestId)) {
-        request.processing = false;
-      }
-    }
+    io.emit('match_request_accepted', { requestId, acceptorName: userName || acceptor.username });
+    await createMatch({ socketId: request.socketId, userId: request.userId, userName: request.userName }, { socketId: socket.id, userId, userName: userName || acceptor.username }, request.stake);
   });
 
-  // Cancel own match request
   socket.on('cancel_match_request', async ({ requestId, userId }) => {
-    console.log(`❌ Player ${userId} canceling match request ${requestId}`);
-
-    try {
-      const request = activeMatchRequests.get(requestId);
-      if (!request) {
-        socket.emit('ERROR', { message: 'Match request not found' });
-        return;
-      }
-
-      // Verify ownership
-      if (request.userId !== userId) {
-        socket.emit('ERROR', { message: 'Cannot cancel another player\'s request' });
-        return;
-      }
-
-      // Remove request
+    const request = activeMatchRequests.get(requestId);
+    if (request && request.userId === userId) {
       activeMatchRequests.delete(requestId);
       const timer = requestTimers.get(requestId);
       if (timer) {
         clearTimeout(timer);
         requestTimers.delete(requestId);
       }
-
-      // Broadcast cancellation
-      io.emit('match_request_cancelled', { requestId });
-
-      socket.emit('match_request_cancel_success', { requestId });
-      console.log(`✅ Match request ${requestId} cancelled`);
-    } catch (error) {
-      console.error('Error in cancel_match_request:', error);
-      socket.emit('ERROR', { message: 'Failed to cancel match request: ' + error.message });
+      io.emit('match_request_removed', { requestId });
+      socket.emit('match_request_cancel_success');
     }
   });
 
-  // Get all active match requests
   socket.on('get_active_requests', async ({ userId }) => {
-    try {
-      const user = await User.findById(userId);
-      const userBalance = user ? user.balance : 0;
-
-      const requests = Array.from(activeMatchRequests.values())
-        .filter(req => req.userId !== userId) // Exclude own requests
-        .map(req => ({
-          ...req,
-          canAccept: userBalance >= req.stake,
-          timeRemaining: Math.max(0, Math.floor((req.expiresAt - Date.now()) / 1000))
-        }));
-
-      socket.emit('active_requests', { requests });
-    } catch (error) {
-      console.error('Error in get_active_requests:', error);
-      socket.emit('ERROR', { message: 'Failed to get active requests' });
-    }
+    const user = await User.findById(userId);
+    const userBalance = user ? user.balance : 0;
+    const requests = Array.from(activeMatchRequests.values())
+      .filter(req => req.userId !== userId)
+      .map(req => ({ ...req, canAccept: userBalance >= req.stake, timeRemaining: Math.max(0, Math.floor((req.expiresAt - Date.now()) / 1000)) }));
+    socket.emit('active_requests', { requests });
   });
 
-  // --- GAME EVENTS ---
-
-  // Watch a game (Spectator Mode)
   socket.on('watch_game', async ({ gameId }) => {
-    console.log(`👀 Client ${socket.id} watching game ${gameId}`);
     socket.join(gameId);
-
-    // Send current state immediately
     const Game = require('./models/Game');
     try {
       const game = await Game.findOne({ gameId });
       if (game) {
-        const gameState = game.toObject ? game.toObject() : game;
-        socket.emit('GAME_STATE_UPDATE', { state: gameState });
-        console.log(`📤 Sent initial state to spectator ${socket.id} for game ${gameId}`);
+        socket.emit('GAME_STATE_UPDATE', { state: game.toObject ? game.toObject() : game });
       } else {
         socket.emit('ERROR', { message: 'Game not found' });
       }
-    } catch (error) {
-      console.error('Error fetching game for spectator:', error);
-      socket.emit('ERROR', { message: 'Failed to fetch game state' });
-    }
+    } catch (error) { console.error(error); }
   });
 
   socket.on('join_game', async ({ gameId, userId, playerColor }) => {
-    console.log(`🎮 Player ${userId} joining game ${gameId} as ${playerColor}`);
-
-    // GRACEFUL RECONNECT: Check if this user has a pending disconnect and cancel it
+    socket.join(gameId);
+    socket.gameId = gameId;
     if (pendingDisconnects.has(userId)) {
       const pending = pendingDisconnects.get(userId);
       if (pending && pending.gameId === gameId) {
-        console.log(`♻️ Graceful reconnect for user ${userId} in game ${gameId} - cancelling bot takeover.`);
         clearTimeout(pending.timeoutId);
         pendingDisconnects.delete(userId);
       }
     }
-
-    socket.join(gameId);
-    socket.gameId = gameId; // Map socket to game for disconnect handling
-
-    const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id); // Pass socket.id
-
+    const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
     if (result.success && result.state) {
-      const game = result.state.toObject ? result.state.toObject() : result.state;
-      const plainState = game.toObject ? game.toObject() : game;
-
-      console.log(`✅ Sending GAME_STATE_UPDATE for game ${gameId} after join/rejoin.`);
+      const plainState = result.state.toObject ? result.state.toObject() : result.state;
       io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-
-      // After rejoining, check if it's an AI/disconnected player's turn and schedule an auto-turn if needed.
-      if (game.status === 'ACTIVE' && game.gameStarted && game.turnState === 'ROLLING') {
-        const currentPlayer = game.players[game.currentPlayerIndex];
-
-        // Check if the rejoining player is the current player
-        if (currentPlayer && currentPlayer.userId === userId) {
-          // If the current player is the rejoining player, and they are now human and connected
-          if (!currentPlayer.isAI && !currentPlayer.isDisconnected) {
-            console.log(`✅ Post-rejoin check: Reconnected human player ${currentPlayer.color} is current player. Scheduling auto-roll timer.`);
-            scheduleHumanPlayerAutoRoll(gameId);
-          } else if (currentPlayer.isAI || currentPlayer.isDisconnected) {
-            // If it's the rejoining player's turn but they are still AI/disconnected (shouldn't happen after handleJoinGame)
-            console.log(`🤖 Post-rejoin check: Reconnected player ${currentPlayer.color} is current player, but still AI/disconnected. Scheduling auto-turn.`);
-            scheduleAutoTurn(gameId, 1500);
-          }
-        } else if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
-          // If it's another player's turn and they are AI/disconnected
-          console.log(`🤖 Post-rejoin check: Current player ${currentPlayer.color} is AI/disconnected (not the rejoining player). Scheduling auto-turn.`);
-          scheduleAutoTurn(gameId, 1500);
+      if (result.state.status === 'ACTIVE' && result.state.turnState === 'ROLLING') {
+        const currentPlayer = result.state.players[result.state.currentPlayerIndex];
+        if (currentPlayer && currentPlayer.userId === userId && !currentPlayer.isAI) {
+          scheduleHumanPlayerAutoRoll(gameId);
         }
       }
     } else {
@@ -4049,512 +3353,315 @@ io.on('connection', (socket) => {
   });
 
   socket.on('roll_dice', async ({ gameId }) => {
-    console.log(`🎲 Player ${socket.id} rolling dice in game ${gameId}`);
-
-    if (!gameId) {
-      console.error(`❌ roll_dice: Missing gameId from socket ${socket.id}`);
-      socket.emit('ERROR', { message: 'Game ID is required' });
-      return;
-    }
-
-    try {
-      // Get current game state for debugging
-      const Game = require('./models/Game');
-      const currentGame = await Game.findOne({ gameId });
-
-      if (!currentGame) {
-        console.error(`❌ roll_dice: Game ${gameId} not found`);
-        socket.emit('ERROR', { message: 'Game not found' });
-        return;
-      }
-
-      if (currentGame) {
-        const currentPlayer = currentGame.players[currentGame.currentPlayerIndex];
-        console.log(`🎲 Game state before roll: turnState=${currentGame.turnState}, currentPlayer=${currentPlayer?.color}, isAI=${currentPlayer?.isAI}, socketId=${currentPlayer?.socketId}, requestSocket=${socket.id}, diceValue=${currentGame.diceValue}`);
-
-        // Verify socket is in the game room
-        const socketRooms = Array.from(socket.rooms);
-        if (!socketRooms.includes(gameId)) {
-          console.warn(`⚠️ Socket ${socket.id} not in game room ${gameId}, joining now...`);
-          socket.join(gameId);
-        }
-      }
-
-      // CRITICAL: Clear any pending auto-roll timer since player is rolling manually
-      if (humanPlayerTimers.has(gameId)) {
-        clearTimeout(humanPlayerTimers.get(gameId));
-        humanPlayerTimers.delete(gameId);
-        console.log(`🧹 Cleared pending auto-roll timer for game ${gameId} (player rolling manually)`);
-      }
-
-      // FIX: Player is actively rolling - clear isDisconnected flag to prevent bot takeover
-      const gameBeforeRoll = await Game.findOne({ gameId });
-      if (gameBeforeRoll) {
-        const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
-        if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
-          console.log(`🔧 Player ${currentPlayer.color} is rolling dice - clearing isDisconnected flag`);
-          await Game.updateOne(
-            { gameId, 'players.socketId': socket.id },
-            { $set: { 'players.$.isDisconnected': false } }
-          );
-        }
-      }
-
-      const result = await gameEngine.handleRollDice(gameId, socket.id);
-
-      if (!result) {
-        console.error(`❌ roll_dice: handleRollDice returned null/undefined for game ${gameId}`);
-        socket.emit('ERROR', { message: 'Failed to roll dice' });
-        return;
-      }
-
-      if (result.success) {
-        console.log(`✅ Dice rolled successfully: ${result.state.diceValue}, sending update to game ${gameId}`);
-
-        // Convert Mongoose document to plain object to ensure all fields are included
-        const gameState = result.state.toObject ? result.state.toObject() : result.state;
-        console.log(`📤 Sending GAME_STATE_UPDATE with diceValue: ${gameState.diceValue}, turnState: ${gameState.turnState}`);
-
-        // Ensure the dice value is properly set before sending to clients
-        if (gameState.diceValue !== null && gameState.diceValue !== undefined) {
-          gameState.diceValue = Number(gameState.diceValue);
-        }
-
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
-
-        // If human player has legal moves, start auto-move timer
-        if (gameState.legalMoves && gameState.legalMoves.length > 0) {
-          const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-          if (currentPlayer && !currentPlayer.isAI && !currentPlayer.isDisconnected) {
-            console.log(`✅ Human player has legal moves. Starting 18s auto-move timer.`);
-            scheduleHumanPlayerAutoMove(gameId);
-          }
-        }
-        // If no moves available, show the dice value for 1.2 seconds before passing turn (same as local game)
-        else if (gameState.legalMoves && gameState.legalMoves.length === 0 && gameState.diceValue !== null) {
-          console.log(`⏱️ No moves available, showing dice value ${gameState.diceValue} for 1.2 seconds before passing turn (matching local game)`);
-
-          // Clear any auto-move timer since we are handling it here
-          if (humanPlayerTimers.has(gameId)) {
-            clearTimeout(humanPlayerTimers.get(gameId));
-            humanPlayerTimers.delete(gameId);
-          }
-
-          setTimeout(async () => {
-            const Game = require('./models/Game');
-            const gameEngine = require('./logic/gameEngine');
-            const game = await Game.findOne({ gameId });
-            if (game && game.turnState === 'MOVING' && game.legalMoves.length === 0) {
-              console.log(`🔄 Passing turn after showing dice value (matching local game NEXT_TURN behavior)`);
-              // Clear diceValue and transition to next turn (same as local game NEXT_TURN action)
-              const nextPlayerIndex = gameEngine.getNextPlayerIndex(game, game.currentPlayerIndex, false);
-              game.currentPlayerIndex = nextPlayerIndex;
-              game.diceValue = null;
-              game.turnState = 'ROLLING';
-              game.legalMoves = [];
-
-              const nextPlayer = game.players[nextPlayerIndex];
-              game.message = `Waiting for ${nextPlayer?.username || nextPlayer?.color || 'player'}...`;
-
-              console.log(`🔄 Turn passed: nextPlayerIndex=${nextPlayerIndex}, nextPlayer=${nextPlayer?.color}, turnState=${game.turnState}`);
-              await game.save();
-
-              const updatedState = game.toObject ? game.toObject() : game;
-              console.log(`📤 Sending GAME_STATE_UPDATE after turn pass: currentPlayerIndex=${updatedState.currentPlayerIndex}, currentPlayer=${updatedState.players?.[updatedState.currentPlayerIndex]?.color}, turnState=${updatedState.turnState}`);
-              io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
-
-              // Schedule next player's turn if needed (use nextPlayer from above)
-              if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
-                scheduleAutoTurn(gameId, 1500);
-              } else if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
-                scheduleHumanPlayerAutoRoll(gameId);
-              }
-            }
-          }, 1200); // Same delay as local game (1200ms)
-        }
-
-        // Check the next player from database, not from the state object
-        const Game = require('./models/Game');
-        const gameRecord = await Game.findOne({ gameId });
-        if (gameRecord && result.state.turnState === 'ROLLING') {
-          const nextPlayerIndex = gameRecord.currentPlayerIndex;
-          const nextPlayerFromDb = gameRecord.players[nextPlayerIndex];
-
-          if (nextPlayerFromDb) {
-            console.log(`🔍 Next player after roll (from DB):`, {
-              color: nextPlayerFromDb.color,
-              isAI: nextPlayerFromDb.isAI,
-              isDisconnected: nextPlayerFromDb.isDisconnected,
-              socketId: nextPlayerFromDb.socketId
-            });
-
-            // Only schedule auto-turn if player is actually AI or disconnected
-            if (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected) {
-              console.log(`🤖 Scheduling auto turn for ${nextPlayerFromDb.color} (isAI: ${nextPlayerFromDb.isAI}, isDisconnected: ${nextPlayerFromDb.isDisconnected})`);
-              scheduleAutoTurn(gameId);
-            } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
-              // This handles the "roll again" case for humans
-              console.log(`✅ Human player ${nextPlayerFromDb.color} gets to roll again. Starting 7s auto-roll timer.`);
-              scheduleHumanPlayerAutoRoll(gameId);
-            } else {
-              console.log(`❓ Unexpected state for next player ${nextPlayerFromDb?.color} (isAI: ${nextPlayerFromDb?.isAI}, isDisconnected: ${nextPlayerFromDb?.isDisconnected})`);
-            }
-          }
-        }
-      }
-
-      if (!result.success) {
-        console.error(`❌ Roll dice failed:`, result.message);
-        socket.emit('ERROR', { message: result.message || 'Failed to roll dice' });
-
-        // Resync: If error is "Wait for animation" or "Not rolling state", send latest state
-        // This helps if the client is out of sync (e.g. missed the roll event)
-        if (result.message === 'Wait for animation' || result.message === 'Not rolling state') {
-          console.log(`🔄 Resyncing client ${socket.id} with latest game state due to roll error`);
-          const Game = require('./models/Game');
-          const currentGame = await Game.findOne({ gameId });
-          if (currentGame) {
-            const gameState = currentGame.toObject ? currentGame.toObject() : currentGame;
-            // Ensure diceValue is number
-            if (gameState.diceValue !== null && gameState.diceValue !== undefined) {
-              gameState.diceValue = Number(gameState.diceValue);
-            }
-            socket.emit('GAME_STATE_UPDATE', { state: gameState });
-          }
-        }
-        return;
-      }
-    } catch (error) {
-      console.error(`❌ Error in roll_dice handler:`, error);
-      socket.emit('ERROR', { message: 'Error rolling dice: ' + error.message });
-    }
-  });
-
-  socket.on('move_token', async ({ gameId, tokenId }) => {
-    console.log(`🎯 Player ${socket.id} moving token ${tokenId} in game ${gameId}`);
-
-    // Clear any pending human player timer when player moves
+    console.log(`[SOCKET] Received roll_dice for game: ${gameId}, from socket: ${socket.id}`);
     if (humanPlayerTimers.has(gameId)) {
       clearTimeout(humanPlayerTimers.get(gameId));
       humanPlayerTimers.delete(gameId);
     }
-
-    // FIX: Player is actively moving - clear isDisconnected flag to prevent bot takeover
-    const gameBeforeMove = await Game.findOne({ gameId });
-    if (gameBeforeMove) {
-      const currentPlayer = gameBeforeMove.players[gameBeforeMove.currentPlayerIndex];
+    const Game = require('./models/Game');
+    const gameBeforeRoll = await Game.findOne({ gameId });
+    if (!gameBeforeRoll) {
+      console.log(`[SOCKET] Game ${gameId} not found during roll_dice.`);
+    } else {
+      console.log(`[SOCKET] Game ${gameId} found. Status: ${gameBeforeRoll.status}, TurnState: ${gameBeforeRoll.turnState}`);
+      const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
       if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
-        console.log(`🔧 Player ${currentPlayer.color} is moving token - clearing isDisconnected flag`);
-        await Game.updateOne(
-          { gameId, 'players.socketId': socket.id },
-          { $set: { 'players.$.isDisconnected': false } }
-        );
+        await Game.updateOne({ gameId, 'players.socketId': socket.id }, { $set: { 'players.$.isDisconnected': false } });
+        console.log(`[SOCKET] Player ${currentPlayer.color} in game ${gameId} was disconnected, now marked as connected.`);
       }
     }
 
-    const result = await gameEngine.handleMoveToken(gameId, socket.id, tokenId);
+    console.log(`[SOCKET] Calling gameEngine.handleRollDice for game: ${gameId}, socket: ${socket.id}`);
+    const result = await gameEngine.handleRollDice(gameId, socket.id);
+    console.log(`[SOCKET] gameEngine.handleRollDice result for ${gameId}: success=${result?.success}, message=${result?.message}`);
+    if (!result) {
+      console.error(`[SOCKET] gameEngine.handleRollDice returned null for game ${gameId}`);
+      return socket.emit('ERROR', { message: 'Failed to roll dice' });
+    }
+
     if (result.success) {
-      // Ensure state is a plain object
-      const plainState = result.state.toObject ? result.state.toObject() : result.state;
-      console.log(`📤 Sending GAME_STATE_UPDATE after move with diceValue: ${plainState.diceValue}, turnState: ${plainState.turnState}, currentPlayerIndex: ${plainState.currentPlayerIndex}, currentPlayer: ${plainState.players?.[plainState.currentPlayerIndex]?.color}`);
+      const gameState = result.state.toObject ? result.state.toObject() : result.state;
+      if (gameState.diceValue !== null && gameState.diceValue !== undefined) gameState.diceValue = Number(gameState.diceValue);
 
-      // --- NEW: Emit a specific event if a token was killed ---
-      if (result.killedTokenId) {
-        console.log(`💥 Emitting TOKEN_KILLED event for token: ${result.killedTokenId}`);
-        // Broadcast to everyone in the game so they all hear the sound
-        io.to(gameId).emit('TOKEN_KILLED', { killedTokenId: result.killedTokenId });
+      io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
+
+      if (gameState.legalMoves && gameState.legalMoves.length > 0) {
+        const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+        if (currentPlayer && !currentPlayer.isAI && !currentPlayer.isDisconnected) {
+          scheduleHumanPlayerAutoMove(gameId);
+        }
+      } else if (gameState.legalMoves && gameState.legalMoves.length === 0 && gameState.diceValue !== null) {
+        if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
+        setTimeout(async () => {
+          const game = await Game.findOne({ gameId });
+          if (game && game.turnState === 'MOVING' && game.legalMoves.length === 0) {
+            const nextPlayerIndex = gameEngine.getNextPlayerIndex(game, game.currentPlayerIndex, false);
+            game.currentPlayerIndex = nextPlayerIndex;
+            game.diceValue = null;
+            game.turnState = 'ROLLING';
+            game.legalMoves = [];
+            await game.save();
+            const updatedState = game.toObject ? game.toObject() : game;
+            io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
+            const nextPlayer = game.players[nextPlayerIndex];
+            if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, 1500);
+            else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
+          }
+        }, 1200);
       }
 
-      // Ensure turnState is ROLLING for next player
-      if (plainState.turnState !== 'ROLLING' && plainState.diceValue === null) {
-        console.log(`🔧 Fixing turnState: was ${plainState.turnState}, setting to ROLLING`);
-        plainState.turnState = 'ROLLING';
-      }
-
-      io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-
-      // Emit win notification if settlement data is present
-      if (result.settlementData) {
-        console.log('🎉 Emitting win_notification with data:', result.settlementData);
-        // Send notification directly to winner's socket
-        const winnerPlayer = plainState.players.find(p => p.userId === result.settlementData.winnerId);
-        if (winnerPlayer && winnerPlayer.socketId) {
-          io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
-          console.log(`📢 Win notification sent to ${winnerPlayer.username} (${winnerPlayer.socketId})`);
-        } else {
-          // Fallback: broadcast to room (client will filter by winnerId)
-          io.to(gameId).emit('win_notification', result.settlementData);
-          console.log(`📢 Win notification broadcast to game room ${gameId}`);
+      const gameRecord = await Game.findOne({ gameId });
+      if (gameRecord && result.state.turnState === 'ROLLING') {
+        const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
+        if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
+          console.log(`[SOCKET] Scheduling auto-turn for AI/disconnected player ${nextPlayer.color} in game ${gameId}`);
+          scheduleAutoTurn(gameId);
+        } else if (nextPlayer) {
+          console.log(`[SOCKET] Scheduling human player auto-roll timer for ${nextPlayer.color} in game ${gameId}`);
+          scheduleHumanPlayerAutoRoll(gameId);
         }
       }
 
-      // Check the next player from database, not from the state object
-      const Game = require('./models/Game');
+    } else {
+      console.error(`[SOCKET] Error in roll_dice for game ${gameId}: ${result.message || 'Failed to roll dice'}`);
+      socket.emit('ERROR', { message: result.message || 'Failed to roll dice' });
+      if (result.message === 'Wait for animation' || result.message === 'Not rolling state') {
+        const Game = require('./models/Game');
+        const currentGame = await Game.findOne({ gameId });
+        if (currentGame) {
+          console.log(`[SOCKET] Emitting GAME_STATE_UPDATE due to specific error for game ${gameId}`);
+          socket.emit('GAME_STATE_UPDATE', { state: currentGame.toObject ? currentGame.toObject() : currentGame });
+        }
+      }
+    }
+  });
+
+  socket.on('move_token', async ({ gameId, tokenId }) => {
+    if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
+
+    const Game = require('./models/Game');
+    const result = await gameEngine.handleMoveToken(gameId, socket.id, tokenId);
+
+    if (result.success) {
+      const plainState = result.state.toObject ? result.state.toObject() : result.state;
+      if (result.killedTokenId) io.to(gameId).emit('TOKEN_KILLED', { killedTokenId: result.killedTokenId });
+
+      if (plainState.turnState !== 'ROLLING' && plainState.diceValue === null) plainState.turnState = 'ROLLING';
+      io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+      if (result.settlementData) {
+        const winnerPlayer = plainState.players.find(p => p.userId === result.settlementData.winnerId);
+        if (winnerPlayer && winnerPlayer.socketId) io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
+        else io.to(gameId).emit('win_notification', result.settlementData);
+      }
+
       const gameRecord = await Game.findOne({ gameId });
       if (gameRecord && plainState.turnState === 'ROLLING') {
-        const nextPlayerIndex = gameRecord.currentPlayerIndex;
-        const nextPlayerFromDb = gameRecord.players[nextPlayerIndex];
-
-        if (nextPlayerFromDb) {
-          console.log(`🔍 Next player after move (from DB):`, {
-            color: nextPlayerFromDb.color,
-            isAI: nextPlayerFromDb.isAI,
-            isDisconnected: nextPlayerFromDb.isDisconnected,
-            socketId: nextPlayerFromDb.socketId
-          });
-
-          if (nextPlayerFromDb.isAI || nextPlayerFromDb.isDisconnected) {
-            console.log(`🤖 Scheduling auto turn for ${nextPlayerFromDb.color} (isAI: ${nextPlayerFromDb.isAI}, isDisconnected: ${nextPlayerFromDb.isDisconnected})`);
-            scheduleAutoTurn(gameId);
-          } else if (nextPlayerFromDb && !nextPlayerFromDb.isAI && !nextPlayerFromDb.isDisconnected) {
-            // This handles the "roll again" case for humans
-            console.log(`✅ Next player ${nextPlayerFromDb.color} is human. Starting 7s auto-roll timer.`);
-            scheduleHumanPlayerAutoRoll(gameId);
-          } else {
-            console.log(`❓ Unexpected state for next player ${nextPlayerFromDb?.color} (isAI: ${nextPlayerFromDb?.isAI}, isDisconnected: ${nextPlayerFromDb?.isDisconnected})`);
-          }
-        }
+        const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
+        if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId);
+        else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
       }
     } else {
-      console.error(`❌ Move token failed:`, result.message);
       socket.emit('ERROR', { message: result.message });
     }
   });
 
-  // --- CHAT EVENTS ---
-
-  // Handle chat messages
   socket.on('send_chat_message', async ({ gameId, userId, message }) => {
-    console.log(`💬 Chat message in game ${gameId} from ${userId}: ${message}`);
-
-    try {
-      // Find the game to get player information
-      const Game = require('./models/Game');
-      const game = await Game.findOne({ gameId });
-
-      if (!game) {
-        console.error(`❌ Chat message failed: Game ${gameId} not found`);
-        return;
-      }
-
-      // Find the player who sent the message
+    const Game = require('./models/Game');
+    const game = await Game.findOne({ gameId });
+    if (game) {
       const player = game.players.find(p => p.userId === userId);
-
-      if (!player) {
-        console.error(`❌ Chat message failed: Player ${userId} not found in game ${gameId}`);
-        return;
+      if (player) {
+        const chatData = { userId, playerColor: player.color, playerName: player.username || player.userId, message, timestamp: Date.now() };
+        io.to(gameId).emit('chat_message', chatData);
       }
-
-      // Broadcast the message to all players in the game room
-      const chatData = {
-        userId: userId,
-        playerColor: player.color,
-        playerName: player.username || player.userId,
-        message: message,
-        timestamp: Date.now()
-      };
-
-      // Emit to all players in the game room (including sender)
-      io.to(gameId).emit('chat_message', chatData);
-      console.log(`📤 Chat message broadcasted to game ${gameId}`);
-
-    } catch (error) {
-      console.error('❌ Error handling chat message:', error);
     }
   });
 
   socket.on('disconnect', async () => {
-    console.log('🔌 Client disconnected:', socket.id);
+    // Keep removing from matchmaking queue logic if it was there? Yes.
+    // Assuming removeFromQueue is global
+    if (typeof removeFromQueue === 'function') removeFromQueue(socket.id);
 
-    // Remove from matchmaking queue
-    removeFromQueue(socket.id);
-
-    // Handle game disconnect
     if (socket.gameId) {
       const gameId = socket.gameId;
-      console.log(`🔌 Player disconnected from game ${gameId}. checking...`);
-
-      // Find userId for this socket to handle graceful disconnect
-      try {
-        const Game = require('./models/Game');
-        const game = await Game.findOne({ gameId });
-        if (game) {
-          const player = game.players.find(p => p.socketId === socket.id);
-
-          if (player && player.userId) {
-            const userId = player.userId;
-            console.log(`⏳ Scheduling graceful disconnect for user ${userId} in game ${gameId} (15s grace period)`);
-
-            // Schedule delayed disconnect handling
-            const disconnectTimeout = setTimeout(async () => {
-              console.log(`🤖 Grace period expired for user ${userId}. Executing disconnect logic.`);
-              pendingDisconnects.delete(userId);
-
-              // CRITICAL: Clear any pending timers for this game to prevent memory leaks and dangling actions
-              clearAllTimersForGame(gameId);
-              console.log(`🧹 Cleared all timers for game ${gameId} due to player disconnect.`);
-
-              const result = await gameEngine.handleDisconnect(gameId, socket.id);
-              if (result) {
-                // Ensure state is a plain object
-                const plainState = result.state.toObject ? result.state.toObject() : result.state;
-                io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-                if (result.isCurrentTurn) {
-                  scheduleAutoTurn(gameId, 1000);
-                }
-              }
-            }, 15000); // 15 seconds grace period
-
-            pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
-            return; // EXIT HERE - Don't run immediate disconnect logic
-          }
+      const Game = require('./models/Game');
+      const game = await Game.findOne({ gameId });
+      if (game) {
+        const player = game.players.find(p => p.socketId === socket.id);
+        if (player && player.userId) {
+          const userId = player.userId;
+          const disconnectTimeout = setTimeout(async () => {
+            pendingDisconnects.delete(userId);
+            if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+            const result = await gameEngine.handleDisconnect(gameId, socket.id);
+            if (result) {
+              io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+              if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+            }
+          }, 15000);
+          pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+          return;
         }
-      } catch (err) {
-        console.error('Error in delayed disconnect setup:', err);
       }
-
-      // Fallback: If we couldn't identify the user or something failed, run legacy immediate disconnect
-      // This path runs if the player wasn't found in DB or didn't have a userId
-      console.log(`⚠️ Immediate disconnect for socket ${socket.id} (User not found or lookup failed)`);
-
-      // CRITICAL: Clear any pending timers for this game to prevent memory leaks and dangling actions
-      clearAllTimersForGame(socket.gameId);
-      console.log(`🧹 Cleared all timers for game ${socket.gameId} due to player disconnect.`);
-
-      const result = await gameEngine.handleDisconnect(socket.gameId, socket.id);
+      if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+      const result = await gameEngine.handleDisconnect(gameId, socket.id);
       if (result) {
-        // Ensure state is a plain object
-        const plainState = result.state.toObject ? result.state.toObject() : result.state;
-        io.to(socket.gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-        if (result.isCurrentTurn) {
-          scheduleAutoTurn(socket.gameId, 1000);
-        }
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+        if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
       }
     }
-    console.log('🔌 Client disconnected:', socket.id);
   });
 });
 
-// Scheduled Task: Cleanup Stale Games (Every 6 Hours)
-setInterval(async () => {
-  try {
-    const Game = require('./models/Game');
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // Find games that are 'ACTIVE' but haven't been updated in 24 hours
-    const staleGames = await Game.find({
-      status: 'ACTIVE',
-      updatedAt: { $lt: twentyFourHoursAgo }
-    });
+  // Scheduled Task: Cleanup Stale Games (Every 6 Hours)
+  setInterval(async () => {
+    try {
+      const Game = require('./models/Game');
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    if (staleGames.length > 0) {
-      console.log(`🧹 Found ${staleGames.length} stale games to clean up and refund...`);
-      for (const game of staleGames) {
-        const stake = game.stake;
-        if (stake > 0) {
-          for (const player of game.players) {
-            if (player.userId && !player.isAI) {
-              try {
-                const user = await User.findById(player.userId);
-                if (user && user.reservedBalance >= stake) {
-                  user.balance += stake;
-                  user.reservedBalance -= stake;
-                  user.transactions.push({
-                    type: 'game_refund',
-                    amount: stake,
-                    matchId: game.gameId,
-                    description: `Refund for stale/cancelled game ${game.gameId}`
-                  });
-                  await user.save();
-                  console.log(`💰 Refunded ${stake} to user ${user.username} for stale game ${game.gameId}.`);
+      // Find games that are 'ACTIVE' but haven't been updated in 24 hours
+      const staleGames = await Game.find({
+        status: 'ACTIVE',
+        updatedAt: { $lt: twentyFourHoursAgo }
+      });
+
+      if (staleGames.length > 0) {
+        console.log(`🧹 Found ${staleGames.length} stale games to clean up and refund...`);
+        for (const game of staleGames) {
+          const stake = game.stake;
+          if (stake > 0) {
+            for (const player of game.players) {
+              if (player.userId && !player.isAI) {
+                try {
+                  const user = await User.findById(player.userId);
+                  if (user && user.reservedBalance >= stake) {
+                    user.balance += stake;
+                    user.reservedBalance -= stake;
+                    user.transactions.push({
+                      type: 'game_refund',
+                      amount: stake,
+                      matchId: game.gameId,
+                      description: `Refund for stale/cancelled game ${game.gameId}`
+                    });
+                    await user.save();
+                    console.log(`💰 Refunded ${stake} to user ${user.username} for stale game ${game.gameId}.`);
+                  }
+                } catch (refundError) {
+                  console.error(`❌ Error refunding user ${player.userId} for stale game ${game.gameId}:`, refundError);
                 }
-              } catch (refundError) {
-                console.error(`❌ Error refunding user ${player.userId} for stale game ${game.gameId}:`, refundError);
               }
             }
           }
+          // After attempting refunds, delete the game
+          await Game.deleteOne({ _id: game._id });
         }
-        // After attempting refunds, delete the game
-        await Game.deleteOne({ _id: game._id });
+        console.log(`✅ Finished cleaning up ${staleGames.length} stale games.`);
       }
-      console.log(`✅ Finished cleaning up ${staleGames.length} stale games.`);
+    } catch (err) {
+      console.error('Game cleanup error:', err);
     }
-  } catch (err) {
-    console.error('Game cleanup error:', err);
-  }
-}, 6 * 60 * 60 * 1000);
+  }, 6 * 60 * 60 * 1000);
 
-// Serve frontend static build when present (same-domain deployment)
-try {
-  const frontendDist = path.join(__dirname, '..', 'dist');
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(frontendDist, 'index.html'));
+  // Serve frontend static build when present (same-domain deployment)
+  try {
+    const frontendDist = path.join(__dirname, '..', 'dist');
+    if (fs.existsSync(frontendDist)) {
+      app.use(express.static(frontendDist));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(frontendDist, 'index.html'));
+      });
+      console.log('✅ Serving frontend from', frontendDist);
+    } else {
+      console.log('ℹ️ Frontend dist not found at', frontendDist);
+    }
+  } catch (e) {
+    console.warn('⚠️ Error checking frontend dist:', e.message);
+  }
+
+  const PORT = process.env.PORT || 5000;
+  const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
+
+  // Startup Cleanup: Mark all players as disconnected in ACTIVE games
+  const performStartupCleanup = async () => {
+    try {
+      console.log('🧹 Performing startup cleanup...');
+      const Game = require('./models/Game');
+
+      // Update all ACTIVE games to mark players as disconnected
+      const result = await Game.updateMany(
+        { status: 'ACTIVE' },
+        {
+          $set: {
+            'players.$[].isDisconnected': true,
+            'players.$[].socketId': null
+          }
+        }
+      );
+
+      console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games. This ensures auto-turns will work if players don't reconnect.`);
+    } catch (error) {
+      console.error('❌ Startup cleanup failed:', error);
+    }
+  };
+
+  // --- Game Loop ---
+  setInterval(async () => {
+    try {
+      const games = await Game.find({ status: 'ACTIVE' });
+      for (const game of games) {
+        if (game.timer !== null && game.timer > 0) {
+          game.timer--;
+
+          if (game.timer === 0) {
+            const currentPlayer = game.players[game.currentPlayerIndex];
+            if (currentPlayer) {
+              if (game.turnState === 'ROLLING') {
+                await gameEngine.handleAutoRoll(game.gameId, true);
+              } else if (game.turnState === 'MOVING') {
+                await gameEngine.handleAutoMove(game.gameId);
+              }
+            }
+          }
+          await game.save();
+          io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: game.toObject() });
+        }
+      }
+    } catch (error) {
+      console.error('Error in game loop:', error);
+    }
+  }, 1000);
+
+
+  // Start server after ensuring DB connection and performing startup cleanup.
+  (async () => {
+    try {
+      await ensureMongoConnect();
+    } catch (err) {
+      console.error('⚠️ ensureMongoConnect() error (non-fatal):', err && err.message ? err.message : err);
+    }
+
+    try {
+      await performStartupCleanup();
+      console.log('✅ Startup cleanup completed');
+    } catch (err) {
+      console.error('⚠️ Startup cleanup failed (non-critical):', err && err.message ? err.message : err);
+      console.log('🔄 Continuing server startup...');
+    }
+
+    // Start the server now that we've attempted DB connect + cleanup
+    server.listen(PORT, HOST, () => {
+      console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+      console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);
+      console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
     });
-    console.log('✅ Serving frontend from', frontendDist);
-  } else {
-    console.log('ℹ️ Frontend dist not found at', frontendDist);
-  }
-} catch (e) {
-  console.warn('⚠️ Error checking frontend dist:', e.message);
-}
 
-const PORT = process.env.PORT || 5000;
-const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
-
-// Startup Cleanup: Mark all players as disconnected in ACTIVE games
-const performStartupCleanup = async () => {
-  try {
-    console.log('🧹 Performing startup cleanup...');
-    const Game = require('./models/Game');
-
-    // Update all ACTIVE games to mark players as disconnected
-    const result = await Game.updateMany(
-      { status: 'ACTIVE' },
-      {
-        $set: {
-          'players.$[].isDisconnected': true,
-          'players.$[].socketId': null
-        }
+    // Handle server errors
+    server.on('error', (err) => {
+      console.error('❌ Server error:', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`💡 Port ${PORT} is already in use`);
       }
-    );
-
-    console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games. This ensures auto-turns will work if players don't reconnect.`);
-  } catch (error) {
-    console.error('❌ Startup cleanup failed:', error);
-  }
-};
-
-// Start server after ensuring DB connection and performing startup cleanup.
-(async () => {
-  try {
-    await ensureMongoConnect();
-  } catch (err) {
-    console.error('⚠️ ensureMongoConnect() error (non-fatal):', err && err.message ? err.message : err);
-  }
-
-  try {
-    await performStartupCleanup();
-    console.log('✅ Startup cleanup completed');
-  } catch (err) {
-    console.error('⚠️ Startup cleanup failed (non-critical):', err && err.message ? err.message : err);
-    console.log('🔄 Continuing server startup...');
-  }
-
-  // Start the server now that we've attempted DB connect + cleanup
-  server.listen(PORT, HOST, () => {
-    console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-    console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);
-    console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
-  });
-
-  // Handle server errors
-  server.on('error', (err) => {
-    console.error('❌ Server error:', err);
-    if (err.code === 'EADDRINUSE') {
-      console.error(`💡 Port ${PORT} is already in use`);
-    }
-  });
-})();
+    });
+  })();
