@@ -2040,10 +2040,36 @@ app.get('/api/admin/user/:userId/details', authenticateToken, async (req, res) =
     }
 
     // Find completed games where this user participated
-    const matchHistory = await Game.find({
+    // Accept either string or ObjectId forms for player.userId to avoid mismatches
+    const mongoose = require('mongoose');
+    let userObjectId = null;
+    try {
+      userObjectId = mongoose.Types.ObjectId(userId);
+    } catch (err) {
+      // invalid ObjectId, ignore
+      userObjectId = null;
+    }
+
+    const matchQuery = {
       status: 'COMPLETED',
-      'players.userId': userId
-    }).sort({ updatedAt: -1 }).limit(50);
+      $or: [
+        { 'players.userId': userId }
+      ]
+    };
+    if (userObjectId) {
+      matchQuery.$or.push({ 'players.userId': userObjectId });
+    }
+
+    console.log('🔎 Admin user-details matchQuery:', JSON.stringify(matchQuery));
+    const matchHistory = await Game.find(matchQuery).sort({ updatedAt: -1 }).limit(50);
+    console.log(`🔎 Found ${matchHistory.length} completed games for user ${userId}`);
+    if (matchHistory.length > 0) {
+      try {
+        console.log('🔎 Sample game players for first matched game:', matchHistory[0].players);
+      } catch (err) {
+        // ignore serialization issues
+      }
+    }
 
     // Format history
     const history = matchHistory.map(game => {
@@ -2147,7 +2173,13 @@ app.post('/api/wallet/request', authenticateToken, async (req, res) => {
     });
 
     if (pendingRequest) {
-      return res.status(400).json({ error: `You already have a pending ${pendingRequest.type.toLowerCase()} request. Please wait for it to be processed.` });
+      // Build a friendly Somali message including the user's first name when available
+      const rawName = (user && (user.username || user.userName)) || userName || '';
+      const firstName = rawName ? String(rawName).trim().split(/\s+/)[0] : '';
+      const displayName = firstName || 'Saaxiib';
+      const phone = '0610251014';
+      const message = `Waanka xunnahay ${displayName} horey ayaad dalab u gudbisay, fadlan la xariir ${phone} si laguugu xaqiijiyo mahadsanid`;
+      return res.status(400).json({ error: message });
     }
 
     if (type === 'WITHDRAWAL') {
@@ -3514,154 +3546,159 @@ io.on('connection', (socket) => {
 });
 
 
-  // Scheduled Task: Cleanup Stale Games (Every 6 Hours)
-  setInterval(async () => {
-    try {
-      const Game = require('./models/Game');
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-      // Find games that are 'ACTIVE' but haven't been updated in 24 hours
-      const staleGames = await Game.find({
-        status: 'ACTIVE',
-        updatedAt: { $lt: twentyFourHoursAgo }
-      });
-
-      if (staleGames.length > 0) {
-        console.log(`🧹 Found ${staleGames.length} stale games to clean up and refund...`);
-        for (const game of staleGames) {
-          const stake = game.stake;
-          if (stake > 0) {
-            for (const player of game.players) {
-              if (player.userId && !player.isAI) {
-                try {
-                  const user = await User.findById(player.userId);
-                  if (user && user.reservedBalance >= stake) {
-                    user.balance += stake;
-                    user.reservedBalance -= stake;
-                    user.transactions.push({
-                      type: 'game_refund',
-                      amount: stake,
-                      matchId: game.gameId,
-                      description: `Refund for stale/cancelled game ${game.gameId}`
-                    });
-                    await user.save();
-                    console.log(`💰 Refunded ${stake} to user ${user.username} for stale game ${game.gameId}.`);
-                  }
-                } catch (refundError) {
-                  console.error(`❌ Error refunding user ${player.userId} for stale game ${game.gameId}:`, refundError);
-                }
-              }
-            }
-          }
-          // After attempting refunds, delete the game
-          await Game.deleteOne({ _id: game._id });
-        }
-        console.log(`✅ Finished cleaning up ${staleGames.length} stale games.`);
-      }
-    } catch (err) {
-      console.error('Game cleanup error:', err);
-    }
-  }, 6 * 60 * 60 * 1000);
-
-  // Serve frontend static build when present (same-domain deployment)
+// Scheduled Task: Cleanup Stale Games (Every 6 Hours)
+setInterval(async () => {
   try {
-    const frontendDist = path.join(__dirname, '..', 'dist');
-    if (fs.existsSync(frontendDist)) {
-      app.use(express.static(frontendDist));
-      app.get('*', (req, res) => {
-        res.sendFile(path.join(frontendDist, 'index.html'));
-      });
-      console.log('✅ Serving frontend from', frontendDist);
-    } else {
-      console.log('ℹ️ Frontend dist not found at', frontendDist);
-    }
-  } catch (e) {
-    console.warn('⚠️ Error checking frontend dist:', e.message);
-  }
+    const Game = require('./models/Game');
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const PORT = process.env.PORT || 5000;
-  const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
+    // Find games that are 'ACTIVE' but haven't been updated in 24 hours
+    const staleGames = await Game.find({
+      status: 'ACTIVE',
+      updatedAt: { $lt: twentyFourHoursAgo }
+    });
 
-  // Startup Cleanup: Mark all players as disconnected in ACTIVE games
-  const performStartupCleanup = async () => {
-    try {
-      console.log('🧹 Performing startup cleanup...');
-      const Game = require('./models/Game');
-
-      // Update all ACTIVE games to mark players as disconnected
-      const result = await Game.updateMany(
-        { status: 'ACTIVE' },
-        {
-          $set: {
-            'players.$[].isDisconnected': true,
-            'players.$[].socketId': null
-          }
-        }
-      );
-
-      console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games. This ensures auto-turns will work if players don't reconnect.`);
-    } catch (error) {
-      console.error('❌ Startup cleanup failed:', error);
-    }
-  };
-
-  // --- Game Loop ---
-  setInterval(async () => {
-    try {
-      const games = await Game.find({ status: 'ACTIVE' });
-      for (const game of games) {
-        if (game.timer !== null && game.timer > 0) {
-          game.timer--;
-
-          if (game.timer === 0) {
-            const currentPlayer = game.players[game.currentPlayerIndex];
-            if (currentPlayer) {
-              if (game.turnState === 'ROLLING') {
-                await gameEngine.handleAutoRoll(game.gameId, true);
-              } else if (game.turnState === 'MOVING') {
-                await gameEngine.handleAutoMove(game.gameId);
+    if (staleGames.length > 0) {
+      console.log(`🧹 Found ${staleGames.length} stale games to clean up and refund...`);
+      for (const game of staleGames) {
+        const stake = game.stake;
+        if (stake > 0) {
+          for (const player of game.players) {
+            if (player.userId && !player.isAI) {
+              try {
+                const user = await User.findById(player.userId);
+                if (user && user.reservedBalance >= stake) {
+                  user.balance += stake;
+                  user.reservedBalance -= stake;
+                  user.transactions.push({
+                    type: 'game_refund',
+                    amount: stake,
+                    matchId: game.gameId,
+                    description: `Refund for stale/cancelled game ${game.gameId}`
+                  });
+                  await user.save();
+                  console.log(`💰 Refunded ${stake} to user ${user.username} for stale game ${game.gameId}.`);
+                }
+              } catch (refundError) {
+                console.error(`❌ Error refunding user ${player.userId} for stale game ${game.gameId}:`, refundError);
               }
             }
           }
-          await game.save();
+        }
+        // After attempting refunds, delete the game
+        await Game.deleteOne({ _id: game._id });
+      }
+      console.log(`✅ Finished cleaning up ${staleGames.length} stale games.`);
+    }
+  } catch (err) {
+    console.error('Game cleanup error:', err);
+  }
+}, 6 * 60 * 60 * 1000);
+
+// Serve frontend static build when present (same-domain deployment)
+try {
+  const frontendDist = path.join(__dirname, '..', 'dist');
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+    console.log('✅ Serving frontend from', frontendDist);
+  } else {
+    console.log('ℹ️ Frontend dist not found at', frontendDist);
+  }
+} catch (e) {
+  console.warn('⚠️ Error checking frontend dist:', e.message);
+}
+
+
+const PORT = process.env.PORT || 5000;
+const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces for mobile access
+
+// Startup Cleanup: Mark all players as disconnected in ACTIVE games
+const performStartupCleanup = async () => {
+  try {
+    console.log('🧹 Performing startup cleanup...');
+    const Game = require('./models/Game');
+    // Update all ACTIVE games to mark players as disconnected
+    const result = await Game.updateMany(
+      { status: 'ACTIVE' },
+      {
+        $set: {
+          'players.$[].isDisconnected': true,
+          'players.$[].socketId': null
+        }
+      }
+    );
+    console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games.`);
+  } catch (err) {
+    console.error('⚠️ Startup cleanup failed (non-critical):', err && err.message ? err.message : err);
+  }
+};
+
+// --- Lightweight Watchdog (Restored & Optimized) ---
+// Checks every 10 seconds for games that are "stuck" (no activity for > 20s) due to dropped events.
+setInterval(async () => {
+  try {
+    const Game = require('./models/Game');
+    const gameEngine = require('./logic/gameEngine');
+    const now = Date.now();
+    const stalledThreshold = 20000; // 20 seconds without activity
+
+    const activeGames = await Game.find({ status: 'ACTIVE' });
+
+    for (const game of activeGames) {
+      const lastActivity = game.updatedAt ? new Date(game.updatedAt).getTime() : 0;
+      const isStalled = (now - lastActivity) > stalledThreshold;
+
+      if (isStalled) {
+        const currentPlayer = game.players[game.currentPlayerIndex];
+        if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
+          console.log(`🐕 Watchdog: Kickstarting stalled game ${game.gameId} for ${currentPlayer.color}`);
+          if (game.turnState === 'ROLLING') {
+            await gameEngine.handleAutoRoll(game.gameId, true);
+          } else if (game.turnState === 'MOVING') {
+            await gameEngine.handleAutoMove(game.gameId);
+          }
           io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: game.toObject() });
         }
       }
-    } catch (error) {
-      console.error('Error in game loop:', error);
     }
-  }, 1000);
+  } catch (error) {
+    console.error('Watchdog error:', error);
+  }
+}, 10000);
 
+// Start server after ensuring DB connection and performing startup cleanup.
+(async () => {
+  try {
+    await ensureMongoConnect();
+  } catch (err) {
+    console.error('⚠️ ensureMongoConnect() error:', err && err.message ? err.message : err);
+  }
 
-  // Start server after ensuring DB connection and performing startup cleanup.
-  (async () => {
-    try {
-      await ensureMongoConnect();
-    } catch (err) {
-      console.error('⚠️ ensureMongoConnect() error (non-fatal):', err && err.message ? err.message : err);
+  try {
+    await performStartupCleanup();
+    console.log('✅ Startup cleanup completed');
+  } catch (err) {
+    console.error('⚠️ Startup cleanup failed:', err);
+    console.log('🔄 Continuing server startup...');
+  }
+
+  // Start the server now that we've attempted DB connect + cleanup
+  server.listen(PORT, HOST, () => {
+    console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);
+    console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+  });
+
+  // Handle server errors
+  server.on('error', (err) => {
+    console.error('❌ Server error:', err);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`💡 Port ${PORT} is already in use`);
     }
+  });
 
-    try {
-      await performStartupCleanup();
-      console.log('✅ Startup cleanup completed');
-    } catch (err) {
-      console.error('⚠️ Startup cleanup failed (non-critical):', err && err.message ? err.message : err);
-      console.log('🔄 Continuing server startup...');
-    }
-
-    // Start the server now that we've attempted DB connect + cleanup
-    server.listen(PORT, HOST, () => {
-      console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-      console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);
-      console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔗 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
-    });
-
-    // Handle server errors
-    server.on('error', (err) => {
-      console.error('❌ Server error:', err);
-      if (err.code === 'EADDRINUSE') {
-        console.error(`💡 Port ${PORT} is already in use`);
-      }
-    });
-  })();
+})();

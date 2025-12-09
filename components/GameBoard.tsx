@@ -160,13 +160,13 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
       const endTimer = setTimeout(() => {
         setAnimation(null);
         onAnimationComplete();
-      }, animation.isTeleport ? 200 : 150); // Slightly longer pause for teleport
+      }, animation.isTeleport ? 100 : 80); // Shorter pause to speed up rounds
       return () => clearTimeout(endTimer);
     }
 
     const stepTimer = setTimeout(() => {
       setAnimation(prev => prev ? ({ ...prev, step: prev.step + 1 }) : null);
-    }, animation.isTeleport ? 100 : 300); // Much faster for teleport (100ms vs 300ms)
+    }, animation.isTeleport ? 60 : 150); // Faster steps for snappier animations
 
     return () => clearTimeout(stepTimer);
   }, [animation, onAnimationComplete]);
@@ -418,7 +418,7 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
     return (
       <g
         transform={`translate(${toPx(coords.x)}, ${toPx(coords.y)})`}
-        style={{ transition: 'transform 0.1s linear', pointerEvents: 'none' }}
+        style={{ transition: 'transform 0.05s linear', pointerEvents: 'none' }}
       >
 
         <circle r={cellSize * 0.45} fill={`url(#grad-${tokenColor})`} className="token" />
@@ -432,7 +432,7 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
         viewBox={`0 0 ${size} ${size}`}
         style={{
           transform: `rotate(${rotation}deg)`,
-          transition: 'transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)'
         }}
       >
         <defs>

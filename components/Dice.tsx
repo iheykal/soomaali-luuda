@@ -65,12 +65,12 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
         // Start animation immediately
         setIsAnimating(true);
         
-        // Set final state after animation completes
+        // Set final state after animation completes (shorter for snappier feel)
         animationTimerRef.current = setTimeout(() => {
           console.log(`🎲 Animation complete, setting cubeClass to show-${value}`);
           setCubeClass(`show-${value}`);
           setIsAnimating(false);
-        }, 600); // Faster animation (0.6s) to ensure result is visible longer
+        }, 400); // 0.4s animation
       } else {
         // Same value - ensure display is correct
         console.log(`🎲 Same value (${value}), ensuring display is correct`);
@@ -144,20 +144,20 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
   const faceStyle = {
       backgroundColor: colors.hex,
       borderColor: 'rgba(255,255,255,0.5)',
-      transition: 'background-color 0.5s ease',
+      transition: 'background-color 0.25s ease',
       boxShadow: 'inset 0 0 20px rgba(0,0,0,0.1)'
   };
 
   return (
     <div className="flex flex-col items-center space-y-4">
         <div className="relative">
-            {/* Circular Timer Indicator */}
+            {/* Circular Timer Indicator (always show if timer provided) */}
             <div className="absolute -inset-4 rounded-full border-4 border-slate-700/0 flex items-center justify-center pointer-events-none">
-                {(isMyTurn || timer > 0) && (
-                    <span className={`absolute -bottom-8 text-sm font-bold ${timer <= 5 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
-                        {timer}s
-                    </span>
-                )}
+              {typeof timer === 'number' && (
+                <span className={`absolute -top-8 text-sm font-bold ${timer <= 5 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
+                  {timer}s
+                </span>
+              )}
             </div>
 
             

@@ -343,10 +343,10 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-800 p-4 relative">
       {/* Conditionally render the Rejoin Game Banner */}
       {showRejoinBanner && activeGameInfo && (
-        <RejoinGameBanner
+          <RejoinGameBanner
           gameId={activeGameInfo.gameId}
           playerColor={activeGameInfo.playerColor}
-          prize={(activeGameInfo.stake || 0) * 2 * 0.9}
+          prize={(activeGameInfo.stake || 0) * 0.8}
           allPawnsHome={activeGameInfo.allPawnsHome}
           winners={activeGameInfo.winners}
           onRejoin={handleRejoin}

@@ -23,6 +23,20 @@ const SuccessMessage: React.FC = () => (
     </div>
 );
 
+// Generic banner used for success/info/error messages (green styling per request)
+const BannerMessage: React.FC<{ message: string }> = ({ message }) => (
+    <div className="bg-green-500/10 border-2 border-green-500/30 rounded-lg p-4 flex items-start space-x-3 animate-in fade-in slide-in-from-bottom-4 duration-500 mb-4">
+        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1" />
+            </svg>
+        </div>
+        <div className="text-left">
+            <p className="font-semibold text-green-400 text-sm">{message}</p>
+        </div>
+    </div>
+);
+
 const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [amount, setAmount] = useState('');
     const [myRequests, setMyRequests] = useState<FinancialRequest[]>([]);
@@ -31,6 +45,8 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [userLoading, setUserLoading] = useState(true);
     const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+    const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+    const SOMALI_PENDING_MSG = `Waanka xunnahay Nun horey ayaad dalab u gudbisay, dalabkii hore oo aan la xaqiijinna mid kale ma gudbin kartid,  fadlan la xariir whatsapp 0610251014 si laguugu xaqiijiyo mahadsanid`;
 
     // Payment method state
     const PAYMENT_METHODS = ['EVC-PLUS', 'E-DAHAB', 'GOLIS', 'TELESOM'];
@@ -172,10 +188,14 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 await fetchCurrentUser();
                 await fetchRequests();
             } else {
-                alert('Error: ' + data.error);
+                // show the requested Somali message in the animated green banner instead of alert
+                setBannerMessage(SOMALI_PENDING_MSG);
+                // auto-hide after 30s
+                setTimeout(() => setBannerMessage(null), 30000);
             }
         } catch (e) {
-            alert('Network error. Is the backend server running?');
+            setBannerMessage('Network error. Is the backend server running?');
+            setTimeout(() => setBannerMessage(null), 30000);
         } finally {
             setLoading(false);
         }
@@ -221,6 +241,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                 </div>
 
                 <div className="p-6 min-h-[250px]">
+                    {bannerMessage && <BannerMessage message={bannerMessage} />}
                     {showSuccessMessage && <SuccessMessage />}
                     {tab === 'action' ? (
                         <div className="space-y-6">
@@ -272,7 +293,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                     placeholder="Enter amount..."
                                     className="w-full bg-slate-900 border border-slate-600 rounded-lg p-4 text-white text-xl font-bold focus:ring-2 focus:ring-cyan-500 outline-none"
                                 />
-                                <p className="text-[10px] text-slate-500 mt-1 text-right">Min: $0.01 | Max Deposit: $300</p>
+                                <p className="text-[10px] text-slate-500 mt-1 text-right">Min: $0.01 | Max Lacag-Dhigasho: $300</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -281,18 +302,18 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                     disabled={loading}
                                     className="bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95 disabled:opacity-50 shadow-lg shadow-green-900/20"
                                 >
-                                    {loading ? '...' : 'Deposit'}
+                                    {loading ? '...' : 'Lacag-Dhigasho'}
                                 </button>
                                 <button
                                     onClick={() => handleRequest('WITHDRAWAL')}
                                     disabled={loading}
                                     className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95 disabled:opacity-50 shadow-lg shadow-red-900/20"
                                 >
-                                    {loading ? '...' : 'Withdraw'}
+                                    {loading ? '...' : 'Lacag-Labixid'}
                                 </button>
                             </div>
                             <div className="text-xs text-slate-500 text-center leading-relaxed border-t border-slate-700 pt-4">
-                                <p>Submit a request to deposit or withdraw funds.</p>
+                                <p>Submit a request to Lacag-Dhigasho ama Lacag-Labixid.</p>
                                 <p>Admin will review and approve shortly.</p>
                             </div>
                         </div>
@@ -307,7 +328,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                 <div className="text-center py-12">
                                     <div className="text-4xl mb-3">📭</div>
                                     <p className="text-slate-400 text-sm mb-1">No requests found</p>
-                                    <p className="text-slate-500 text-xs">Submit a deposit or withdrawal request to see it here</p>
+                                    <p className="text-slate-500 text-xs">Submit a Lacag-Dhigasho ama Lacag-Labixid request to see it here</p>
                                 </div>
                             ) : (
                                 myRequests.map(req => {
@@ -342,7 +363,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                                                         <div>
                                                             <p className={`text-sm font-bold uppercase tracking-wider ${isDeposit ? 'text-green-400' : 'text-red-400'
                                                                 }`}>
-                                                                {req.type}
+                                                                {isDeposit ? 'Lacag-Dhigasho' : 'Lacag-Labixid'}
                                                             </p>
                                                             <p className="text-xs text-slate-400 mt-0.5">
                                                                 {new Date(req.timestamp).toLocaleDateString('en-US', {

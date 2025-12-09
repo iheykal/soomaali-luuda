@@ -57,8 +57,8 @@ const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean
         <div className={`text-4xl font-black ${disabled ? 'text-slate-500' : 'text-white group-hover:text-cyan-300'}`}>
             ${amount.toFixed(2)}
         </div>
-        <div className="mt-4 px-3 py-1 rounded-full bg-slate-900 text-xs text-slate-500 font-mono border border-slate-700 group-hover:border-cyan-500/50 transition-colors">
-            Win: ${(amount * 2 * 0.9).toFixed(2)}
+            <div className="mt-4 px-3 py-1 rounded-full bg-slate-900 text-xs text-slate-500 font-mono border border-slate-700 group-hover:border-cyan-500/50 transition-colors">
+            Win: ${(amount * 0.8).toFixed(2)}
         </div>
     </button>
 );

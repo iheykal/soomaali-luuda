@@ -175,9 +175,10 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
 
             // Show browser notification (when app is open)
             if ('Notification' in window && Notification.permission === 'granted') {
+                const humanType = data.type === 'DEPOSIT' ? 'Lacag-Dhigasho' : 'Lacag-Labixid';
                 const title = data.action === 'APPROVED'
-                    ? `${data.type === 'DEPOSIT' ? '💵' : '💸'} ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Approved`
-                    : `❌ ${data.type.charAt(0) + data.type.slice(1).toLowerCase()} Rejected`;
+                    ? `${data.type === 'DEPOSIT' ? '💵' : '💸'} ${humanType} Approved`
+                    : `❌ ${humanType} Rejected`;
 
                 const notification = new Notification(title, {
                     body: data.message,

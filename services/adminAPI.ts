@@ -300,5 +300,21 @@ export const adminAPI = {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch visitor analytics';
       throw new Error(errorMessage);
     }
+  },
+
+  async refundGame(gameId: string): Promise<{ success: boolean, message: string }> {
+    const url = `${getApiUrl()}/admin/games/${gameId}/refund`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to refund game';
+      throw new Error(errorMessage);
+    }
   }
 };

@@ -25,6 +25,30 @@ class AudioService {
   }
 
   /**
+   * Try to unlock audio playback on first user interaction.
+   * Some browsers block audio.play() until a user gesture occurs.
+   */
+  unlock(): void {
+    try {
+      const first = this.sounds.values().next().value as HTMLAudioElement | undefined;
+      if (!first) return;
+
+      const probe = first.cloneNode() as HTMLAudioElement;
+      probe.muted = true;
+      // Attempt to play briefly to satisfy autoplay policies
+      probe.play().then(() => {
+        probe.pause();
+        probe.currentTime = 0;
+        console.log('🔊 Audio unlocked via user interaction');
+      }).catch(() => {
+        // ignore - will be retried on next interaction
+      });
+    } catch (e) {
+      // ignore errors - unlocking is best-effort
+    }
+  }
+
+  /**
    * Initialize audio service and preload sounds
    */
   constructor() {

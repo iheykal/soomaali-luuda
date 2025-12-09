@@ -264,7 +264,8 @@ const processGameSettlement = async (game) => {
         await loser.save();
 
         game.settlementProcessed = true;
-        game.message = `${winner.username} won $${profit.toFixed(2)} dollars`;
+        // Show both total payout (winnings) and net profit to avoid confusion in the UI
+        game.message = `${winner.username} won $${winnings.toFixed(2)} (net +$${profit.toFixed(2)})`;
 
         // ============================================================================
         // POST-SETTLEMENT AUDIT
@@ -528,10 +529,12 @@ exports.handleRollDice = async (gameId, socketId) => {
         }
 
         if (player.socketId !== socketId && !player.isDisconnected) {
+            console.warn(`⚠️ Roll blocked: Not your turn. PlayerSocket=${player.socketId}, RequestSocket=${socketId}`);
             return { success: false, message: 'Not your turn' };
         }
 
         if (game.turnState !== 'ROLLING') {
+            console.warn(`⚠️ Roll blocked: Game not in ROLLING state. Current state: ${game.turnState}, Dice: ${game.diceValue}`);
             return { success: false, message: 'Not in ROLLING state' };
         }
 
@@ -570,7 +573,7 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
         if (player.socketId !== socketId) return { success: false, message: 'Not your turn' };
 
         // Execute the move in memory
-        const { success, state: updatedGameState, settlementPromise, message } = executeMoveToken(game, tokenId);
+        const { success, state: updatedGameState, settlementPromise, message, killedTokenId } = executeMoveToken(game, tokenId);
 
         if (!success) {
             return { success: false, message };
@@ -605,7 +608,7 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
 
         const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
 
-        return { success: true, state: plainState, settlementData };
+        return { success: true, state: plainState, settlementData, killedTokenId: updatedGameState.killedTokenId || killedTokenId };
     } catch (error) {
         console.error(`❌ Error in handleMoveToken for game ${gameId}:`, error);
         return { success: false, message: error.message || 'Error moving token' };
@@ -869,8 +872,10 @@ function executeMoveToken(game, tokenId) {
             const winnerPlayer = game.players.find(p => p.color === winnerColor);
             const winnerName = winnerPlayer ? (winnerPlayer.username || winnerPlayer.color) : winnerColor;
             const totalPot = (game.stake || 0) * game.players.length;
-            const winnings = totalPot * 0.9;
-            game.message = `Ciyaarta way dhamaatay, waxaana badiyay ${winnerName} wuxuuna ku guuleystay $${winnings} oo dollar`;
+            const commission = totalPot * 0.10; // Calculate commission here as well
+            const winnings = totalPot - commission;
+            const profit = winnings - game.stake; // Calculate net profit
+            game.message = `Ciyaarta way dhamaatay, waxaana badiyay ${winnerName} wuxuuna ku guuleystay $${profit.toFixed(2)} oo dollar`;
             settlementPromise = processGameSettlement(game);
             game.turnState = 'GAMEOVER';
             return { success: true, state: game, settlementPromise, killedTokenId };

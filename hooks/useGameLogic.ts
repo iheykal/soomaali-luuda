@@ -7,8 +7,9 @@ import { debugService } from '../services/debugService';
 import { audioService } from '../services/audioService';
 
 // --- Constants ---
-const ROLL_TIME_LIMIT = 7;  // Match backend auto-roll timer (was 8)
-const MOVE_TIME_LIMIT = 18; // Match backend auto-move timer (was 3)
+// Reduce timers to make gameplay feel snappier while keeping server limits
+const ROLL_TIME_LIMIT = 6;  // Slightly faster roll window
+const MOVE_TIME_LIMIT = 12; // Shorter move window for quicker rounds
 
 // --- Socket Service Wrapper ---
 let socket: Socket | null = null;
@@ -23,9 +24,7 @@ export type Action =
     | { type: 'ANIMATION_COMPLETE' }
     | { type: 'AI_THINKING' }
     | { type: 'SET_STATE'; state: GameState }
-    | { type: 'RESET_GAME' }
-    | { type: 'TICK_TIMER' }
-    | { type: 'SET_TIMER'; timer: number };
+    | { type: 'RESET_GAME' };
 
 const initialState: GameState = {
     players: [],
@@ -154,12 +153,6 @@ const _reducer = (state: GameState, action: Action): GameState => {
 
         case 'RESET_GAME':
             return initialState;
-
-        case 'TICK_TIMER':
-            return { ...state, timer: Math.max(0, state.timer - 1) };
-
-        case 'SET_TIMER':
-            return { ...state, timer: action.timer };
 
         case 'ROLL_DICE': {
             return {
@@ -607,14 +600,6 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
         });
 
-        // Fix for Issue #1: Timer Synchronization - Listen for server timer ticks
-        socket.on('TIMER_TICK', (data: { timer: number }) => {
-            debugService.socket({ event: 'receive', type: 'TIMER_TICK', timer: data.timer });
-            // Update timer to server's value to keep all clients in sync
-            localDispatchRef.current({ type: 'SET_TIMER', timer: data.timer });
-        });
-
-        // Listen for TOKEN_KILLED event to play kill sound
         socket.on('TOKEN_KILLED', (data: { killedTokenId: string }) => {
             console.log('🎵 TOKEN_KILLED event received, playing kill sound for:', data.killedTokenId);
             audioService.play('tokenKilled');
@@ -740,17 +725,6 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         }
     }, [state.turnState, state.legalMoves, isMyTurn, isMultiplayer, multiplayerConfig]);
 
-    // --- Timer Logic ---
-    // Tick timer locally every second if it's > 0
-    useEffect(() => {
-        if (state.timer > 0 && state.turnState !== 'GAMEOVER' && state.gameStarted) {
-            const timerId = setInterval(() => {
-                localDispatchRef.current({ type: 'TICK_TIMER' });
-            }, 1000);
-            return () => clearInterval(timerId);
-        }
-    }, [state.timer, state.turnState, state.gameStarted]);
-
     // --- AI Turn Logic (Local Game) ---
     const { currentPlayerIndex, turnState, gameStarted, players, legalMoves } = state;
     useEffect(() => {
@@ -763,18 +737,20 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         if (turnState === 'ROLLING') {
             debugService.game({ event: 'ai_thinking', action: 'roll' });
+            // faster AI roll for snappier local games
             timeoutId = setTimeout(() => {
                 handleRollDice();
-            }, 300);
+            }, 200);
         } else if (turnState === 'MOVING') {
             debugService.game({ event: 'ai_thinking', action: 'move' });
+            // faster AI move
             timeoutId = setTimeout(() => {
                 if (legalMoves.length > 0) {
                     const randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
                     debugService.game({ event: 'ai_move', move: randomMove });
                     handleMoveToken(randomMove.tokenId);
                 }
-            }, 500);
+            }, 250);
         }
 
         return () => clearTimeout(timeoutId);

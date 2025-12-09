@@ -17,6 +17,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import type { Player, PlayerColor, MultiplayerGame } from './types';
 import { debugService } from './services/debugService';
 import DebugConsole from './components/DebugConsole';
+import { audioService } from './services/audioService';
 import { notificationService, WinNotificationData } from './services/notificationService';
 
 
@@ -49,6 +50,22 @@ const AppContent: React.FC = () => {
 
   // Connect to global socket for financial notifications
   useGlobalSocket(user?.id || user?._id, isAuthenticated);
+
+  // Unlock audio on first user interaction to avoid browser autoplay blocks
+  useEffect(() => {
+    const handler = () => {
+      audioService.unlock();
+      // Optionally play a tiny confirmation click (muted unlock won't be audible)
+      try {
+        audioService.play('click');
+      } catch (e) {
+        // ignore
+      }
+      window.removeEventListener('pointerdown', handler);
+    };
+    window.addEventListener('pointerdown', handler, { once: true });
+    return () => window.removeEventListener('pointerdown', handler);
+  }, []);
 
   // Render Super Admin Overlay
   const renderSuperAdminOverlay = () => {
@@ -430,7 +447,7 @@ const AppContent: React.FC = () => {
                   <span className="text-lg">🏆</span>
                   <div className="text-center">
                     <div className="text-[10px] font-semibold uppercase tracking-wide opacity-90">Prize</div>
-                    <div className="text-lg font-bold">${((state.stake || 0) * 2 * 0.9).toFixed(2)}</div>
+                    <div className="text-lg font-bold">${((state.stake || 0) * 0.8).toFixed(2)}</div>
                   </div>
                   <span className="text-lg">💰</span>
                 </div>
@@ -487,7 +504,7 @@ const AppContent: React.FC = () => {
               winners={winners}
               players={players}
               onRestart={handleRestart}
-              prize={(state.stake || 0) * 2 * 0.9}
+              prize={(state.stake || 0) * 0.8}
             />
           )}
         </div>

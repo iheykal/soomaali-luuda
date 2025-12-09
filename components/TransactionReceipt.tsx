@@ -36,8 +36,8 @@ const TransactionReceipt = forwardRef<HTMLDivElement, TransactionReceiptProps>((
       <div className="space-y-5 mb-10">
         <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
           <span className="text-slate-600 text-sm font-semibold">Transaction Type</span>
-          <span className={`font-bold text-sm px-3 py-1.5 rounded-lg shadow-sm ${isDeposit ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
-            {isDeposit ? 'DEPOSIT' : 'WITHDRAWAL'}
+            <span className={`font-bold text-sm px-3 py-1.5 rounded-lg shadow-sm ${isDeposit ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
+            {isDeposit ? 'Lacag-Dhigasho' : 'Lacag-Labixid'}
           </span>
         </div>
         <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">

@@ -32,6 +32,7 @@ const GameSchema = new mongoose.Schema({
   gameStarted: { type: Boolean, default: false },
   winners: [String],
   message: String,
+  lastEvent: String, // 'CAPTURE', etc.
   timer: { type: Number, default: 7 },
 
   // Legal moves calculated by server
