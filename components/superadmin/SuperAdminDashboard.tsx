@@ -133,8 +133,17 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [users, setUsers] = useState<User[]>([]);
   const [requests, setRequests] = useState<FinancialRequest[]>([]);
-  const [revenueStats, setRevenueStats] = useState<{ totalRevenue: number; totalWithdrawn: number; netRevenue: number; history: Revenue[]; withdrawals: RevenueWithdrawal[]; filter?: string } | null>(null);
+  const [revenueStats, setRevenueStats] = useState<{
+    totalRevenue: number;
+    totalWithdrawn: number;
+    netRevenue: number;
+    history: Revenue[];
+    withdrawals: RevenueWithdrawal[];
+    filter?: string;
+    pagination?: { currentPage: number; totalPages: number; totalItems: number; limit: number }
+  } | null>(null);
   const [revenueFilter, setRevenueFilter] = useState<string>('all');
+  const [revenuePage, setRevenuePage] = useState<number>(1);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawDestination, setWithdrawDestination] = useState('');
@@ -257,12 +266,13 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
   };
 
-  const fetchRevenue = useCallback(async (filter: string = revenueFilter) => {
+  const fetchRevenue = useCallback(async (filter: string = revenueFilter, page: number = 1) => {
     setLoading(true);
     try {
-      const stats = await adminAPI.getRevenueStats(filter);
+      const stats = await adminAPI.getRevenueStats(filter, page);
       setRevenueStats(stats);
       setRevenueFilter(filter);
+      setRevenuePage(page);
     } catch (err: any) {
       console.error('Error fetching revenue:', err);
     } finally {
@@ -1207,7 +1217,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white text-sm">
-                      {revenueStats?.history.slice(0, 10).map((rev) => (
+                      {revenueStats?.history.map((rev) => (
                         <tr key={rev._id || rev.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
                             {new Date(rev.timestamp).toLocaleDateString()}
@@ -1268,6 +1278,32 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     </tbody>
                   </table>
                 </div>
+                {/* Pagination Controls */}
+                {revenueStats?.pagination && (
+                  <div className="flex items-center justify-between mt-4 border-t border-gray-100 pt-4">
+                    <div className="text-sm text-gray-500">
+                      Page <span className="font-bold">{revenueStats.pagination.currentPage}</span> of <span className="font-bold">{revenueStats.pagination.totalPages}</span>
+                      <span className="mx-2">•</span>
+                      Total: {revenueStats.pagination.totalItems} entries
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => fetchRevenue(revenueFilter, revenueStats.pagination!.currentPage - 1)}
+                        disabled={revenueStats.pagination.currentPage <= 1 || loading}
+                        className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors shadow-sm"
+                      >
+                        ← Previous
+                      </button>
+                      <button
+                        onClick={() => fetchRevenue(revenueFilter, revenueStats.pagination!.currentPage + 1)}
+                        disabled={revenueStats.pagination.currentPage >= revenueStats.pagination.totalPages || loading}
+                        className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors shadow-sm"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Withdrawal History */}

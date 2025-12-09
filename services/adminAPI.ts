@@ -38,15 +38,21 @@ export const adminAPI = {
     }
   },
 
-  async getRevenueStats(filter: string = 'all'): Promise<{
+  async getRevenueStats(filter: string = 'all', page: number = 1, limit: number = 10): Promise<{
     totalRevenue: number;
     totalWithdrawn: number;
     netRevenue: number;
     history: Revenue[];
     withdrawals: RevenueWithdrawal[];
-    filter: string
+    filter: string;
+    pagination?: {
+      currentPage: number;
+      totalPages: number;
+      totalItems: number;
+      limit: number;
+    }
   }> {
-    const url = `${getApiUrl()}/admin/revenue?filter=${filter}`;
+    const url = `${getApiUrl()}/admin/revenue?filter=${filter}&page=${page}&limit=${limit}`;
     const options = {
       method: 'GET',
       headers: getAuthHeaders(),
@@ -60,7 +66,8 @@ export const adminAPI = {
         netRevenue: responseData.netRevenue || (responseData.totalRevenue - (responseData.totalWithdrawn || 0)),
         history: responseData.history || [],
         withdrawals: responseData.withdrawals || [],
-        filter: responseData.filter || filter
+        filter: responseData.filter || filter,
+        pagination: responseData.pagination
       };
     } catch (error: any) {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch revenue stats';

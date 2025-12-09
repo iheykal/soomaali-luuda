@@ -1565,30 +1565,50 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
       query.timestamp = { $gte: startDate };
     }
 
-    const revenues = await Revenue.find(query).sort({ timestamp: -1 });
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const totalRevenues = await Revenue.countDocuments(query);
+    const totalPages = Math.ceil(totalRevenues / limit);
+
+    const revenues = await Revenue.find(query)
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit);
 
     // Enrich revenues with game details
     const enrichedRevenues = await Promise.all(revenues.map(async (rev) => {
-      const game = await Game.findOne({ gameId: rev.gameId });
       let playersInfo = [];
       let winnerInfo = null;
       let stake = 0;
 
-      if (game) {
-        playersInfo = game.players.map(p => ({
-          userId: p.userId,
-          username: p.username,
-          color: p.color
-        }));
-        const winningPlayer = game.players.find(p => rev.winnerId && p.userId === rev.winnerId);
-        if (winningPlayer) {
-          winnerInfo = {
-            userId: winningPlayer.userId,
-            username: winningPlayer.username,
-            color: winningPlayer.color
-          };
+      // FIX: Prioritize existing gameDetails if available (valid for newer records)
+      // Since Games are deleted after completion, looking them up often returns null.
+      if (rev.gameDetails && rev.gameDetails.players && rev.gameDetails.players.length > 0) {
+        playersInfo = rev.gameDetails.players;
+        winnerInfo = rev.gameDetails.winner;
+        stake = rev.gameDetails.stake || 0;
+      } else {
+        // Fallback: Try to find Game (legacy support or if details missing)
+        const game = await Game.findOne({ gameId: rev.gameId });
+        if (game) {
+          playersInfo = game.players.map(p => ({
+            userId: p.userId,
+            username: p.username,
+            color: p.color
+          }));
+          const winningPlayer = game.players.find(p => rev.winnerId && p.userId === rev.winnerId);
+          if (winningPlayer) {
+            winnerInfo = {
+              userId: winningPlayer.userId,
+              username: winningPlayer.username,
+              color: winningPlayer.color
+            };
+          }
+          stake = game.stake;
         }
-        stake = game.stake;
       }
 
       return {
@@ -1607,18 +1627,29 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
 
     const withdrawals = await RevenueWithdrawal.find(query).sort({ timestamp: -1 });
 
-    const totalRevenue = revenues.reduce((sum, rev) => sum + rev.amount, 0);
-    const totalWithdrawn = withdrawals.reduce((sum, wd) => sum + wd.amount, 0);
-    const netRevenue = totalRevenue - totalWithdrawn;
+    const totalRevenue = await Revenue.aggregate([
+      { $match: query },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
+    ]);
+    const totalRevenueAmount = totalRevenue.length > 0 ? totalRevenue[0].total : 0;
+
+    const totalWithdrawnAmount = withdrawals.reduce((sum, wd) => sum + wd.amount, 0);
+    const netRevenue = totalRevenueAmount - totalWithdrawnAmount;
 
     res.json({
       success: true,
-      totalRevenue,
-      totalWithdrawn,
+      totalRevenue: totalRevenueAmount,
+      totalWithdrawn: totalWithdrawnAmount,
       netRevenue,
       history: enrichedRevenues, // <--- Send the enriched revenues
       withdrawals: withdrawals,
-      filter: filter
+      filter: filter,
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        totalItems: totalRevenues,
+        limit: limit
+      }
     });
   } catch (e) {
     console.error("Revenue Error:", e);
@@ -2462,6 +2493,7 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
 // --- MATCH REQUEST SYSTEM (Replaces automatic matchmaking) ---
 const activeMatchRequests = new Map(); // requestId -> { userId, userName, stake, timestamp, socketId, expiresAt }
 const requestTimers = new Map(); // requestId -> timeoutId
+const usersStartingGame = new Set(); // Global lock for users currently entering a game (userId)
 
 // Clean up expired requests periodically
 setInterval(() => {
@@ -2497,6 +2529,16 @@ const createMatch = async (player1, player2, stake) => {
   const guestColor = 'blue';
 
   console.log(`✅ Creating game ${gameId} for players: ${player1.userName || player1.userId} (Green) vs ${player2.userName || player2.userId} (Blue)`);
+
+  // Check for global lock to prevent race conditions (double game creation)
+  if (usersStartingGame.has(player1.userId) || usersStartingGame.has(player2.userId)) {
+    console.warn(`🔒 Blocked duplicate game creation: One or both users are already starting a game. P1: ${player1.userId}, P2: ${player2.userId}`);
+    return;
+  }
+
+  // Acquire locks
+  usersStartingGame.add(player1.userId);
+  usersStartingGame.add(player2.userId);
 
   try {
     // --- Reserve stake from both players ---
@@ -2857,11 +2899,13 @@ const createMatch = async (player1, player2, stake) => {
       }, 200); // Increased delay to allow both players to be ready
     }
   } catch (error) {
-    console.error('Error creating game:', error);
-    const socket1 = io.sockets.sockets.get(player1.socketId);
-    const socket2 = io.sockets.sockets.get(player2.socketId);
     if (socket1) socket1.emit('ERROR', { message: 'Failed to create game' });
     if (socket2) socket2.emit('ERROR', { message: 'Failed to create game' });
+  } finally {
+    // Release locks
+    usersStartingGame.delete(player1.userId);
+    usersStartingGame.delete(player2.userId);
+    console.log(`🔓 Released start-game locks for ${player1.userName || player1.userId} and ${player2.userName || player2.userId}`);
   }
 };
 
@@ -2930,7 +2974,7 @@ const stopTimerBroadcast = (gameId) => {
     const { intervalId } = timerBroadcasts.get(gameId);
     clearInterval(intervalId);
     timerBroadcasts.delete(gameId);
-    console.log(`🛑 Stopped timer broadcast for game ${gameId}`);
+    // console.log(`🛑 Stopped timer broadcast for game ${gameId}`);
   }
 };
 
@@ -3316,14 +3360,14 @@ const scheduleNextAction = async (gameId) => {
 // --- State Consistency Checker (Repairs stuck games) ---
 // Fix for Issue #4: Reduced frequency from 5s to 30s to reduce database load
 const runStateConsistencyChecker = () => {
-  const CHECK_INTERVAL_MS = 30000; // every 30s (was 5s - 6x improvement)
+  const CHECK_INTERVAL_MS = 30000; // every 30s
   setInterval(async () => {
     try {
       const Game = require('./models/Game');
       const now = Date.now();
       const STALE_THRESHOLD_MS = 5000; // 5 seconds
 
-      const activeGames = await Game.find({ status: 'ACTIVE' });
+      const activeGames = await Game.find({ status: 'ACTIVE' }).limit(50); // Limit to 50 games per check to prevent CPU spike
       for (const game of activeGames) {
         let changed = false;
 
@@ -3480,7 +3524,15 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Error in stuck state detection:', error);
   }
-}, 60000); // Check every 60 seconds (was 30s, reduced aggressiveness)
+} catch (error) {
+  console.error('❌ Error in stuck state detection:', error);
+}
+}, 60000); // Check every 60 seconds
+
+// Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
+setTimeout(() => {
+  // Start stuck detector after 15s delay to stagger load
+}, 15000);
 
 io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
@@ -3578,6 +3630,28 @@ io.on('connection', (socket) => {
       // Check if user is Super Admin
       if (user.role === 'SUPER_ADMIN') {
         socket.emit('ERROR', { message: 'Super Admin cannot create match requests' });
+        return;
+      }
+
+      // Check if user already has an active match request
+      for (const [id, req] of activeMatchRequests.entries()) {
+        if (req.userId === userId) {
+          socket.emit('ERROR', { message: 'You already have an active match request' });
+          return;
+        }
+      }
+
+      // Check if user is already in an active game
+      const Game = require('./models/Game');
+      const activeGame = await Game.findOne({
+        status: 'ACTIVE',
+        'players.userId': userId
+      });
+
+      if (activeGame) {
+        // Strict blocking: No new games if an active game exists
+        console.log(`🚫 User ${userId} blocked from creating match lock due to active game ${activeGame.gameId}`);
+        socket.emit('ERROR', { message: 'You are already in an active game. Please finish it first.' });
         return;
       }
 
@@ -3680,21 +3754,34 @@ io.on('connection', (socket) => {
       socket.emit('ERROR', { message: 'Failed to create match request: ' + error.message });
     }
   });
-
   // Accept a match request
   socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
     console.log(`✋ Player ${userName || userId} accepting match request ${requestId}`);
 
-    try {
-      const request = activeMatchRequests.get(requestId);
-      if (!request) {
-        socket.emit('ERROR', { message: 'Match request no longer available' });
-        return;
-      }
+    const request = activeMatchRequests.get(requestId);
+    if (!request) {
+      socket.emit('ERROR', { message: 'Match request no longer available' });
+      return;
+    }
 
+    if (request.processing) {
+      socket.emit('ERROR', { message: 'Match request is being processed' });
+      return;
+    }
+
+    // Lock the request
+    request.processing = true;
+
+    try {
       // Prevent self-acceptance
       if (request.userId === userId) {
         socket.emit('ERROR', { message: 'Cannot accept your own match request' });
+        return;
+      }
+
+      // Check global lock - prevent accepting if either user is already starting a game
+      if (usersStartingGame.has(userId) || usersStartingGame.has(request.userId)) {
+        socket.emit('ERROR', { message: 'One of the players is already starting a game. Please wait.' });
         return;
       }
 
@@ -3703,6 +3790,56 @@ io.on('connection', (socket) => {
       if (!acceptor) {
         socket.emit('ERROR', { message: 'User not found' });
         return;
+      }
+
+      // Check if acceptor is already in an active game
+      const Game = require('./models/Game');
+      const acceptorActiveGame = await Game.findOne({
+        status: 'ACTIVE',
+        'players.userId': userId
+      });
+
+      if (acceptorActiveGame) {
+        // Strict blocking: No new games if an active game exists
+        console.log(`🚫 User ${userId} blocked from accepting match due to active game ${acceptorActiveGame.gameId}`);
+        socket.emit('ERROR', { message: 'You are already in an active game.' });
+        return;
+      }
+
+      // Check if creator is already in an active game (race condition safety)
+      const creatorActiveGame = await Game.findOne({
+        status: 'ACTIVE',
+        'players.userId': request.userId
+      });
+
+      if (creatorActiveGame) {
+        console.log(`🚫 Request creator ${request.userId} blocked from match due to active game ${creatorActiveGame.gameId}`);
+
+        // Remove request as creator is busy
+        activeMatchRequests.delete(requestId);
+        const timer = requestTimers.get(requestId);
+        if (timer) {
+          clearTimeout(timer);
+          requestTimers.delete(requestId);
+        }
+        io.emit('match_request_removed', { requestId });
+
+        socket.emit('ERROR', { message: 'Request creator is already in another game.' });
+        return;
+      }
+
+      // Remove any active request by the acceptor
+      for (const [id, req] of activeMatchRequests.entries()) {
+        if (req.userId === userId) {
+          console.log(`🗑️ Removing existing request ${id} for user ${userId} as they accepted another match`);
+          activeMatchRequests.delete(id);
+          const timer = requestTimers.get(id);
+          if (timer) {
+            clearTimeout(timer);
+            requestTimers.delete(id);
+          }
+          io.emit('match_request_removed', { requestId: id });
+        }
       }
 
       if (acceptor.role === 'SUPER_ADMIN') {
@@ -3749,10 +3886,29 @@ io.on('connection', (socket) => {
         request.stake
       );
 
+      // Aggressively remove ALL other requests involving these two users to prevent stale accepts
+      console.log(`🧹 Cleaning up all requests involving ${request.userId} and ${userId}`);
+      for (const [id, req] of activeMatchRequests.entries()) {
+        if (req.userId === request.userId || req.userId === userId) {
+          console.log(`🗑️ removing stale request ${id} for user ${req.userId}`);
+          activeMatchRequests.delete(id);
+          const timer = requestTimers.get(id);
+          if (timer) {
+            clearTimeout(timer);
+            requestTimers.delete(id);
+          }
+          io.emit('match_request_removed', { requestId: id });
+        }
+      }
+
       console.log(`✅ Match request ${requestId} accepted, game created`);
     } catch (error) {
       console.error('Error in accept_match_request:', error);
       socket.emit('ERROR', { message: 'Failed to accept match request: ' + error.message });
+    } finally {
+      if (activeMatchRequests.has(requestId)) {
+        request.processing = false;
+      }
     }
   });
 

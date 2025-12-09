@@ -132,17 +132,8 @@ const processGameSettlement = async (game) => {
         }
 
         // ============================================================================
-        // DETAILED PRE-SETTLEMENT AUDIT
+        // DETAILED PRE-SETTLEMENT AUDIT (Reduced logging)
         // ============================================================================
-        console.log(`\n📊 PRE-SETTLEMENT BALANCES:`);
-        console.log(`   Winner (${winner.username}):`);
-        console.log(`      - Balance: $${winner.balance.toFixed(2)}`);
-        console.log(`      - Reserved: $${winner.reservedBalance.toFixed(2)}`);
-        console.log(`      - Total Available: $${(winner.balance).toFixed(2)}`);
-        console.log(`   Loser (${loser.username}):`);
-        console.log(`      - Balance: $${loser.balance.toFixed(2)}`);
-        console.log(`      - Reserved: $${loser.reservedBalance.toFixed(2)}`);
-        console.log(`      - Total Available: $${(loser.balance).toFixed(2)}`);
 
         // ============================================================================
         // SETTLEMENT CALCULATIONS
@@ -847,44 +838,8 @@ function executeMoveToken(game, tokenId) {
     if (actualFinalPosition.type === 'HOME') {
         const movingToken = game.tokens.find(t => t.id === tokenId);
         console.log(`\n${'='.repeat(60)}`);
-        console.log(`🏠 HOME ENTRY DETECTED`);
-        console.log(`${'='.repeat(60)}`);
-        console.log(`   Token ID: ${tokenId}`);
-        console.log(`   Player: ${player.username || player.color} (${player.color})`);
-        console.log(`   Previous position:`, JSON.stringify(movingToken?.position));
-        console.log(`   Dice value: ${game.diceValue}`);
-        console.log(`   Move validated:`, JSON.stringify(move));
-        console.log(`   Arrows triggered: ${arrowsTriggered}`);
-        console.log(`${'='.repeat(60)}\n`);
-    }
+        // Logs removed for performance optimization
 
-    // Now move the token ONCE to the ACTUAL final position (either normal or jumped)
-    game.tokens = game.tokens.map(t => {
-        if (t.id === tokenId) {
-            t.position = actualFinalPosition;
-        }
-        return t;
-    });
-
-    // Capture Logic - NOW USES ACTUAL FINAL POSITION (after Arrows Rule teleport)
-    if (actualFinalPosition.type === 'PATH' && !SAFE_SQUARES.includes(actualFinalPosition.index)) {
-        const targetPos = actualFinalPosition.index;
-        const opponentTokensAtTarget = game.tokens.filter(t =>
-            t.color !== player.color &&
-            t.position.type === 'PATH' &&
-            t.position.index === targetPos
-        );
-
-        // ADD COMBAT BUG DEBUG LOGGING HERE
-        console.log("=== COMBAT BUG DEBUG ===");
-        console.log("Moving to:", targetPos);
-        console.log("Is Safe Zone (from SAFE_SQUARES):", SAFE_SQUARES.includes(targetPos));
-        const allOccupants = game.tokens.filter(t => t.position.type === 'PATH' && t.position.index === targetPos);
-        console.log("Current Occupants (before potential kill):", allOccupants.map(o => ({ id: o.id, color: o.color, pos: o.position })));
-        const hasOpponentOccupants = opponentTokensAtTarget.length > 0;
-        console.log("Opponent Occupants (filtered for moving player):", opponentTokensAtTarget.map(o => ({ id: o.id, color: o.color })));
-        console.log("Combat Should Trigger (conditions: !isSafeZone && hasOpponentOccupants):", !SAFE_SQUARES.includes(targetPos) && hasOpponentOccupants);
-        console.log("--------------------------");
 
 
         // 🛡️ SAFE POSITION RULE: 2+ opponent pawns form a protective block (no capture)
@@ -940,8 +895,7 @@ function executeMoveToken(game, tokenId) {
 
     const grantExtraTurn = game.diceValue === 6 || captured || move.finalPosition.type === 'HOME' || arrowsTriggered;
 
-    console.log(`🎯 Move completed: diceValue=${game.diceValue}, grantExtraTurn=${grantExtraTurn}, captured=${captured}, reachedHome=${move.finalPosition.type === 'HOME'}`);
-    console.log(`🎯 Turn transition: currentIndex=${game.currentPlayerIndex}, nextIndex=${getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn)}`);
+    // console.log(`🎯 Move completed: diceValue=${game.diceValue}`);
 
     // Transition to next player (or same player if extra turn) - same as local game NEXT_TURN
     const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
