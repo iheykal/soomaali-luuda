@@ -2494,6 +2494,7 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
 const activeMatchRequests = new Map(); // requestId -> { userId, userName, stake, timestamp, socketId, expiresAt }
 const requestTimers = new Map(); // requestId -> timeoutId
 const usersStartingGame = new Set(); // Global lock for users currently entering a game (userId)
+const pendingDisconnects = new Map(); // userId -> { timeoutId, gameId } - Graceful disconnect handling
 
 // Clean up expired requests periodically
 setInterval(() => {
@@ -3524,10 +3525,13 @@ setInterval(async () => {
   } catch (error) {
     console.error('❌ Error in stuck state detection:', error);
   }
-} catch (error) {
-  console.error('❌ Error in stuck state detection:', error);
-}
 }, 60000); // Check every 60 seconds
+
+// Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
+// Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
+// Note: Staggering requires wrapping the interval above in a function, which we skipped to minimize code churn. 
+// The reduced frequency (60s) and query limits are sufficient for optimization.
+
 
 // Stagger the checkers to prevent CPU spikes (Consistency checker runs at 0s, 30s; Stuck detector runs at 15s, 75s...)
 setTimeout(() => {
@@ -3995,6 +3999,17 @@ io.on('connection', (socket) => {
 
   socket.on('join_game', async ({ gameId, userId, playerColor }) => {
     console.log(`🎮 Player ${userId} joining game ${gameId} as ${playerColor}`);
+
+    // GRACEFUL RECONNECT: Check if this user has a pending disconnect and cancel it
+    if (pendingDisconnects.has(userId)) {
+      const pending = pendingDisconnects.get(userId);
+      if (pending && pending.gameId === gameId) {
+        console.log(`♻️ Graceful reconnect for user ${userId} in game ${gameId} - cancelling bot takeover.`);
+        clearTimeout(pending.timeoutId);
+        pendingDisconnects.delete(userId);
+      }
+    }
+
     socket.join(gameId);
     socket.gameId = gameId; // Map socket to game for disconnect handling
 
@@ -4356,6 +4371,52 @@ io.on('connection', (socket) => {
 
     // Handle game disconnect
     if (socket.gameId) {
+      const gameId = socket.gameId;
+      console.log(`🔌 Player disconnected from game ${gameId}. checking...`);
+
+      // Find userId for this socket to handle graceful disconnect
+      try {
+        const Game = require('./models/Game');
+        const game = await Game.findOne({ gameId });
+        if (game) {
+          const player = game.players.find(p => p.socketId === socket.id);
+
+          if (player && player.userId) {
+            const userId = player.userId;
+            console.log(`⏳ Scheduling graceful disconnect for user ${userId} in game ${gameId} (15s grace period)`);
+
+            // Schedule delayed disconnect handling
+            const disconnectTimeout = setTimeout(async () => {
+              console.log(`🤖 Grace period expired for user ${userId}. Executing disconnect logic.`);
+              pendingDisconnects.delete(userId);
+
+              // CRITICAL: Clear any pending timers for this game to prevent memory leaks and dangling actions
+              clearAllTimersForGame(gameId);
+              console.log(`🧹 Cleared all timers for game ${gameId} due to player disconnect.`);
+
+              const result = await gameEngine.handleDisconnect(gameId, socket.id);
+              if (result) {
+                // Ensure state is a plain object
+                const plainState = result.state.toObject ? result.state.toObject() : result.state;
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+                if (result.isCurrentTurn) {
+                  scheduleAutoTurn(gameId, 1000);
+                }
+              }
+            }, 15000); // 15 seconds grace period
+
+            pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+            return; // EXIT HERE - Don't run immediate disconnect logic
+          }
+        }
+      } catch (err) {
+        console.error('Error in delayed disconnect setup:', err);
+      }
+
+      // Fallback: If we couldn't identify the user or something failed, run legacy immediate disconnect
+      // This path runs if the player wasn't found in DB or didn't have a userId
+      console.log(`⚠️ Immediate disconnect for socket ${socket.id} (User not found or lookup failed)`);
+
       // CRITICAL: Clear any pending timers for this game to prevent memory leaks and dangling actions
       clearAllTimersForGame(socket.gameId);
       console.log(`🧹 Cleared all timers for game ${socket.gameId} due to player disconnect.`);
