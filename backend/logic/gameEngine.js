@@ -599,16 +599,10 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
         if (player.socketId !== socketId) return { success: false, message: 'Not your turn' };
 
         // Execute the move in memory
-        const { success, state: updatedGameState, settlementPromise, message, killedTokenId } = executeMoveToken(game, tokenId);
+        const { success, state: updatedGameState, settlementPromise, message, killedTokenId, gameCompleted } = executeMoveToken(game, tokenId);
 
         if (!success) {
             return { success: false, message };
-        }
-
-        // If there's a settlement promise, await it and capture the data
-        let settlementData = null;
-        if (settlementPromise) {
-            settlementData = await settlementPromise;
         }
 
         // Now, save the final state to the database
@@ -631,6 +625,14 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
                 }
             }
         );
+
+        // CHECK SETTLEMENT AFTER SAVE
+        // This ensures processGameSettlement reads the WIN status from the DB
+        let settlementData = null;
+        if (gameCompleted) {
+            console.log(`🏆 Game ${gameId} completed. Triggering settlement AFTER save...`);
+            settlementData = await processGameSettlement(game);
+        }
 
         const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
 
@@ -902,9 +904,13 @@ function executeMoveToken(game, tokenId) {
             const winnings = totalPot - commission;
             const profit = winnings - game.stake; // Calculate net profit
             game.message = `Ciyaarta way dhamaatay, waxaana badiyay ${winnerName} wuxuuna ku guuleystay $${profit.toFixed(2)} oo dollar`;
-            settlementPromise = processGameSettlement(game);
+
+            // DO NOT call settlement here. Just mark completion.
+            // settlementPromise = processGameSettlement(game); 
+            const gameCompleted = true; // Signal completion
+
             game.turnState = 'GAMEOVER';
-            return { success: true, state: game, settlementPromise, killedTokenId };
+            return { success: true, state: game, settlementPromise, killedTokenId, gameCompleted };
         }
     }
 
@@ -930,7 +936,7 @@ function executeMoveToken(game, tokenId) {
         game.diceValue = null;
     }
 
-    return { success: true, state: game, settlementPromise, killedTokenId };
+    return { success: true, state: game, settlementPromise, killedTokenId, gameCompleted: false };
 }
 
 exports.executeMoveToken = executeMoveToken;
