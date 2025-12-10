@@ -54,21 +54,35 @@ const START_POSITIONS = { red: 39, green: 0, yellow: 13, blue: 26 };
 const HOME_ENTRANCES = { red: 37, green: 50, yellow: 11, blue: 24 };
 
 // --- Wallet Settlement Function ---
-const processGameSettlement = async (game) => {
+const processGameSettlement = async (gameObj) => {
     try {
         console.log(`\n${'='.repeat(80)}`);
-        console.log(`💰 SETTLEMENT STARTED for game ${game.gameId}`);
+        console.log(`💰 SETTLEMENT STARTED for game ${gameObj.gameId}`);
         console.log(`${'='.repeat(80)}`);
 
-        // Prevent double settlement
-        if (game.settlementProcessed) {
-            console.log(`⚠️ Settlement already processed for game ${game.gameId}`);
-            return;
+        // ATOMIC LOCK: Try to set settlementProcessed to true ONLY IF it is currently false
+        // This prevents race conditions where multiple requests trigger settlement simultaneously
+        const game = await Game.findOneAndUpdate(
+            {
+                _id: gameObj._id,
+                $or: [
+                    { settlementProcessed: false },
+                    { settlementProcessed: { $exists: false } }
+                ]
+            },
+            { $set: { settlementProcessed: true } },
+            { new: true } // Return the updated document
+        );
+
+        if (!game) {
+            console.log(`⚠️ Settlement ALREADY processed for game ${gameObj.gameId} (Atomic Lock Rejection)`);
+            return null;
         }
+
+        console.log(`✅ ATOMIC LOCK ACQUIRED: Proceeding with settlement for game ${game.gameId}`);
 
         if (!game.stake || game.stake <= 0) {
             console.log(`⚠️ No stake set for game ${game.gameId}, skipping settlement.`);
-            game.settlementProcessed = true;
             return;
         }
 
@@ -158,10 +172,13 @@ const processGameSettlement = async (game) => {
             console.error(`🚨 CRITICAL ERROR: Winner's reserved balance ($${winner.reservedBalance}) is less than stake ($${stake})!`);
             console.error(`   This should NEVER happen! Investigation required.`);
             // We'll continue but log this as critical
+            // Correcting it automatically to prevent negative reserved
+            // winner.reservedBalance = Math.max(stake, winner.reservedBalance);
         }
         if (loser.reservedBalance < stake) {
             console.error(`🚨 CRITICAL ERROR: Loser's reserved balance ($${loser.reservedBalance}) is less than stake ($${stake})!`);
             console.error(`   This should NEVER happen! Investigation required.`);
+            // loser.reservedBalance = Math.max(stake, loser.reservedBalance);
         }
 
         // ============================================================================
@@ -172,7 +189,8 @@ const processGameSettlement = async (game) => {
         const winnerReservedBefore = winner.reservedBalance;
 
         winner.balance += winnings;
-        winner.reservedBalance -= stake;
+        // Make sure we don't go negative on reserved even if logic was off previously
+        winner.reservedBalance = Math.max(0, winner.reservedBalance - stake);
 
         console.log(`   Balance change: $${winnerBalanceBefore.toFixed(2)} + $${winnings.toFixed(2)} = $${winner.balance.toFixed(2)}`);
         console.log(`   Reserved change: $${winnerReservedBefore.toFixed(2)} - $${stake.toFixed(2)} = $${winner.reservedBalance.toFixed(2)}`);
@@ -241,7 +259,8 @@ const processGameSettlement = async (game) => {
         const loserBalanceBefore = loser.balance;
         const loserReservedBefore = loser.reservedBalance;
 
-        loser.reservedBalance -= stake;
+        // Ensure we don't go negative on reserved
+        loser.reservedBalance = Math.max(0, loser.reservedBalance - stake);
 
         console.log(`   Balance change: $${loserBalanceBefore.toFixed(2)} (no change - stake was in reserved)`);
         console.log(`   Reserved change: $${loserReservedBefore.toFixed(2)} - $${stake.toFixed(2)} = $${loser.reservedBalance.toFixed(2)}`);
@@ -263,9 +282,16 @@ const processGameSettlement = async (game) => {
 
         await loser.save();
 
-        game.settlementProcessed = true;
+        // ATOMIC lock handled this already
+        // game.settlementProcessed = true;
+
         // Show both total payout (winnings) and net profit to avoid confusion in the UI
         game.message = `${winner.username} won $${winnings.toFixed(2)} (net +$${profit.toFixed(2)})`;
+        // Since we modified game.message on the object returned from findOneAndUpdate, we should save it
+        // Or optimally, update it along with the initial lock, but message depends on calc.
+        // So we update it here. Since settlementProcessed is already true, this is safe.
+        await Game.updateOne({ _id: game._id }, { $set: { message: game.message } });
+
 
         // ============================================================================
         // POST-SETTLEMENT AUDIT
@@ -295,7 +321,7 @@ const processGameSettlement = async (game) => {
             stake: stake
         };
     } catch (error) {
-        console.error(`❌ Error processing settlement for game ${game.gameId}:`, error);
+        console.error(`❌ Error processing settlement for game ${gameObj.gameId}:`, error);
         console.error(`Stack trace:`, error.stack);
         return null;
     }
@@ -906,3 +932,6 @@ function executeMoveToken(game, tokenId) {
 
     return { success: true, state: game, settlementPromise, killedTokenId };
 }
+
+exports.executeMoveToken = executeMoveToken;
+exports.processGameSettlement = processGameSettlement;
