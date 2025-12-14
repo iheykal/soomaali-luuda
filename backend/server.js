@@ -1842,6 +1842,23 @@ app.post('/api/admin/games/force-rejoin/:gameId', authenticateToken, async (req,
       (global.io || io).to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
     }
 
+    // Emit FORCE_REJOIN_INVITE to each player's personal user room
+    // This ensures disconnected players receive the notification even if not in the game room
+    const ioInstance = global.io || io;
+    if (ioInstance) {
+      for (const player of game.players) {
+        if (!player.isAI && player.userId) {
+          const userRoom = `user_${player.userId}`;
+          console.log(`📢 Sending FORCE_REJOIN_INVITE to user room: ${userRoom} for game ${gameId}`);
+          ioInstance.to(userRoom).emit('FORCE_REJOIN_INVITE', {
+            gameId: game.gameId,
+            playerColor: player.color,
+            message: 'Admin invited you to rejoin the game. Refreshing...'
+          });
+        }
+      }
+    }
+
     res.json({ success: true, game: plainState });
   } catch (e) {
     console.error('Force rejoin error:', e);
@@ -2984,19 +3001,18 @@ const createMatch = async (player1, player2, stake) => {
             await game.save();
           }
 
-          // Check if player has socketId - if they do, they're human and connected
+          // Check if first player is Human/Connected and START TIMER
           if (firstPlayer && firstPlayer.socketId) {
-            // Player has socketId = human and connected = NO AUTO-ROLL
-            console.log(`⏱️ Human player ${firstPlayer.color} (has socketId: ${firstPlayer.socketId}) waiting for manual roll - player must click to roll`);
-            // NO AUTO-ROLL: Players must manually click the dice to roll
-            // This gives players full control over when to start the game
+            console.log(`⏱️ Starting auto-roll timer for first player ${firstPlayer.color} in game ${gameId}`);
+            scheduleHumanPlayerAutoRoll(gameId);
           } else if (firstPlayer && !firstPlayer.socketId && (firstPlayer.isAI || firstPlayer.isDisconnected)) {
             // Only auto-roll if player has NO socketId AND is marked as AI/disconnected
             console.log(`🤖 First player ${firstPlayer.color} has no socketId and is AI/disconnected, scheduling auto-turn`);
             scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
           } else if (firstPlayer) {
-            // Player exists but state is unclear - default to NO AUTO-ROLL for safety
-            console.log(`⚠️ First player ${firstPlayer.color} state unclear (socketId: ${firstPlayer.socketId}, isAI: ${firstPlayer.isAI}, isDisconnected: ${firstPlayer.isDisconnected}) - defaulting to NO AUTO-ROLL`);
+            // Fallback for unclear state - schedule timer to be safe
+            console.log(`⚠️ First player ${firstPlayer.color} state unclear - scheduling auto-roll timer for safety`);
+            scheduleHumanPlayerAutoRoll(gameId);
           } else {
             console.log(`⚠️ First player not found`);
           }
@@ -3454,15 +3470,26 @@ io.on('connection', (socket) => {
         }
       }
 
-    } else {
       console.error(`[SOCKET] Error in roll_dice for game ${gameId}: ${result.message || 'Failed to roll dice'}`);
       socket.emit('ERROR', { message: result.message || 'Failed to roll dice' });
+
+      // CRITICAL FIX: Restart timer if roll failed but game is still active
+      // This prevents the game from getting stuck if a user request fails validation
+      const Game = require('./models/Game');
+      const gameCheck = await Game.findOne({ gameId });
+      if (gameCheck && gameCheck.status === 'ACTIVE' && gameCheck.turnState === 'ROLLING') {
+        const currentPlayer = gameCheck.players[gameCheck.currentPlayerIndex];
+        if (currentPlayer && currentPlayer.socketId === socket.id) {
+          console.log(`[SOCKET] Restarting timer for ${currentPlayer.color} after failed roll`);
+          scheduleHumanPlayerAutoRoll(gameId);
+        }
+      }
+
       if (result.message === 'Wait for animation' || result.message === 'Not rolling state') {
-        const Game = require('./models/Game');
-        const currentGame = await Game.findOne({ gameId });
-        if (currentGame) {
+        // If we have gameCheck already, use it
+        if (gameCheck) {
           console.log(`[SOCKET] Emitting GAME_STATE_UPDATE due to specific error for game ${gameId}`);
-          socket.emit('GAME_STATE_UPDATE', { state: currentGame.toObject ? currentGame.toObject() : currentGame });
+          socket.emit('GAME_STATE_UPDATE', { state: gameCheck.toObject ? gameCheck.toObject() : gameCheck });
         }
       }
     }
@@ -3487,13 +3514,44 @@ io.on('connection', (socket) => {
       }
 
       const gameRecord = await Game.findOne({ gameId });
-      if (gameRecord && plainState.turnState === 'ROLLING') {
+      if (gameRecord && gameRecord.status === 'ACTIVE') {
         const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
-        if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId);
-        else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
+
+        if (gameRecord.turnState === 'ROLLING') {
+          // Next player's turn to roll
+          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
+            console.log(`[MOVE] Scheduling auto-turn for AI/disconnected player ${nextPlayer.color}`);
+            scheduleAutoTurn(gameId);
+          } else if (nextPlayer) {
+            console.log(`[MOVE] Scheduling human auto-roll timer for ${nextPlayer.color}`);
+            scheduleHumanPlayerAutoRoll(gameId);
+          }
+        } else if (gameRecord.turnState === 'MOVING') {
+          // Current player still has moves to make (e.g., rolled 6 or multiple legal moves)
+          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
+            console.log(`[MOVE] AI/disconnected player ${nextPlayer.color} in MOVING state, scheduling auto-move`);
+            scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_MOVE);
+          } else if (nextPlayer) {
+            console.log(`[MOVE] Human player ${nextPlayer.color} in MOVING state, scheduling auto-move timer`);
+            scheduleHumanPlayerAutoMove(gameId);
+          }
+        } else {
+          console.log(`[MOVE] Game ${gameId} in unexpected state: ${gameRecord.turnState}`);
+        }
       }
     } else {
       socket.emit('ERROR', { message: result.message });
+
+      // CRITICAL FIX: Restart timer if move failed
+      const Game = require('./models/Game');
+      const gameCheck = await Game.findOne({ gameId });
+      if (gameCheck && gameCheck.status === 'ACTIVE' && gameCheck.turnState === 'MOVING') {
+        const currentPlayer = gameCheck.players[gameCheck.currentPlayerIndex];
+        if (currentPlayer && currentPlayer.socketId === socket.id) {
+          console.log(`[SOCKET] Restarting move timer for ${currentPlayer.color} after failed move`);
+          scheduleHumanPlayerAutoMove(gameId);
+        }
+      }
     }
   });
 
@@ -3530,17 +3588,19 @@ io.on('connection', (socket) => {
               io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
               if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
             }
-          }, 15000);
-          pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
-          return;
-        }
+            if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+          }
+          }, 5000); // Reduced from 15000 to 5000 for smoother gameplay (User Request)
+  pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+  return;
+}
       }
       if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
-      const result = await gameEngine.handleDisconnect(gameId, socket.id);
-      if (result) {
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
-        if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
-      }
+const result = await gameEngine.handleDisconnect(gameId, socket.id);
+if (result) {
+  io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+  if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+}
     }
   });
 });
@@ -3653,14 +3713,39 @@ setInterval(async () => {
 
       if (isStalled) {
         const currentPlayer = game.players[game.currentPlayerIndex];
-        if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
-          console.log(`🐕 Watchdog: Kickstarting stalled game ${game.gameId} for ${currentPlayer.color}`);
+        if (!currentPlayer) continue;
+
+        // Check if we already have a timer for this game
+        const hasTimer = humanPlayerTimers.has(game.gameId);
+
+        if (currentPlayer.isAI || currentPlayer.isDisconnected) {
+          // AI/Disconnected player - execute action directly
+          console.log(`🐕 Watchdog: Kickstarting stalled game ${game.gameId} for AI/disconnected ${currentPlayer.color} (state: ${game.turnState})`);
           if (game.turnState === 'ROLLING') {
             await gameEngine.handleAutoRoll(game.gameId, true);
           } else if (game.turnState === 'MOVING') {
             await gameEngine.handleAutoMove(game.gameId);
           }
-          io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: game.toObject() });
+          // Refetch and emit updated state
+          const updatedGame = await Game.findOne({ gameId: game.gameId });
+          if (updatedGame) {
+            io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: updatedGame.toObject() });
+            // Schedule next action
+            const nextPlayer = updatedGame.players[updatedGame.currentPlayerIndex];
+            if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
+              scheduleAutoTurn(game.gameId, AUTO_TURN_DELAYS.AI_ROLL);
+            } else if (nextPlayer) {
+              scheduleHumanPlayerAutoRoll(game.gameId);
+            }
+          }
+        } else if (!hasTimer) {
+          // Connected human player but no timer running - restart timer
+          console.log(`🐕 Watchdog: Restarting dropped timer for human ${currentPlayer.color} in stalled game ${game.gameId} (state: ${game.turnState})`);
+          if (game.turnState === 'ROLLING') {
+            scheduleHumanPlayerAutoRoll(game.gameId);
+          } else if (game.turnState === 'MOVING') {
+            scheduleHumanPlayerAutoMove(game.gameId);
+          }
         }
       }
     }

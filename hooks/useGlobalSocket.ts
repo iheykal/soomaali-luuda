@@ -169,6 +169,36 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
             console.log('🔌 Global socket disconnected:', reason);
         });
 
+        // Listen for force rejoin invite from admin
+        socket.on('FORCE_REJOIN_INVITE', (data: { gameId: string; playerColor: string; message: string }) => {
+            console.log('🔔 FORCE_REJOIN_INVITE received:', data);
+
+            // Show browser notification if permitted
+            if ('Notification' in window && Notification.permission === 'granted') {
+                const notification = new Notification('🎮 Game Rejoin Invite', {
+                    body: data.message || 'Admin invited you to rejoin the game',
+                    icon: '/wello.png',
+                    badge: '/wello.png',
+                    tag: `rejoin_${data.gameId}`,
+                    requireInteraction: false,
+                });
+
+                notification.onclick = () => {
+                    window.focus();
+                    notification.close();
+                };
+
+                setTimeout(() => notification.close(), 5000);
+            }
+
+            // Reload the page to trigger the checkActiveGame flow
+            // This will detect the active game and show the rejoin banner
+            console.log('🔄 Reloading page to rejoin game...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000); // Small delay to let the notification show
+        });
+
         // Listen for financial request updates
         socket.on('financial_request_update', (data: FinancialNotification) => {
             console.log('💰 Financial request update received:', data);
