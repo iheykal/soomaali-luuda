@@ -3589,18 +3589,17 @@ io.on('connection', (socket) => {
               if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
             }
             if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
-          }
           }, 5000); // Reduced from 15000 to 5000 for smoother gameplay (User Request)
-  pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
-  return;
-}
+          pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+          return;
+        }
       }
       if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
-const result = await gameEngine.handleDisconnect(gameId, socket.id);
-if (result) {
-  io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
-  if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
-}
+      const result = await gameEngine.handleDisconnect(gameId, socket.id);
+      if (result) {
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+        if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+      }
     }
   });
 });
