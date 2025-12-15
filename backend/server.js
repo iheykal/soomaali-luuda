@@ -49,7 +49,7 @@ app.use((req, res, next) => {
 app.set('trust proxy', 1); // Trust the first proxy, which is what Render uses
 
 app.use(cors({
-  origin: '*',
+  origin: true, // Reflect the request origin (works with credentials)
   credentials: true
 }));
 
@@ -81,8 +81,9 @@ const socketOrigins = process.env.FRONTEND_URL === "*"
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: true, // Reflect request origin
+    methods: ["GET", "POST"],
+    credentials: true
   },
   transports: ['websocket', 'polling'], // Prioritize websocket and fallback to polling
   allowEIO3: true, // Allow Engine.IO v3 clients
@@ -3145,8 +3146,12 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
         } else {
           scheduleHumanPlayerAutoMove(gameId);
         }
+      } else {
+        console.log(`⚠️ Auto-roll failed for ${gameId}: ${result?.message}`);
       }
-    } catch (error) { console.error(error); }
+    } catch (error) {
+      console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
+    }
   }, 7000);
   humanPlayerTimers.set(gameId, timer);
 };
@@ -3174,8 +3179,12 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
             scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_MOVE);
           }
         }
+      } else {
+        console.log(`⚠️ Auto-move failed for ${gameId}: ${result?.message}`);
       }
-    } catch (error) { console.error(error); }
+    } catch (error) {
+      console.error(`❌ Error in auto-move timer for ${gameId}:`, error);
+    }
   }, 18000);
   humanPlayerTimers.set(gameId, timer);
 };
@@ -3261,6 +3270,8 @@ io.on('connection', (socket) => {
       socket.emit('registration_confirmed', { userId, room: userRoom, socketId: socket.id });
     }
   });
+
+
 
   socket.on('create_match_request', async ({ stake, userId, userName }) => {
     try {

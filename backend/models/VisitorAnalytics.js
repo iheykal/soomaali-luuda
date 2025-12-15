@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const VisitorAnalyticsSchema = new mongoose.Schema({
     // User identification
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, // null for anonymous
+    userId: { type: String, ref: 'User', default: null }, // String to support custom IDs like 'u12345'
     sessionId: { type: String, required: true, index: true }, // Unique session identifier
 
     // Visitor info

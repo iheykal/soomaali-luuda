@@ -555,12 +555,12 @@ exports.handleRollDice = async (gameId, socketId) => {
         }
 
         if (player.socketId !== socketId && !player.isDisconnected) {
-            console.warn(`⚠️ Roll blocked: Not your turn. PlayerSocket=${player.socketId}, RequestSocket=${socketId}`);
+            console.warn(`⚠️ Roll blocked: Not your turn. Expected Socket=${player.socketId}, Got Socket=${socketId}, PlayerColor=${player.color}`);
             return { success: false, message: 'Not your turn' };
         }
 
         if (game.turnState !== 'ROLLING') {
-            console.warn(`⚠️ Roll blocked: Game not in ROLLING state. Current state: ${game.turnState}, Dice: ${game.diceValue}`);
+            console.warn(`⚠️ Roll blocked: Game not in ROLLING state. Current state: ${game.turnState}, Dice: ${game.diceValue}, Player: ${player.color}`);
             return { success: false, message: 'Not in ROLLING state' };
         }
 

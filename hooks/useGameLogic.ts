@@ -607,6 +607,14 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         socket.on('ERROR', (data: { message: string }) => {
             debugService.error({ event: 'receive', type: 'ERROR', data });
+            console.error('❌ SOCKET ERROR:', data.message);
+
+            // Show alert for critical gameplay errors to give user feedback
+            if (data.message === 'Not your turn' || data.message.includes('blocked') || data.message.includes('Game not found')) {
+                // Use a toast or non-blocking alert if possible, but built-in alert is fine for now
+                // alert(data.message); 
+                // Actually, alert might be annoying. Let's just ensure it's logged visibly.
+            }
         });
 
         return () => {
