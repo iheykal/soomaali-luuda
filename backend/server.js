@@ -3375,7 +3375,7 @@ io.on('connection', (socket) => {
 
   socket.on('watch_game', async ({ gameId }) => {
     socket.join(gameId);
-    const Game = require('./models/Game');
+
     try {
       const game = await Game.findOne({ gameId });
       if (game) {
@@ -3417,7 +3417,7 @@ io.on('connection', (socket) => {
       clearTimeout(humanPlayerTimers.get(gameId));
       humanPlayerTimers.delete(gameId);
     }
-    const Game = require('./models/Game');
+
     const gameBeforeRoll = await Game.findOne({ gameId });
     if (!gameBeforeRoll) {
       console.log(`[SOCKET] Game ${gameId} not found during roll_dice.`);
@@ -3486,7 +3486,7 @@ io.on('connection', (socket) => {
 
       // CRITICAL FIX: Restart timer if roll failed but game is still active
       // This prevents the game from getting stuck if a user request fails validation
-      const Game = require('./models/Game');
+
       const gameCheck = await Game.findOne({ gameId });
       if (gameCheck && gameCheck.status === 'ACTIVE' && gameCheck.turnState === 'ROLLING') {
         const currentPlayer = gameCheck.players[gameCheck.currentPlayerIndex];
@@ -3509,7 +3509,7 @@ io.on('connection', (socket) => {
   socket.on('move_token', async ({ gameId, tokenId }) => {
     if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
 
-    const Game = require('./models/Game');
+
     const result = await gameEngine.handleMoveToken(gameId, socket.id, tokenId);
 
     if (result.success) {
@@ -3554,7 +3554,7 @@ io.on('connection', (socket) => {
       socket.emit('ERROR', { message: result.message });
 
       // CRITICAL FIX: Restart timer if move failed
-      const Game = require('./models/Game');
+
       const gameCheck = await Game.findOne({ gameId });
       if (gameCheck && gameCheck.status === 'ACTIVE' && gameCheck.turnState === 'MOVING') {
         const currentPlayer = gameCheck.players[gameCheck.currentPlayerIndex];
@@ -3567,7 +3567,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_chat_message', async ({ gameId, userId, message }) => {
-    const Game = require('./models/Game');
+
     const game = await Game.findOne({ gameId });
     if (game) {
       const player = game.players.find(p => p.userId === userId);
@@ -3585,7 +3585,7 @@ io.on('connection', (socket) => {
 
     if (socket.gameId) {
       const gameId = socket.gameId;
-      const Game = require('./models/Game');
+
       const game = await Game.findOne({ gameId });
       if (game) {
         const player = game.players.find(p => p.socketId === socket.id);
@@ -3599,7 +3599,7 @@ io.on('connection', (socket) => {
               io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
               if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
             }
-            if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+
           }, 5000); // Reduced from 15000 to 5000 for smoother gameplay (User Request)
           pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
           return;
@@ -3619,7 +3619,7 @@ io.on('connection', (socket) => {
 // Scheduled Task: Cleanup Stale Games (Every 6 Hours)
 setInterval(async () => {
   try {
-    const Game = require('./models/Game');
+
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     // Find games that are 'ACTIVE' but haven't been updated in 24 hours
@@ -3689,7 +3689,7 @@ const HOST = process.env.HOST || '0.0.0.0'; // Listen on all network interfaces 
 const performStartupCleanup = async () => {
   try {
     console.log('🧹 Performing startup cleanup...');
-    const Game = require('./models/Game');
+
     // Update all ACTIVE games to mark players as disconnected
     const result = await Game.updateMany(
       { status: 'ACTIVE' },
@@ -3710,7 +3710,7 @@ const performStartupCleanup = async () => {
 // Checks every 10 seconds for games that are "stuck" (no activity for > 20s) due to dropped events.
 setInterval(async () => {
   try {
-    const Game = require('./models/Game');
+
     const gameEngine = require('./logic/gameEngine');
     const now = Date.now();
     const stalledThreshold = 20000; // 20 seconds without activity
