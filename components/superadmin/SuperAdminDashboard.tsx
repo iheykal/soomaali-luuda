@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { adminAPI } from '../../services/adminAPI';
-import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse } from '../../types';
-import Board from '../GameBoard';
-import { useGameLogic } from '../../hooks/useGameLogic';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import html2canvas from 'html2canvas';
+import { adminAPI } from '../../services/adminAPI';
+import { useAuth } from '../../context/AuthContext';
+import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState } from '../../types';
 import TransactionReceipt from '../TransactionReceipt';
 
 // --- Spectator Modal Component ---
@@ -130,7 +129,11 @@ interface SuperAdminDashboardProps {
 type AdminTab = 'dashboard' | 'users' | 'games' | 'wallet' | 'revenue' | 'settings';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const { user } = useAuth();
+  // Default to 'wallet' for standard ADMIN, 'dashboard' for SUPER_ADMIN
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    return (user?.role === 'ADMIN' && user?.role !== 'SUPER_ADMIN') ? 'wallet' : 'dashboard';
+  });
   const [users, setUsers] = useState<User[]>([]);
   const [requests, setRequests] = useState<FinancialRequest[]>([]);
   const [revenueStats, setRevenueStats] = useState<{
@@ -549,22 +552,22 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
 
   // Fetch data based on active tab
   useEffect(() => {
-    if (activeTab === 'users' || activeTab === 'dashboard') {
+    if ((activeTab === 'users' || activeTab === 'dashboard') && user?.role === 'SUPER_ADMIN') {
       fetchUsers();
     }
     if (activeTab === 'wallet' || activeTab === 'dashboard') {
       fetchRequests();
     }
-    if (activeTab === 'revenue' || activeTab === 'dashboard') {
+    if ((activeTab === 'revenue' || activeTab === 'dashboard') && user?.role === 'SUPER_ADMIN') {
       fetchRevenue();
     }
-    if (activeTab === 'games' || activeTab === 'dashboard') {
+    if ((activeTab === 'games' || activeTab === 'dashboard') && user?.role === 'SUPER_ADMIN') {
       fetchActiveGames();
     }
-    if (activeTab === 'dashboard') {
+    if (activeTab === 'dashboard' && user?.role === 'SUPER_ADMIN') {
       fetchVisitorAnalytics();
     }
-  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics]);
+  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, user]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -573,28 +576,37 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         return (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-              <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 sm:p-6 rounded-xl border-2 border-green-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('users')}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="p-3 bg-green-500 rounded-xl group-hover:scale-110 transition-transform">
-                    <span className="text-2xl">👥</span>
+              {/* Users - Only for SUPER_ADMIN */}
+              {(user?.role === 'SUPER_ADMIN') && (
+                <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 sm:p-6 rounded-xl border-2 border-green-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('users')}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-green-500 rounded-xl group-hover:scale-110 transition-transform">
+                      <span className="text-2xl">👥</span>
+                    </div>
+                    <span className="text-green-600 text-sm font-semibold">View All →</span>
                   </div>
-                  <span className="text-green-600 text-sm font-semibold">View All →</span>
+                  <h2 className="text-lg sm:text-xl font-bold mb-2 text-green-700">Total Users</h2>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{users.length}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Registered players</p>
                 </div>
-                <h2 className="text-lg sm:text-xl font-bold mb-2 text-green-700">Total Users</h2>
-                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{users.length}</p>
-                <p className="text-xs sm:text-sm text-gray-600">Registered players</p>
-              </div>
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 sm:p-6 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('games')}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="p-3 bg-blue-500 rounded-xl group-hover:scale-110 transition-transform">
-                    <span className="text-2xl">🎮</span>
+              )}
+
+              {/* Active Games - Only for SUPER_ADMIN */}
+              {(user?.role === 'SUPER_ADMIN') && (
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 sm:p-6 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('games')}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-blue-500 rounded-xl group-hover:scale-110 transition-transform">
+                      <span className="text-2xl">🎮</span>
+                    </div>
+                    <span className="text-blue-600 text-sm font-semibold">View All →</span>
                   </div>
-                  <span className="text-blue-600 text-sm font-semibold">View All →</span>
+                  <h2 className="text-lg sm:text-xl font-bold mb-2 text-blue-700">Active Games</h2>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{activeGames.length}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Matches in progress</p>
                 </div>
-                <h2 className="text-lg sm:text-xl font-bold mb-2 text-blue-700">Active Games</h2>
-                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{activeGames.length}</p>
-                <p className="text-xs sm:text-sm text-gray-600">Matches in progress</p>
-              </div>
+              )}
+
+              {/* Wallet - Visible to ADMIN and SUPER_ADMIN */}
               <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-5 sm:p-6 rounded-xl border-2 border-yellow-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('wallet')}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="p-3 bg-yellow-500 rounded-xl group-hover:scale-110 transition-transform">
@@ -606,19 +618,23 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">{pendingRequestsCount}</p>
                 <p className="text-xs sm:text-sm text-gray-600">Wallet transactions</p>
               </div>
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-5 sm:p-6 rounded-xl border-2 border-purple-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('revenue')}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="p-3 bg-purple-500 rounded-xl group-hover:scale-110 transition-transform">
-                    <span className="text-2xl">📈</span>
+
+              {/* Revenue - Only for SUPER_ADMIN */}
+              {(user?.role === 'SUPER_ADMIN') && (
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-5 sm:p-6 rounded-xl border-2 border-purple-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('revenue')}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-purple-500 rounded-xl group-hover:scale-110 transition-transform">
+                      <span className="text-2xl">📈</span>
+                    </div>
+                    <span className="text-purple-600 text-sm font-semibold">View All →</span>
                   </div>
-                  <span className="text-purple-600 text-sm font-semibold">View All →</span>
+                  <h2 className="text-lg sm:text-xl font-bold mb-2 text-purple-700">Total Revenue</h2>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Platform earnings (10%)</p>
                 </div>
-                <h2 className="text-lg sm:text-xl font-bold mb-2 text-purple-700">Total Revenue</h2>
-                <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
-                <p className="text-xs sm:text-sm text-gray-600">Platform earnings (10%)</p>
-              </div>
+              )}
             </div>
-            {visitorAnalytics && (
+            {visitorAnalytics && user?.role === 'SUPER_ADMIN' && (
               <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
                 <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2 justify-between">
                   <div className="flex items-center gap-2">
@@ -1792,6 +1808,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         </div>
 
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {/* Dashboard - Visible to all, content adapts */}
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'dashboard'
@@ -1803,28 +1820,35 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <span>Dashboard</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'users'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
-          >
-            <span className="text-lg sm:text-xl">👥</span>
-            <span>Users</span>
-          </button>
+          {/* Users - Super Admin Only */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'users'
+                ? 'bg-green-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">👥</span>
+              <span>Users</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('games')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'games'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
-          >
-            <span className="text-lg sm:text-xl">🎮</span>
-            <span>Active Games</span>
-          </button>
+          {/* Games - Super Admin Only */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('games')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'games'
+                ? 'bg-green-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">🎮</span>
+              <span>Active Games</span>
+            </button>
+          )}
 
+          {/* Wallet - Visible to All Admins */}
           <button
             onClick={() => setActiveTab('wallet')}
             className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'wallet'
@@ -1836,16 +1860,19 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <span>Wallet Requests</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('revenue')}
-            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'revenue'
-              ? 'bg-green-600 text-white shadow-md font-semibold'
-              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
-              }`}
-          >
-            <span className="text-lg sm:text-xl">📈</span>
-            <span>Revenue</span>
-          </button>
+          {/* Revenue - Super Admin Only */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('revenue')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'revenue'
+                ? 'bg-green-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">📈</span>
+              <span>Revenue</span>
+            </button>
+          )}
         </nav>
 
         <div className="p-4 border-t border-gray-200">
