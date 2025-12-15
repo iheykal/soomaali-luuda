@@ -343,7 +343,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-800 p-4 relative">
       {/* Conditionally render the Rejoin Game Banner */}
       {showRejoinBanner && activeGameInfo && (
-          <RejoinGameBanner
+        <RejoinGameBanner
           gameId={activeGameInfo.gameId}
           playerColor={activeGameInfo.playerColor}
           prize={(activeGameInfo.stake || 0) * 0.8}
@@ -358,8 +358,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         <div className="flex items-center gap-2">
           {/* Super Admin Button */}
           {(() => {
-            // Check for SUPER_ADMIN role (case-sensitive)
-            const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+            // Check for SUPER_ADMIN or ADMIN role
+            const isSuperAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
 
             if (isSuperAdmin && onEnterSuperAdmin) {
               return (
@@ -468,7 +468,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
 
           {/* Super Admin Button - Prominent in Main Menu */}
-          {user?.role === 'SUPER_ADMIN' && onEnterSuperAdmin && (
+          {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && onEnterSuperAdmin && (
             <button
               onClick={onEnterSuperAdmin}
               className="w-full flex items-center justify-center space-x-3 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold text-xl py-4 rounded-lg shadow-xl transition transform hover:scale-105 border-2 border-purple-400/50 mt-4"

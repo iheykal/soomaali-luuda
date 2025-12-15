@@ -239,12 +239,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (isAuthenticated && !authLoading && view === 'login') {
       console.log('👤 User already authenticated, setting view to setup');
-      // Check if user is Super Admin
-      if (user?.role === 'SUPER_ADMIN') {
-        setView('superadmin');
-      } else {
-        setView('setup');
-      }
+      setView('setup');
     }
   }, [isAuthenticated, authLoading, view, user]);
 
@@ -258,17 +253,7 @@ const AppContent: React.FC = () => {
       localStorage.removeItem('ludo_token');
       userStr = null;
     }
-    if (userStr) {
-      try {
-        const userData = JSON.parse(userStr);
-        if (userData.role === 'SUPER_ADMIN') {
-          setView('superadmin');
-          return;
-        }
-      } catch (e) {
-        console.error('Error parsing user data for redirect', e);
-      }
-    }
+
     setView('setup');
   };
 

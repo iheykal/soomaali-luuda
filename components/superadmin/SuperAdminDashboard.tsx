@@ -164,8 +164,16 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   // Spectator State
   const [watchingGameId, setWatchingGameId] = useState<string | null>(null);
 
+  // User Pagination State
+
+
   // Live Duration State
   const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // User Pagination State (Removed)
+  // const [usersPage, setUsersPage] = useState(1);
+  // const [usersTotalPages, setUsersTotalPages] = useState(1);
+  const [usersTotalCount, setUsersTotalCount] = useState(0);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -220,6 +228,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     try {
       const usersData = await adminAPI.getAllUsers();
       setUsers(usersData);
+      setUsersTotalCount(usersData.length);
     } catch (err: any) {
       console.error('Error fetching users:', err);
       setError(err.message || 'Failed to load users');
@@ -1006,13 +1015,13 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   )}
 
                   {/* Results Count */}
-                  {filteredUsers.length > 0 && (
-                    <div className="mt-6 text-center">
-                      <p className="text-sm text-gray-500">
-                        Showing <span className="font-semibold text-gray-900">{filteredUsers.length}</span> of <span className="font-semibold text-gray-900">{users.length}</span> users
-                      </p>
-                    </div>
-                  )}
+                  {/* Load More Control */}
+                  {/* Results Count */}
+                  <div className="mt-6 text-center pb-6">
+                    <p className="text-sm text-gray-500 mb-4">
+                      Showing all <span className="font-semibold text-gray-900">{users.length}</span> users
+                    </p>
+                  </div>
                 </div>
               );
             })()}

@@ -1219,7 +1219,9 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 
     console.log(`✅ Access granted: User ${adminUser.username} (${adminUser._id}) is SUPER_ADMIN`);
 
-    const users = await User.find({}).select('-password -resetPasswordToken -resetPasswordExpires').sort({ createdAt: -1 });
+    const users = await User.find({})
+      .select('-password -resetPasswordToken -resetPasswordExpires')
+      .sort({ createdAt: -1 });
 
     res.json({
       success: true,
@@ -1229,12 +1231,11 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
         username: user.username,
         phone: user.phone,
         email: user.email,
-        balance: user.balance || 0,
         role: user.role,
-        status: user.status,
-        avatar: user.avatar,
-        createdAt: user.createdAt,
-        stats: user.stats || { gamesPlayed: 0, wins: 0 }
+        balance: user.balance,
+        reservedBalance: user.reservedBalance,
+        isVerified: user.isVerified,
+        createdAt: user.createdAt
       }))
     });
   } catch (error) {
@@ -1323,7 +1324,10 @@ app.get('/api/admin/visitor-analytics', authenticateToken, async (req, res) => {
     }
 
     // Get all visitors from last 48 hours (TTL handles cleanup)
-    const visitors = await VisitorAnalytics.find({}).sort({ lastActivity: -1 });
+    // Get latest visitors (limit 500 for performance)
+    const visitors = await VisitorAnalytics.find({})
+      .sort({ lastActivity: -1 })
+      .limit(500);
 
     const totalVisitors = visitors.length;
     const authenticatedVisitors = visitors.filter(v => v.isAuthenticated).length;
@@ -1593,37 +1597,51 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
         stake = rev.gameDetails.stake || 0;
       } else {
         // Fallback: Try to find Game (legacy support or if details missing)
-        const game = await Game.findOne({ gameId: rev.gameId });
+        let game = null;
+        try {
+          game = await Game.findOne({ gameId: rev.gameId });
+        } catch (e) { /* ignore error */ }
+
         if (game) {
           playersInfo = game.players.map(p => ({
             userId: p.userId,
             username: p.username,
             color: p.color
           }));
-          const winningPlayer = game.players.find(p => rev.winnerId && p.userId === rev.winnerId);
-          if (winningPlayer) {
+          const w = game.players.find(p => p.userId === rev.winnerId || p.color === game.winners?.[0]);
+          if (w) {
             winnerInfo = {
-              userId: winningPlayer.userId,
-              username: winningPlayer.username,
-              color: winningPlayer.color
+              userId: rev.winnerId,
+              username: w.username || w.userId,
+              color: w.color
             };
           }
           stake = game.stake;
+        } else {
+          // Second Fallback: Try to look up User names directly if we have IDs in the revenue record (unlikely if not in gameDetails, but good for robustness)
+          // For now, if no game details, we just return basic info preventing crash
+          winnerInfo = { userId: rev.winnerId, username: 'Unknown (Purged)', color: 'gray' };
+          // Use placeholders
+          playersInfo = [{ username: 'Details Purged', color: 'gray' }];
         }
       }
 
       return {
-        ...rev.toObject(), // Convert Mongoose document to plain object
-        players: playersInfo, // Directly include players array
-        winner: winnerInfo,   // Directly include winner object
-        stake: stake,         // Directly include stake
+        _id: rev._id,
+        gameId: rev.gameId,
+        amount: rev.amount,
+        totalPot: rev.totalPot,
+        winnerId: rev.winnerId,
+        timestamp: rev.timestamp,
+        reason: rev.reason,
         gameDetails: {
           players: playersInfo,
           winner: winnerInfo,
-          stake: stake,
-          gameId: rev.gameId // Ensure gameId is present in gameDetails
+          stake: stake || (rev.totalPot / 2),
+          gameId: rev.gameId
         }
       };
+
     }));
 
     const withdrawals = await RevenueWithdrawal.find(query).sort({ timestamp: -1 });
@@ -2339,24 +2357,6 @@ app.get('/api/admin/wallet/requests', authenticateToken, async (req, res) => {
         tokenRole: req.user.role
       });
 
-      // Try to find user with phone/username "610251014" for debugging
-      const debugUser = await User.findOne({
-        $or: [
-          { username: '610251014' },
-          { phone: '610251014' },
-          { _id: '610251014' }
-        ]
-      });
-
-      if (debugUser) {
-        console.log(`🔍 DEBUG: Found user "610251014" in database:`, {
-          _id: debugUser._id,
-          username: debugUser.username,
-          phone: debugUser.phone,
-          role: debugUser.role
-        });
-      }
-
       return res.status(404).json({
         error: "User not found in database. Please log out and log back in.",
         details: `Token userId: ${req.user.userId}, username: ${req.user.username}`,
@@ -2371,17 +2371,16 @@ app.get('/api/admin/wallet/requests', authenticateToken, async (req, res) => {
       status: user.status
     });
 
-    if (user.role !== 'SUPER_ADMIN') {
-      console.error(`❌ Admin request DENIED: User ${user.username} (${user._id}) has role "${user.role}", not SUPER_ADMIN`);
-      console.error(`💡 Token info - userId: ${req.user.userId}, username: ${req.user.username}, tokenRole: ${req.user.role}`);
-      console.error(`💡 Database info - _id: ${user._id}, username: ${user.username}, dbRole: ${user.role}`);
+    // ALLOW ADMIN OR SUPER_ADMIN
+    if (user.role !== 'SUPER_ADMIN' && user.role !== 'ADMIN') {
+      console.error(`❌ Admin request DENIED: User ${user.username} (${user._id}) has role "${user.role}", not SUPER_ADMIN/ADMIN`);
       return res.status(403).json({
-        error: "Access denied. Super Admin only.",
+        error: "Access denied. Admin or Super Admin only.",
         currentRole: user.role,
         userId: user._id,
         username: user.username,
         tokenRole: req.user.role,
-        message: `Your account role is "${user.role}". To access admin features, your role must be "SUPER_ADMIN". Please contact an administrator to update your role, or log out and log back in if you were recently promoted.`
+        message: `Your account role is "${user.role}". To access admin features, your role must be "ADMIN" or "SUPER_ADMIN".`
       });
     }
 
@@ -2464,7 +2463,8 @@ app.get('/api/admin/check-status', authenticateToken, async (req, res) => {
         status: user.status
       },
       match: req.user.userId === user._id.toString(),
-      isSuperAdmin: user.role === 'SUPER_ADMIN'
+      isSuperAdmin: user.role === 'SUPER_ADMIN',
+      isAdmin: user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'
     });
   } catch (error) {
     console.error('Check status error:', error);
@@ -2479,9 +2479,9 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-process-request');
     let adminUser = lookupResult.success ? lookupResult.user : null;
 
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
       return res.status(403).json({
-        error: "Access denied. Super Admin only.",
+        error: "Access denied. Admin or Super Admin only.",
         found: !!adminUser,
         role: adminUser?.role
       });
@@ -3481,6 +3481,7 @@ io.on('connection', (socket) => {
         }
       }
 
+    } else {
       console.error(`[SOCKET] Error in roll_dice for game ${gameId}: ${result.message || 'Failed to roll dice'}`);
       socket.emit('ERROR', { message: result.message || 'Failed to roll dice' });
 
