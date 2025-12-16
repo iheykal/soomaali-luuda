@@ -3164,12 +3164,11 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
       } else {
         console.log(`⚠️ Auto-roll failed for ${gameId}: ${result?.message}`);
       }
-    }
     } catch (error) {
-    console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
-  }
-}, 6000); // 6s buffer
-humanPlayerTimers.set(gameId, timer);
+      console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
+    }
+  }, 6000); // 6s buffer
+  humanPlayerTimers.set(gameId, timer);
 };
 
 const scheduleHumanPlayerAutoMove = (gameId) => {
