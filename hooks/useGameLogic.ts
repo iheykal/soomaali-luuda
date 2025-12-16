@@ -8,8 +8,8 @@ import { audioService } from '../services/audioService';
 
 // --- Constants ---
 // Reduce timers to make gameplay feel snappier while keeping server limits
-const ROLL_TIME_LIMIT = 6;  // Slightly faster roll window
-const MOVE_TIME_LIMIT = 12; // Shorter move window for quicker rounds
+const ROLL_TIME_LIMIT = 6;  // Match backend (6s)
+const MOVE_TIME_LIMIT = 12; // Match backend (12s)
 
 // --- Socket Service Wrapper ---
 let socket: Socket | null = null;
@@ -598,6 +598,10 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             } catch (e) {
                 // ignore
             }
+
+            // CRITICAL: Always unlock processing when server sends an update
+            // This prevents the game from getting stuck if optimistic update dependencies don't change
+            setProcessing(false);
         });
 
         socket.on('TOKEN_KILLED', (data: { killedTokenId: string }) => {
@@ -626,6 +630,22 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
         };
     }, [isMultiplayer, multiplayerConfig]);
+
+    // --- Auto-Resync for Active Player (Anti-Stuck Loop) ---
+    useEffect(() => {
+        if (!isMultiplayer || !isMyTurn || !state.gameStarted || !multiplayerConfig?.gameId) return;
+
+        // If it is my turn, we want to ensure we are perfectly synced.
+        // We poll 'resync_game' every 5 seconds to catch any missed state updates (e.g. ghost timers).
+        const resyncInterval = setInterval(() => {
+            if (socket && socket.connected) {
+                // console.log('🔄 Auto-resyncing state during my turn...'); 
+                socket.emit('resync_game', { gameId: multiplayerConfig.gameId });
+            }
+        }, 5000);
+
+        return () => clearInterval(resyncInterval);
+    }, [isMultiplayer, isMyTurn, state.gameStarted, multiplayerConfig]);
 
 
     const calculateLegalMoves = useCallback((currentState: GameState, diceValue: number): LegalMove[] => {
@@ -674,8 +694,39 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         return moves;
     }, []);
 
+    // Processing Ref to prevent double-actions while waiting for server
+    const isProcessingRef = useRef(false);
+    const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Reset processing flag when state updates from server
+    useEffect(() => {
+        isProcessingRef.current = false;
+        if (processingTimeoutRef.current) {
+            clearTimeout(processingTimeoutRef.current);
+            processingTimeoutRef.current = null;
+        }
+    }, [state.diceValue, state.turnState, state.currentPlayerIndex]);
+
+    const setProcessing = (value: boolean) => {
+        isProcessingRef.current = value;
+        if (value) {
+            // Safety timeout: unlock after 2 seconds if server doesn't reply
+            if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
+            processingTimeoutRef.current = setTimeout(() => {
+                console.warn('⚠️ Safety timeout: Unlocking blocked interaction (server timeout)');
+                isProcessingRef.current = false;
+            }, 800); // Reduced to 800ms for responsiveness
+            // Force re-render to reflect unlocked state if needed (usually state change handles this)
+        } else {
+            if (processingTimeoutRef.current) {
+                clearTimeout(processingTimeoutRef.current);
+                processingTimeoutRef.current = null;
+            }
+        }
+    };
+
     const handleRollDice = useCallback(async () => {
-        if (!state.gameStarted) {
+        if (!state.gameStarted || isProcessingRef.current) {
             return;
         }
 
@@ -683,14 +734,22 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             if (isMyTurn) {
                 if (!socket || !socket.connected) {
                     debugService.error('Cannot roll dice: Socket not connected');
-                    alert('Socket not connected. Please check your internet connection and try again.');
+                    // alert('Socket not connected. Please check your internet connection and try again.');
                     return;
                 }
                 if (!multiplayerConfig || !multiplayerConfig.gameId) {
                     debugService.error('Cannot roll dice: Missing multiplayer config or gameId');
-                    alert('Cannot roll dice: Missing game configuration.');
+                    // alert('Cannot roll dice: Missing game configuration.');
                     return;
                 }
+
+                // Optimistic Update: Show rolling immediately
+                setProcessing(true);
+                // We dispatch a "fake" roll start to trigger animation or at least disable button
+                // dispatch({ type: 'ROLL_DICE', value: 0 }); // 0 or null could signify "rolling" state if supported
+                // Ideally, we just play the sound immediately
+                audioService.play('diceRoll');
+
                 debugService.socket({ event: 'emit', type: 'roll_dice', gameId: multiplayerConfig.gameId });
                 socket.emit('roll_dice', { gameId: multiplayerConfig.gameId });
             }
@@ -710,17 +769,25 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 dispatch({ type: 'NEXT_TURN', grantExtraTurn: roll === 6 });
             }, 300);
         }
-    }, [state, calculateLegalMoves, isMyTurn, isMultiplayer, multiplayerConfig, socket]);
+    }, [state.gameStarted, state.turnState, isMyTurn, isMultiplayer, multiplayerConfig, socket, calculateLegalMoves]);
 
     const handleMoveToken = useCallback((tokenId: string) => {
-        if (state.turnState !== 'MOVING') return;
+        if (state.turnState !== 'MOVING' || isProcessingRef.current) return;
 
         if (isMultiplayer) {
             if (isMyTurn) {
-                debugService.socket({ event: 'emit', type: 'move_token', gameId: multiplayerConfig.gameId, tokenId });
-                socket?.emit('move_token', { gameId: multiplayerConfig.gameId, tokenId });
-                // Play token move sound
-                audioService.play('tokenMove');
+                // Optimistic Update: Assume move is valid and update UI immediately
+                const move = state.legalMoves.find(m => m.tokenId === tokenId);
+                if (move) {
+                    setProcessing(true);
+                    // Dispatch local update immediately so user sees the token move
+                    dispatch({ type: 'MOVE_TOKEN', move });
+                    // Play sound immediately
+                    audioService.play('tokenMove');
+
+                    debugService.socket({ event: 'emit', type: 'move_token', gameId: multiplayerConfig.gameId, tokenId });
+                    socket?.emit('move_token', { gameId: multiplayerConfig.gameId, tokenId });
+                }
             }
             return;
         }
@@ -731,7 +798,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             // Play token move sound for local game
             audioService.play('tokenMove');
         }
-    }, [state.turnState, state.legalMoves, isMyTurn, isMultiplayer, multiplayerConfig]);
+    }, [state.turnState, state.legalMoves, isMyTurn, isMultiplayer, multiplayerConfig, socket]);
 
     // --- AI Turn Logic (Local Game) ---
     const { currentPlayerIndex, turnState, gameStarted, players, legalMoves } = state;

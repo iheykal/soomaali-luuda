@@ -1,8 +1,10 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import html2canvas from 'html2canvas';
 import { adminAPI } from '../../services/adminAPI';
 import { useAuth } from '../../context/AuthContext';
-import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState } from '../../types';
+import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse } from '../../types';
+import Board from '../GameBoard';
+import { useGameLogic } from '../../hooks/useGameLogic';
 import TransactionReceipt from '../TransactionReceipt';
 
 // --- Spectator Modal Component ---
@@ -212,7 +214,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
+  // Default filter to 'PENDING' for standard ADMIN, 'ALL' for SUPER_ADMIN
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>(() => {
+    return (user?.role === 'ADMIN' && user?.role !== 'SUPER_ADMIN') ? 'PENDING' : 'ALL';
+  });
   const [phoneSearchQuery, setPhoneSearchQuery] = useState<string>('');
 
   // Notification State
@@ -1533,26 +1538,52 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               </div>
 
               {/* Summary stats */}
+              {/* Summary stats - Visible to ALL, but counts vary by role */}
               <div className="grid grid-cols-4 gap-3 mb-4">
                 <div className="bg-gray-100 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-gray-900">{requests.length}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {requests.filter(r =>
+                      user?.role === 'SUPER_ADMIN' ||
+                      r.status === 'PENDING' ||
+                      r.processedBy === user?.id ||
+                      r.processedBy === user?._id
+                    ).length}
+                  </p>
                   <p className="text-xs text-gray-600 mt-1">Total</p>
                 </div>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-yellow-700">{requests.filter(r => r.status === 'PENDING').length}</p>
+                  <p className="text-2xl font-bold text-yellow-700">
+                    {requests.filter(r => r.status === 'PENDING').length}
+                  </p>
                   <p className="text-xs text-yellow-600 mt-1">Pending</p>
                 </div>
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-green-700">{requests.filter(r => r.status === 'APPROVED').length}</p>
+                  <p className="text-2xl font-bold text-green-700">
+                    {requests.filter(r =>
+                      r.status === 'APPROVED' && (
+                        user?.role === 'SUPER_ADMIN' ||
+                        r.processedBy === user?.id ||
+                        r.processedBy === user?._id
+                      )
+                    ).length}
+                  </p>
                   <p className="text-xs text-green-600 mt-1">Approved</p>
                 </div>
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-red-700">{requests.filter(r => r.status === 'REJECTED').length}</p>
+                  <p className="text-2xl font-bold text-red-700">
+                    {requests.filter(r =>
+                      r.status === 'REJECTED' && (
+                        user?.role === 'SUPER_ADMIN' ||
+                        r.processedBy === user?.id ||
+                        r.processedBy === user?._id
+                      )
+                    ).length}
+                  </p>
                   <p className="text-xs text-red-600 mt-1">Rejected</p>
                 </div>
               </div>
 
-              {/* Filter buttons */}
+              {/* Filter buttons - Visible to ALL ADMINs */}
               <div className="flex gap-2 flex-wrap">
                 {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => (
                   <button
@@ -1572,7 +1603,15 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     {status === 'ALL' ? '📋 All' : status === 'PENDING' ? '⏳ Pending' : status === 'APPROVED' ? '✓ Approved' : '✗ Rejected'}
                     {status !== 'ALL' && (
                       <span className="ml-2 px-2 py-0.5 bg-white/20 rounded-full text-xs">
-                        {requests.filter(r => r.status === status).length}
+                        {/* Filter count logic: SUPER_ADMIN sees all, ADMIN sees only their own actions */}
+                        {requests.filter(r =>
+                          r.status === status && (
+                            user?.role === 'SUPER_ADMIN' ||
+                            r.status === 'PENDING' ||
+                            r.processedBy === user?.id ||
+                            r.processedBy === user?._id
+                          )
+                        ).length}
                       </span>
                     )}
                   </button>
@@ -1630,7 +1669,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 p-4">
                     {requests
-                      .filter(req => filterStatus === 'ALL' || req.status === filterStatus)
+                      .filter(req => {
+                        // Global Filter: Match selected tab
+                        const statusMatch = filterStatus === 'ALL' || req.status === filterStatus;
+                        if (!statusMatch) return false;
+
+                        // Role Filter: 
+                        // SUPER_ADMIN -> See everything
+                        // ADMIN -> See PENDING + their own APPROVED/REJECTED
+                        if (user?.role === 'SUPER_ADMIN') return true;
+
+                        return req.status === 'PENDING' ||
+                          req.processedBy === user?.id ||
+                          req.processedBy === user?._id;
+                      })
                       .map((req) => {
                         const isDeposit = req.type === 'DEPOSIT';
                         const statusColors = {

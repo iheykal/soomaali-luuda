@@ -97,6 +97,7 @@ export interface FinancialRequest {
   timestamp: string;
   details?: string;
   adminComment?: string;
+  processedBy?: string; // ID of the admin who processed the request
 }
 
 export interface Revenue {

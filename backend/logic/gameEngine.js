@@ -184,44 +184,59 @@ const processGameSettlement = async (gameObj) => {
         // ============================================================================
         // PROCESS WINNER PAYOUT
         // ============================================================================
-        console.log(`\n💰 PROCESSING WINNER PAYOUT:`);
-        const winnerBalanceBefore = winner.balance;
-        const winnerReservedBefore = winner.reservedBalance;
+        // ============================================================================
+        // PROCESS WINNER PAYOUT (ATOMIC UPDATE)
+        // ============================================================================
+        console.log(`\n💰 PROCESSING WINNER PAYOUT (ATOMIC):`);
 
-        winner.balance += winnings;
-        // Make sure we don't go negative on reserved even if logic was off previously
-        winner.reservedBalance = Math.max(0, winner.reservedBalance - stake);
+        // Prepare atomic update for winner
+        const winnerUpdate = {
+            $inc: {
+                balance: winnings,
+                "stats.gamesPlayed": 1,
+                "stats.wins": 1,
+                "stats.gamesWon": 1,
+                "stats.totalWinnings": profit,
+                // Safely decrement reserved balance. 
+                // We trust the game logic that stake WAS reserved.
+                reservedBalance: -stake
+            },
+            $push: {
+                transactions: {
+                    $each: [
+                        {
+                            type: 'game_win',
+                            amount: profit,
+                            matchId: game.gameId,
+                            description: `Profit from winning game ${game.gameId} (Total pot: $${totalPot.toFixed(2)}, Commission: $${commission.toFixed(2)})`,
+                            timestamp: new Date()
+                        },
+                        {
+                            type: 'match_unstake',
+                            amount: stake,
+                            matchId: game.gameId,
+                            description: `Stake returned from winning game ${game.gameId}`,
+                            timestamp: new Date()
+                        }
+                    ]
+                }
+            }
+        };
 
-        console.log(`   Balance change: $${winnerBalanceBefore.toFixed(2)} + $${winnings.toFixed(2)} = $${winner.balance.toFixed(2)}`);
-        console.log(`   Reserved change: $${winnerReservedBefore.toFixed(2)} - $${stake.toFixed(2)} = $${winner.reservedBalance.toFixed(2)}`);
-        console.log(`   Net effect: +$${profit.toFixed(2)} (profit only, stake was already in reserved)`);
+        const winnerResult = await User.updateOne({ _id: winner._id }, winnerUpdate);
 
-        if (!winner.stats) winner.stats = {};
-        winner.stats.gamesPlayed = (winner.stats.gamesPlayed || 0) + 1;
-        winner.stats.wins = (winner.stats.wins || 0) + 1;
-        winner.stats.gamesWon = (winner.stats.gamesWon || 0) + 1;
-        winner.stats.totalWinnings = (winner.stats.totalWinnings || 0) + profit;
+        if (winnerResult.modifiedCount !== 1) {
+            console.error(`🚨 CRITICAL: Atomic update failed for winner ${winner._id}. Manual check required.`);
+        } else {
+            console.log(`✅ ATOMIC PAYOUT SUCCESS: +$${winnings.toFixed(2)} added to user ${winner._id}`);
+        }
 
-        // Record TWO transactions for clarity
-        winner.transactions.push({
-            type: 'game_win',
-            amount: profit,
-            matchId: game.gameId,
-            description: `Profit from winning game ${game.gameId} (Total pot: $${totalPot.toFixed(2)}, Commission: $${commission.toFixed(2)})`
-        });
-        winner.transactions.push({
-            type: 'match_unstake',
-            amount: stake,
-            matchId: game.gameId,
-            description: `Stake returned from winning game ${game.gameId}`
-        });
-
-        console.log(`   📝 Transactions recorded:`);
-        console.log(`      1. game_win: +$${profit.toFixed(2)}`);
-        console.log(`      2. match_unstake: +$${stake.toFixed(2)}`);
-        console.log(`      Total shown in transactions: +$${(profit + stake).toFixed(2)}`);
-
-        await winner.save();
+        /* 
+           REMOVED NON-ATOMIC SAVE
+           winner.balance += winnings;
+           winner.reservedBalance ...
+           winner.save(); 
+        */
 
         try {
             const revenue = new Revenue({
@@ -255,32 +270,43 @@ const processGameSettlement = async (gameObj) => {
         // ============================================================================
         // PROCESS LOSER DEDUCTION
         // ============================================================================
-        console.log(`\n💸 PROCESSING LOSER DEDUCTION:`);
-        const loserBalanceBefore = loser.balance;
-        const loserReservedBefore = loser.reservedBalance;
+        // ============================================================================
+        // PROCESS LOSER DEDUCTION (ATOMIC UPDATE)
+        // ============================================================================
+        console.log(`\n💸 PROCESSING LOSER DEDUCTION (ATOMIC):`);
 
-        // Ensure we don't go negative on reserved
-        loser.reservedBalance = Math.max(0, loser.reservedBalance - stake);
+        const loserUpdate = {
+            $inc: {
+                "stats.gamesPlayed": 1,
+                "stats.gamesLost": 1,
+                "stats.totalLosses": stake,
+                // Atomic decrement of reserved balance
+                reservedBalance: -stake
+            },
+            $push: {
+                transactions: {
+                    type: 'game_loss',
+                    amount: -stake,
+                    matchId: game.gameId,
+                    description: `Lost game ${game.gameId} - stake consumed`,
+                    timestamp: new Date()
+                }
+            }
+        };
 
-        console.log(`   Balance change: $${loserBalanceBefore.toFixed(2)} (no change - stake was in reserved)`);
-        console.log(`   Reserved change: $${loserReservedBefore.toFixed(2)} - $${stake.toFixed(2)} = $${loser.reservedBalance.toFixed(2)}`);
-        console.log(`   Net effect: -$${stake.toFixed(2)} (stake consumed from reserved)`);
+        const loserResult = await User.updateOne({ _id: loser._id }, loserUpdate);
 
-        if (!loser.stats) loser.stats = {};
-        loser.stats.gamesPlayed = (loser.stats.gamesPlayed || 0) + 1;
-        loser.stats.gamesLost = (loser.stats.gamesLost || 0) + 1;
-        loser.stats.totalLosses = (loser.stats.totalLosses || 0) + stake;
+        if (loserResult.modifiedCount !== 1) {
+            console.error(`🚨 CRITICAL: Atomic update failed for loser ${loser._id}`);
+        } else {
+            console.log(`✅ ATOMIC DEDUCTION SUCCESS: Stake consumed for user ${loser._id}`);
+        }
 
-        loser.transactions.push({
-            type: 'game_loss',
-            amount: -stake,
-            matchId: game.gameId,
-            description: `Lost game ${game.gameId} - stake consumed`
-        });
-
-        console.log(`   📝 Transaction recorded: game_loss: -$${stake.toFixed(2)}`);
-
-        await loser.save();
+        /*
+        REMOVED NON-ATOMIC SAVE
+        loser.reservedBalance = ...
+        loser.save();
+        */
 
         // ATOMIC lock handled this already
         // game.settlementProcessed = true;

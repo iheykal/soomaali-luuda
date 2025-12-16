@@ -2425,7 +2425,8 @@ app.get('/api/admin/wallet/requests', authenticateToken, async (req, res) => {
       details: req.details || '',
       paymentMethod: req.paymentMethod || '',
       timestamp: req.timestamp ? new Date(req.timestamp).toISOString() : new Date().toISOString(),
-      adminComment: req.adminComment || ''
+      adminComment: req.adminComment || '',
+      processedBy: req.processedBy || ''
     }));
 
     const pendingCount = formattedRequests.filter(r => r.status === 'PENDING').length;
@@ -2543,6 +2544,8 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
       request.adminComment = adminComment || "Rejected by admin";
     }
 
+    // Save the admin ID who processed the request
+    request.processedBy = adminUser._id.toString();
     await request.save();
 
     // Format the request for frontend compatibility
@@ -2556,7 +2559,8 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
       status: request.status,
       details: request.details || '',
       timestamp: request.timestamp ? new Date(request.timestamp).toISOString() : new Date().toISOString(),
-      adminComment: request.adminComment || ''
+      adminComment: request.adminComment || '',
+      processedBy: request.processedBy || ''
     };
 
     // Send real-time notification to user via Socket.IO
@@ -3071,14 +3075,14 @@ const humanPlayerTimers = new Map(); // gameId -> timer reference
 const timerBroadcasts = new Map(); // gameId -> { intervalId, timeLeft } for countdown broadcast
 
 
-// ===== AUTO-TURN TIMING CONSTANTS =====
+// ===== AUTO-TURN TIMING CONSTANTS (FASTER) =====
 const AUTO_TURN_DELAYS = {
-  AI_ROLL: 1500,           // AI thinking time before rolling dice
-  AI_MOVE: 1200,           // AI thinking time before selecting move
-  AI_QUICK_MOVE: 200,      // Quick move immediately after roll (when in MOVING state)
-  ANIMATION_WAIT: 500,     // Wait for frontend animation to complete
-  STUCK_RECOVERY: 1000,    // Delay before recovering stuck game state
-  NO_MOVES_DELAY: 1200     // Delay before auto-passing turn when no moves available
+  AI_ROLL: 800,            // Reduced from 1500
+  AI_MOVE: 800,            // Reduced from 1200
+  AI_QUICK_MOVE: 150,      // Reduced from 200
+  ANIMATION_WAIT: 300,     // Reduced from 500
+  STUCK_RECOVERY: 800,     // Reduced from 1000
+  NO_MOVES_DELAY: 800      // Reduced from 1200
 };
 
 // ===== TIMER BROADCAST SYSTEM =====
@@ -3116,7 +3120,8 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  startTimerBroadcast(gameId, 7, 'roll');
+  // Faster Timer: 6s instead of 7s
+  startTimerBroadcast(gameId, 6, 'roll');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3159,18 +3164,20 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
       } else {
         console.log(`⚠️ Auto-roll failed for ${gameId}: ${result?.message}`);
       }
-    } catch (error) {
-      console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
     }
-  }, 7000);
-  humanPlayerTimers.set(gameId, timer);
+    } catch (error) {
+    console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
+  }
+}, 6000); // 6s buffer
+humanPlayerTimers.set(gameId, timer);
 };
 
 const scheduleHumanPlayerAutoMove = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  startTimerBroadcast(gameId, 18, 'move');
+  // Faster Timer: 12s instead of 18s
+  startTimerBroadcast(gameId, 12, 'move');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3195,7 +3202,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-move timer for ${gameId}:`, error);
     }
-  }, 18000);
+  }, 12000); // 12s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
@@ -3589,6 +3596,31 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Client-side UN-STICK Request
+  socket.on('resync_game', async ({ gameId }) => {
+    console.log(`🔄 RESYNC REQUEST from ${socket.id} for game ${gameId}`);
+    try {
+      const game = await Game.findOne({ gameId });
+      if (game) {
+        socket.emit('GAME_STATE_UPDATE', { state: game.toObject ? game.toObject() : game });
+
+        // Check if we need to restart a dead timer
+        const currentPlayer = game.players[game.currentPlayerIndex];
+        const isMyTurn = currentPlayer && currentPlayer.socketId === socket.id;
+
+        if (isMyTurn && !humanPlayerTimers.has(gameId)) {
+          console.log(`🔧 Resync triggered Timer Restart for ${gameId}`);
+          if (game.turnState === 'ROLLING') scheduleHumanPlayerAutoRoll(gameId);
+          else if (game.turnState === 'MOVING') scheduleHumanPlayerAutoMove(gameId);
+        }
+      } else {
+        socket.emit('ERROR', { message: 'Game not found during resync' });
+      }
+    } catch (e) {
+      console.error('Resync error:', e);
+    }
+  });
+
   socket.on('disconnect', async () => {
     // Keep removing from matchmaking queue logic if it was there? Yes.
     // Assuming removeFromQueue is global
@@ -3701,7 +3733,7 @@ const performStartupCleanup = async () => {
   try {
     console.log('🧹 Performing startup cleanup...');
 
-    // Update all ACTIVE games to mark players as disconnected
+    // 1. Mark disconnected (standard procedure)
     const result = await Game.updateMany(
       { status: 'ACTIVE' },
       {
@@ -3712,19 +3744,56 @@ const performStartupCleanup = async () => {
       }
     );
     console.log(`✅ Startup cleanup complete: Marked players as disconnected in ${result.modifiedCount} active games.`);
+
+    // 2. RESTORE TIMERS (New Reliability Feat)
+    await restoreTimersForActiveGames();
+
   } catch (err) {
     console.error('⚠️ Startup cleanup failed (non-critical):', err && err.message ? err.message : err);
   }
 };
 
-// --- Lightweight Watchdog (Restored & Optimized) ---
-// Checks every 10 seconds for games that are "stuck" (no activity for > 20s) due to dropped events.
+// --- RESTORE TIMERS FOR ACTIVE GAMES ---
+const restoreTimersForActiveGames = async () => {
+  try {
+    console.log('⏰ Restoring timers for ACTIVE games...');
+    const activeGames = await Game.find({ status: 'ACTIVE' });
+
+    for (const game of activeGames) {
+      console.log(`❤️ Restoring game ${game.gameId} (State: ${game.turnState})`);
+
+      const currentPlayer = game.players[game.currentPlayerIndex];
+      if (!currentPlayer) continue;
+
+      // If it was an AI turn, schedule AI turn
+      if (currentPlayer.isAI) {
+        scheduleAutoTurn(game.gameId, 1000);
+        continue;
+      }
+
+      // If it was a human turn, we must assume they are disconnected now (since server restarted)
+      // But if we want to give them a chance to reconnect, we might wait.
+      // However, 'performStartupCleanup' just marked them disconnected.
+      // So we should actually schedule an AUTO TURN for them (bot takeover).
+
+      // BUT, if users reconnect quickly, we want the game to be alive.
+      // Let's schedule a "Recovery Auto Turn" that gives a bit of grace period (e.g. 5s)
+      scheduleAutoTurn(game.gameId, 5000);
+    }
+    console.log(`✅ Restored timers/recovery for ${activeGames.length} active games.`);
+  } catch (e) {
+    console.error('Timer restoration failed:', e);
+  }
+};
+
+// --- Lightweight Watchdog (Optimized for Speed) ---
+// Checks every 5 seconds for games stuck > 10s
 setInterval(async () => {
   try {
 
     const gameEngine = require('./logic/gameEngine');
     const now = Date.now();
-    const stalledThreshold = 20000; // 20 seconds without activity
+    const stalledThreshold = 10000; // 10 seconds without activity (Aggressive)
 
     const activeGames = await Game.find({ status: 'ACTIVE' });
 
@@ -3739,33 +3808,33 @@ setInterval(async () => {
         // Check if we already have a timer for this game
         const hasTimer = humanPlayerTimers.has(game.gameId);
 
-        if (currentPlayer.isAI || currentPlayer.isDisconnected) {
-          // AI/Disconnected player - execute action directly
-          console.log(`🐕 Watchdog: Kickstarting stalled game ${game.gameId} for AI/disconnected ${currentPlayer.color} (state: ${game.turnState})`);
-          if (game.turnState === 'ROLLING') {
-            await gameEngine.handleAutoRoll(game.gameId, true);
-          } else if (game.turnState === 'MOVING') {
-            await gameEngine.handleAutoMove(game.gameId);
+        // If it's stalled and NO TIMER is running, it's definitely stuck.
+        // If a timer IS running, it might just be a long turn (but our max turn is 12s, threshold is 10s -- close call)
+        // With move timer 12s, we should set threshold to ~15s to be safe? 
+        // Let's stick to 12s check.
+
+        if (isStalled && !hasTimer) {
+          console.log(`🐕 Watchdog: Kickstarting frozen game ${game.gameId} (No timer found)`);
+
+          if (currentPlayer.isAI || currentPlayer.isDisconnected) {
+            scheduleAutoTurn(game.gameId, 100);
+          } else {
+            // Try to revive human timer first
+            if (game.turnState === 'ROLLING') scheduleHumanPlayerAutoRoll(game.gameId);
+            else if (game.turnState === 'MOVING') scheduleHumanPlayerAutoMove(game.gameId);
           }
-          // Refetch and emit updated state
-          const updatedGame = await Game.findOne({ gameId: game.gameId });
-          if (updatedGame) {
-            io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: updatedGame.toObject() });
-            // Schedule next action
-            const nextPlayer = updatedGame.players[updatedGame.currentPlayerIndex];
-            if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) {
-              scheduleAutoTurn(game.gameId, AUTO_TURN_DELAYS.AI_ROLL);
-            } else if (nextPlayer) {
-              scheduleHumanPlayerAutoRoll(game.gameId);
-            }
-          }
-        } else if (!hasTimer) {
-          // Connected human player but no timer running - restart timer
-          console.log(`🐕 Watchdog: Restarting dropped timer for human ${currentPlayer.color} in stalled game ${game.gameId} (state: ${game.turnState})`);
-          if (game.turnState === 'ROLLING') {
-            scheduleHumanPlayerAutoRoll(game.gameId);
-          } else if (game.turnState === 'MOVING') {
-            scheduleHumanPlayerAutoMove(game.gameId);
+        } else if (isStalled && hasTimer) {
+          // Timer exists but db not updating? Might be okay, just waiting for move.
+          // But if it's > 20s, then even the timer is dead/ignored.
+          if ((now - lastActivity) > 20000) {
+            console.log(`🐕 Watchdog: FORCE KICK - Game ${game.gameId} stalled > 20s despite timer.`);
+            // Force next action
+            if (game.turnState === 'ROLLING') await gameEngine.handleAutoRoll(game.gameId, true);
+            else await gameEngine.handleAutoMove(game.gameId);
+
+            // Broadast
+            const updatedGame = await Game.findOne({ gameId: game.gameId });
+            if (updatedGame) io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: updatedGame.toObject() });
           }
         }
       }
@@ -3773,7 +3842,7 @@ setInterval(async () => {
   } catch (error) {
     console.error('Watchdog error:', error);
   }
-}, 10000);
+}, 5000); // Check every 5s
 
 // Start server after ensuring DB connection and performing startup cleanup.
 (async () => {

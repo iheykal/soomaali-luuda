@@ -11,7 +11,8 @@ const FinancialRequestSchema = new mongoose.Schema({
   status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
   details: String,
   timestamp: { type: Date, default: Date.now },
-  adminComment: String
+  adminComment: String,
+  processedBy: { type: String } // User ID of the admin who processed this request
 });
 
 // ===== INDEX OPTIMIZATION =====
