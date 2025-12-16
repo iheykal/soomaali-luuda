@@ -487,6 +487,30 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             debugService.socket({ event: 'emit', type: 'join_game/watch_game', gameId: multiplayerConfig.gameId });
         });
 
+        // 🟢 MANUAL CHECK: If socket is ALREADY connected, trigger join logic immediately
+        if (socket.connected) {
+            console.log('⚡ Socket already connected, forcing immediate join/watch...');
+            // Need to wait a tick to ensure listeners are bound? Usually fine.
+            // We duplicate the emitJoin logic here or make it a shared function. 
+            // For safety, we'll just manually fire the 'connect' handler logic or similar.
+            // Ideally, we refactor emitJoin out, but to minimize diff, let's just emit directly here.
+
+            const manualEmit = () => {
+                if (!socket) return;
+                console.log('⚡ Manual emit for already connected socket');
+                if (multiplayerConfig.isSpectator) {
+                    socket.emit('watch_game', { gameId: multiplayerConfig.gameId });
+                } else {
+                    socket.emit('join_game', {
+                        gameId: multiplayerConfig.gameId,
+                        userId: multiplayerConfig.playerId || multiplayerConfig.sessionId,
+                        playerColor: multiplayerConfig.localPlayerColor
+                    });
+                }
+            };
+            manualEmit();
+        }
+
         socket.on('connect_error', (error) => {
             debugService.error({ event: 'connect_error', error });
         });

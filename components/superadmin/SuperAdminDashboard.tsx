@@ -9,10 +9,14 @@ import TransactionReceipt from '../TransactionReceipt';
 
 // --- Spectator Modal Component ---
 const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gameId, onClose }) => {
-  const { state, handleAnimationComplete } = useGameLogic({
+  const spectatorConfig = React.useMemo(() => ({
     gameId,
     isSpectator: true
-  });
+  }), [gameId]);
+
+  const { state, handleAnimationComplete } = useGameLogic(spectatorConfig);
+
+  const isGameLoaded = state.players && state.players.length > 0;
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
@@ -30,95 +34,109 @@ const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gam
           </button>
         </div>
 
-        <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col md:flex-row">
-          {/* Game Board Area */}
-          <div className="flex-1 flex items-center justify-center p-4 overflow-auto relative">
-            {/* Status Overlay */}
-            <div className="absolute top-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg z-10 backdrop-blur-sm border border-white/20 max-w-xs">
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-3 h-3 rounded-full ${state.players[state.currentPlayerIndex]?.color === 'red' ? 'bg-red-500' :
-                  state.players[state.currentPlayerIndex]?.color === 'green' ? 'bg-green-500' :
-                    state.players[state.currentPlayerIndex]?.color === 'yellow' ? 'bg-yellow-500' :
-                      'bg-blue-500'
-                  }`}></div>
-                <p className="font-bold text-gray-800 uppercase text-sm">Current Turn</p>
-              </div>
-              <p className="text-sm text-gray-600 mb-2">{state.message || 'Waiting for move...'}</p>
-
-              {state.diceValue && (
-                <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
-                  <span className="text-2xl">🎲</span>
-                  <span className="text-xl font-black text-slate-800">{state.diceValue}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="w-full max-w-[600px] aspect-square shadow-2xl rounded-full overflow-hidden border-4 border-slate-700">
-              <Board
-                gameState={state}
-                onMoveToken={() => { }} // Spectators can't move
-                onAnimationComplete={handleAnimationComplete}
-                isMyTurn={false} // Always false for spectators
-                perspectiveColor={state.players[state.currentPlayerIndex]?.color || 'red'}
-              />
-            </div>
+        {!isGameLoaded ? (
+          <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col items-center justify-center text-white">
+            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-lg font-bold">Connecting to game...</p>
+            <p className="text-sm text-slate-400 mt-2">Waiting for server response...</p>
+            <button
+              onClick={onClose}
+              className="mt-8 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors"
+            >
+              Cancel
+            </button>
           </div>
+        ) : (
+          <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col md:flex-row">
+            {/* Game Board Area */}
+            <div className="flex-1 flex items-center justify-center p-4 overflow-auto relative">
+              {/* Status Overlay */}
+              <div className="absolute top-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg z-10 backdrop-blur-sm border border-white/20 max-w-xs">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-3 h-3 rounded-full ${state.players[state.currentPlayerIndex]?.color === 'red' ? 'bg-red-500' :
+                    state.players[state.currentPlayerIndex]?.color === 'green' ? 'bg-green-500' :
+                      state.players[state.currentPlayerIndex]?.color === 'yellow' ? 'bg-yellow-500' :
+                        'bg-blue-500'
+                    }`}></div>
+                  <p className="font-bold text-gray-800 uppercase text-sm">Current Turn</p>
+                </div>
+                <p className="text-sm text-gray-600 mb-2">{state.message || 'Waiting for move...'}</p>
 
-          {/* Sidebar Info */}
-          <div className="w-full md:w-80 bg-slate-900 text-white p-6 border-l border-slate-700 overflow-y-auto">
-            <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Players</h4>
-            <div className="space-y-3">
-              {state.players.map((p, i) => (
-                <div key={i} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${i === state.currentPlayerIndex
-                  ? 'bg-slate-800 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                  : 'bg-slate-800/50 border-slate-700'
-                  }`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${p.color === 'green' ? 'bg-green-500 text-white' :
-                      p.color === 'blue' ? 'bg-blue-500 text-white' :
-                        p.color === 'red' ? 'bg-red-500 text-white' :
-                          'bg-yellow-500 text-black'
-                      }`}>
-                      {p.color.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-200 capitalize">{p.color}</p>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        {p.isAI ? (
-                          <span className="text-purple-400">🤖 Bot</span>
-                        ) : (
-                          <span className="text-blue-400">👤 Human</span>
-                        )}
-                        {p.isDisconnected && <span className="text-red-400 ml-1">⚠️ Offline</span>}
+                {state.diceValue && (
+                  <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
+                    <span className="text-2xl">🎲</span>
+                    <span className="text-xl font-black text-slate-800">{state.diceValue}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full max-w-[600px] aspect-square shadow-2xl rounded-full overflow-hidden border-4 border-slate-700">
+                <Board
+                  gameState={state}
+                  onMoveToken={() => { }} // Spectators can't move
+                  onAnimationComplete={handleAnimationComplete}
+                  isMyTurn={false} // Always false for spectators
+                  perspectiveColor={state.players[state.currentPlayerIndex]?.color || 'red'}
+                />
+              </div>
+            </div>
+
+            {/* Sidebar Info */}
+            <div className="w-full md:w-80 bg-slate-900 text-white p-6 border-l border-slate-700 overflow-y-auto">
+              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Players</h4>
+              <div className="space-y-3">
+                {state.players.map((p, i) => (
+                  <div key={i} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${i === state.currentPlayerIndex
+                    ? 'bg-slate-800 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+                    : 'bg-slate-800/50 border-slate-700'
+                    }`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${p.color === 'green' ? 'bg-green-500 text-white' :
+                        p.color === 'blue' ? 'bg-blue-500 text-white' :
+                          p.color === 'red' ? 'bg-red-500 text-white' :
+                            'bg-yellow-500 text-black'
+                        }`}>
+                        {p.color.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-200 capitalize">{p.color}</p>
+                        <div className="flex items-center gap-1 text-[10px]">
+                          {p.isAI ? (
+                            <span className="text-purple-400">🤖 Bot</span>
+                          ) : (
+                            <span className="text-blue-400">👤 Human</span>
+                          )}
+                          {p.isDisconnected && <span className="text-red-400 ml-1">⚠️ Offline</span>}
+                        </div>
                       </div>
                     </div>
+                    {i === state.currentPlayerIndex && (
+                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    )}
                   </div>
-                  {i === state.currentPlayerIndex && (
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="mt-8 pt-8 border-t border-slate-800">
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Game Info</h4>
-              <div className="space-y-2 text-sm text-slate-400">
-                <div className="flex justify-between">
-                  <span>State:</span>
-                  <span className="text-white">{state.turnState}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Status:</span>
-                  <span className="text-white">{state.gameStarted ? 'In Progress' : 'Waiting'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Pot:</span>
-                  <span className="text-green-400 font-mono">${((state.stake || 0) * 2).toFixed(2)}</span>
+              <div className="mt-8 pt-8 border-t border-slate-800">
+                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Game Info</h4>
+                <div className="space-y-2 text-sm text-slate-400">
+                  <div className="flex justify-between">
+                    <span>State:</span>
+                    <span className="text-white">{state.turnState}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Status:</span>
+                    <span className="text-white">{state.gameStarted ? 'In Progress' : 'Waiting'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pot:</span>
+                    <span className="text-green-400 font-mono">${((state.stake || 0) * 2).toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
