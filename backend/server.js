@@ -3120,8 +3120,8 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  // Faster Timer: 6s instead of 7s
-  startTimerBroadcast(gameId, 6, 'roll');
+  // Timer: 10s (Relaxed from 6s)
+  startTimerBroadcast(gameId, 10, 'roll');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3167,7 +3167,7 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
     }
-  }, 6000); // 6s buffer
+  }, 10000); // 10s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
@@ -3175,8 +3175,8 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  // Faster Timer: 12s instead of 18s
-  startTimerBroadcast(gameId, 12, 'move');
+  // Timer: 15s (Relaxed from 12s)
+  startTimerBroadcast(gameId, 15, 'move');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3201,7 +3201,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-move timer for ${gameId}:`, error);
     }
-  }, 12000); // 12s buffer
+  }, 15000); // 15s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
@@ -3792,7 +3792,7 @@ setInterval(async () => {
 
     const gameEngine = require('./logic/gameEngine');
     const now = Date.now();
-    const stalledThreshold = 10000; // 10 seconds without activity (Aggressive)
+    const stalledThreshold = 20000; // 20 seconds (Safe buffer > 15s move timer)
 
     const activeGames = await Game.find({ status: 'ACTIVE' });
 

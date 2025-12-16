@@ -8,8 +8,8 @@ import { audioService } from '../services/audioService';
 
 // --- Constants ---
 // Reduce timers to make gameplay feel snappier while keeping server limits
-const ROLL_TIME_LIMIT = 6;  // Match backend (6s)
-const MOVE_TIME_LIMIT = 12; // Match backend (12s)
+const ROLL_TIME_LIMIT = 10;  // Match backend (10s)
+const MOVE_TIME_LIMIT = 15; // Match backend (15s)
 
 // --- Socket Service Wrapper ---
 let socket: Socket | null = null;
