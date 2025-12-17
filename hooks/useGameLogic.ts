@@ -23,6 +23,7 @@ export type Action =
     | { type: 'NEXT_TURN'; grantExtraTurn: boolean }
     | { type: 'ANIMATION_COMPLETE' }
     | { type: 'AI_THINKING' }
+    | { type: 'TIMER_TICK'; timer: number }
     | { type: 'SET_STATE'; state: GameState }
     | { type: 'RESET_GAME' };
 
@@ -153,6 +154,9 @@ const _reducer = (state: GameState, action: Action): GameState => {
 
         case 'RESET_GAME':
             return initialState;
+
+        case 'TIMER_TICK':
+            return { ...state, timer: action.timer };
 
         case 'ROLL_DICE': {
             return {
@@ -643,6 +647,11 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 // alert(data.message); 
                 // Actually, alert might be annoying. Let's just ensure it's logged visibly.
             }
+        });
+
+        socket.on('TIMER_TICK', (data: { timer: number }) => {
+            // console.log('⏳ TIMER_TICK:', data.timer);
+            localDispatchRef.current({ type: 'TIMER_TICK', timer: data.timer });
         });
 
         return () => {

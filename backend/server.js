@@ -3077,12 +3077,12 @@ const timerBroadcasts = new Map(); // gameId -> { intervalId, timeLeft } for cou
 
 // ===== AUTO-TURN TIMING CONSTANTS (FASTER) =====
 const AUTO_TURN_DELAYS = {
-  AI_ROLL: 800,            // Reduced from 1500
-  AI_MOVE: 800,            // Reduced from 1200
-  AI_QUICK_MOVE: 150,      // Reduced from 200
-  ANIMATION_WAIT: 300,     // Reduced from 500
-  STUCK_RECOVERY: 800,     // Reduced from 1000
-  NO_MOVES_DELAY: 800      // Reduced from 1200
+  AI_ROLL: 3000,           // Increased to 3s for pacing
+  AI_MOVE: 4000,           // Increased to 4s to let user see dice roll
+  AI_QUICK_MOVE: 150,      // Keep quick for quick successive moves if any
+  ANIMATION_WAIT: 800,     // Increased slightly
+  STUCK_RECOVERY: 2000,    // Increased
+  NO_MOVES_DELAY: 3000     // Increased
 };
 
 // ===== TIMER BROADCAST SYSTEM =====
@@ -3120,8 +3120,8 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  // Timer: 5s (Fast pace as requested)
-  startTimerBroadcast(gameId, 5, 'roll');
+  // Timer: 7s (Fast pace as requested)
+  startTimerBroadcast(gameId, 7, 'roll');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3158,7 +3158,7 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
     }
-  }, 5000); // 5s buffer
+  }, 7000); // 7s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
@@ -3166,8 +3166,8 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  // Timer: 12s (Fast pace as requested)
-  startTimerBroadcast(gameId, 12, 'move');
+  // Timer: 14s (Fast pace as requested)
+  startTimerBroadcast(gameId, 14, 'move');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3192,7 +3192,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-move timer for ${gameId}:`, error);
     }
-  }, 12000); // 12s buffer
+  }, 14000); // 14s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
