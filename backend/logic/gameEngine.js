@@ -353,6 +353,86 @@ const processGameSettlement = async (gameObj) => {
     }
 };
 
+// --- Game Refund Function (Postponed/Cancelled) ---
+const processGameRefund = async (gameId) => {
+    try {
+        console.log(`\n${'='.repeat(80)}`);
+        console.log(`🔄 REFUND STARTED for game ${gameId}`);
+        console.log(`${'='.repeat(80)}`);
+
+        // ATOMIC LOCK: Set settlementProcessed to true to prevent double refunds or settlement
+        const game = await Game.findOneAndUpdate(
+            {
+                gameId: gameId,
+                $or: [
+                    { settlementProcessed: false },
+                    { settlementProcessed: { $exists: false } }
+                ]
+            },
+            {
+                $set: {
+                    settlementProcessed: true,
+                    status: 'CANCELLED',
+                    message: 'Game postponed. Stake refunded to all players.'
+                }
+            },
+            { new: true }
+        );
+
+        if (!game) {
+            console.log(`⚠️ Refund/Settlement ALREADY processed for game ${gameId} (Atomic Lock Rejection)`);
+            return { success: false, message: 'Already processed' };
+        }
+
+        if (!game.stake || game.stake <= 0) {
+            console.log(`⚠️ No stake to refund for game ${gameId}`);
+            return { success: true, message: 'No stake to refund' };
+        }
+
+        const stake = game.stake;
+        console.log(`💰 Processing refunds. Stake per player: $${stake.toFixed(2)}`);
+
+        for (const player of game.players) {
+            // Refund only human players who have a userId
+            if (player.userId && !player.isAI) {
+                try {
+                    const user = await User.findOneAndUpdate(
+                        { _id: player.userId },
+                        {
+                            $inc: { balance: stake },
+                            $push: {
+                                transactions: {
+                                    type: 'refund',
+                                    amount: stake,
+                                    matchId: gameId,
+                                    description: `Refund for postponed/cancelled game ${gameId}`,
+                                    timestamp: new Date()
+                                }
+                            }
+                        },
+                        { new: true }
+                    );
+
+                    if (user) {
+                        console.log(`   ✅ Atomic Refund: $${stake.toFixed(2)} to ${user.username || player.color} (New Balance: $${user.balance.toFixed(2)})`);
+                    } else {
+                        console.error(`   🚨 User not found or update failed for refund: ${player.userId}`);
+                    }
+                } catch (err) {
+                    console.error(`   ❌ Failed to process refund for player ${player.userId}:`, err);
+                }
+            }
+        }
+
+        console.log(`✅ REFUND COMPLETED successfully for game ${gameId}`);
+        return { success: true, message: 'Refund completed' };
+
+    } catch (error) {
+        console.error(`❌ CRITICAL ERROR in refund for game ${gameId}:`, error);
+        return { success: false, message: error.message };
+    }
+};
+
 // --- Helpers ---
 const getNextPlayerIndex = (game, currentIndex, grantExtraTurn) => {
     let nextIndex = grantExtraTurn ? currentIndex : (currentIndex + 1) % game.players.length;
@@ -436,6 +516,8 @@ exports.handleJoinGame = async (gameId, userId, playerColor, socketId) => {
     if (!game) {
         game = new Game({ gameId, players: [], tokens: [] });
     }
+
+    if (game.status === 'CANCELLED') return { success: false, message: 'Game is cancelled' };
 
     // Fetch user to get username
     let username = 'Player';
@@ -522,6 +604,11 @@ exports.handleDisconnect = async (gameId, socketId) => {
             return null;
         }
 
+        if (game.status === 'CANCELLED') {
+            console.log(`[disconnect] Game ${gameId} is cancelled. Ignoring disconnect.`);
+            return null;
+        }
+
         const player = game.players.find(p => p.socketId === socketId);
         if (player) {
             // ATOMIC UPDATE: Replace game.save()
@@ -571,8 +658,8 @@ exports.handleRollDice = async (gameId, socketId) => {
             return { success: false, message: 'Game not found' };
         }
 
-        if (game.status === 'COMPLETED' || game.turnState === 'GAMEOVER') {
-            return { success: false, message: 'Game is already over' };
+        if (game.status === 'COMPLETED' || game.turnState === 'GAMEOVER' || game.status === 'CANCELLED') {
+            return { success: false, message: 'Game is over or cancelled' };
         }
 
         const player = game.players[game.currentPlayerIndex];
@@ -621,6 +708,8 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
     try {
         const game = await Game.findOne({ gameId });
         if (!game) return { success: false, message: 'Game not found' };
+
+        if (game.status === 'CANCELLED') return { success: false, message: 'Game is cancelled' };
 
         const player = game.players[game.currentPlayerIndex];
         if (player.socketId !== socketId) return { success: false, message: 'Not your turn' };
@@ -677,6 +766,8 @@ exports.handleAutoRoll = async (gameId, force = false) => {
     const game = await Game.findOne({ gameId });
     if (!game) return { success: false, message: 'Game not found' };
 
+    if (game.status === 'CANCELLED') return { success: false, message: 'Game is cancelled' };
+
     const currentPlayer = game.players[game.currentPlayerIndex];
     if (!currentPlayer) return { success: false, message: 'No current player' };
 
@@ -719,6 +810,8 @@ exports.handleAutoRoll = async (gameId, force = false) => {
 exports.handleAutoMove = async (gameId) => {
     const game = await Game.findOne({ gameId });
     if (!game) return { success: false, message: 'Game not found' };
+
+    if (game.status === 'CANCELLED') return { success: false, message: 'Game is cancelled' };
 
     if (game.turnState !== 'MOVING') {
         return { success: false, message: 'Not in moving state' };
@@ -954,9 +1047,12 @@ function executeMoveToken(game, tokenId) {
         }
     }
 
-    // Restrict Extra Turns: ONLY on rolling 6 or Arrows (User Request)
-    // Removed: captured || move.finalPosition.type === 'HOME'
-    const grantExtraTurn = game.diceValue === 6 || arrowsTriggered;
+    // Extra Turns Rules (User Update):
+    // 1. Roll 6
+    // 2. Kill opponent (captured)
+    // 3. Enter HOME
+    // 4. Arrow/Ladder
+    const grantExtraTurn = game.diceValue === 6 || captured || move.finalPosition.type === 'HOME' || arrowsTriggered;
 
     const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
     game.currentPlayerIndex = nextPlayerIndex;
@@ -983,3 +1079,4 @@ function executeMoveToken(game, tokenId) {
 
 exports.executeMoveToken = executeMoveToken;
 exports.processGameSettlement = processGameSettlement;
+exports.processGameRefund = processGameRefund;

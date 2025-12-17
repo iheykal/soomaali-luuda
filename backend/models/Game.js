@@ -44,7 +44,7 @@ const GameSchema = new mongoose.Schema({
     }
   }],
 
-  status: { type: String, enum: ['WAITING', 'ACTIVE', 'COMPLETED'], default: 'WAITING' },
+  status: { type: String, enum: ['WAITING', 'ACTIVE', 'COMPLETED', 'CANCELLED'], default: 'WAITING' },
   stake: { type: Number, default: 0 },
   settlementProcessed: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },

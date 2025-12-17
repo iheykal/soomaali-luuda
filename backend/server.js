@@ -3347,6 +3347,31 @@ io.on('connection', (socket) => {
       return socket.emit('ERROR', { message: 'Insufficient funds' });
     }
 
+    // DUPLICATE MATCH PREVENTION
+    // 1. Check if acceptor is already in an active game
+    const acceptorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': userId });
+    if (acceptorActiveGame) {
+      return socket.emit('ERROR', { message: 'You are already in an active game.' });
+    }
+
+    // 2. Check if acceptor has an active match request (cleanup)
+    for (const [id, req] of activeMatchRequests.entries()) {
+      if (req.userId === userId) {
+        // Remove their request automatically or block?
+        // Let's block to avoid confusion, or auto-remove. Blocking is safer.
+        return socket.emit('ERROR', { message: 'You have an active match request. Cancel it first.' });
+      }
+    }
+
+    // 3. RACE CONDITION CHECK: Check if creator is already in an active game
+    // (They might have accepted another request or started a game in parallel)
+    const creatorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': request.userId });
+    if (creatorActiveGame) {
+      activeMatchRequests.delete(requestId); // Invalid request now
+      io.emit('match_request_removed', { requestId });
+      return socket.emit('ERROR', { message: 'The match creator is already in a game.' });
+    }
+
     activeMatchRequests.delete(requestId);
     const timer = requestTimers.get(requestId);
     if (timer) {
@@ -3368,6 +3393,31 @@ io.on('connection', (socket) => {
       }
       io.emit('match_request_removed', { requestId });
       socket.emit('match_request_cancel_success');
+    }
+  });
+
+  socket.on('request_refund', async ({ gameId, reason }) => {
+    console.log(`🔄 REFUND REQUEST from ${socket.id} for game ${gameId}`);
+    try {
+      const result = await gameEngine.processGameRefund(gameId);
+      if (result.success) {
+        // Clear all timers
+        if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+
+        // Remove from active auto turns
+        if (activeAutoTurns.has(gameId)) activeAutoTurns.delete(gameId);
+
+        // Notify all players in the room
+        io.to(gameId).emit('GAME_CANCELLED', { message: 'Game has been cancelled and refunded.' });
+
+        // Forcefully stop any further updates? Status check in engine handles that.
+        console.log(`✅ Game ${gameId} cancelled and refunded successfully.`);
+      } else {
+        socket.emit('ERROR', { message: result.message || 'Refund failed' });
+      }
+    } catch (error) {
+      console.error('Refund request error:', error);
+      socket.emit('ERROR', { message: 'Refund processing error' });
     }
   });
 
