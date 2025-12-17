@@ -3469,21 +3469,28 @@ io.on('connection', (socket) => {
           scheduleHumanPlayerAutoMove(gameId);
         }
       } else if (gameState.legalMoves && gameState.legalMoves.length === 0 && gameState.diceValue !== null) {
+        console.log(`🎲 No legal moves for game ${gameId}. Scheduling auto-pass in 1.2s...`);
         if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
         setTimeout(async () => {
+          console.log(`🎲 Executing auto-pass for game ${gameId}...`);
           const game = await Game.findOne({ gameId });
           if (game && game.turnState === 'MOVING' && game.legalMoves.length === 0) {
+            console.log(`🎲 Auto-pass condition met for game ${gameId}. Passing turn.`);
             const nextPlayerIndex = gameEngine.getNextPlayerIndex(game, game.currentPlayerIndex, false);
             game.currentPlayerIndex = nextPlayerIndex;
             game.diceValue = null;
             game.turnState = 'ROLLING';
             game.legalMoves = [];
+            // FIX: Ensure lastEvent is cleared
+            // game.lastEvent = null; 
             await game.save();
             const updatedState = game.toObject ? game.toObject() : game;
             io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
             const nextPlayer = game.players[nextPlayerIndex];
             if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, 1500);
             else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
+          } else {
+            console.log(`⚠️ Auto-pass aborted for game ${gameId}. State mismatch: Turn=${game?.turnState}, Moves=${game?.legalMoves?.length}`);
           }
         }, 1200);
       }

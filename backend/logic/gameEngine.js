@@ -851,7 +851,8 @@ function executeRollDice(game) {
 
     // Set timer for human players if there are moves
     if (moves.length > 0 && player && !player.isAI && !player.isDisconnected) {
-        game.timer = 18; // Set 18-second timer for human to make a move
+        console.log(`⏱️ Setting in-memory timer to 14s for ${player.color} (Move Phase)`);
+        game.timer = 14; // Set 14-second timer for human to make a move (Synced with server.js)
     } else {
         game.timer = null; // No timer for AI or if no moves
     }
