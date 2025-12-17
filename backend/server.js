@@ -3120,8 +3120,8 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  // Timer: 10s (Relaxed from 6s)
-  startTimerBroadcast(gameId, 10, 'roll');
+  // Timer: 5s (Fast pace as requested)
+  startTimerBroadcast(gameId, 5, 'roll');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3147,18 +3147,9 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
               }
             }
           }, 1200);
-        } else if (gameState.legalMoves.length === 1) {
-          setTimeout(async () => {
-            const moveResult = await gameEngine.handleAutoMove(gameId);
-            if (moveResult.success) {
-              io.to(gameId).emit('GAME_STATE_UPDATE', { state: moveResult.state });
-              const nextPlayer = moveResult.state.players[moveResult.state.currentPlayerIndex];
-              if (moveResult.state.turnState === 'ROLLING' && nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
-                scheduleHumanPlayerAutoRoll(gameId);
-              }
-            }
-          }, 1200);
         } else {
+          // Whether it's 1 move, 2 moves, or 10 moves, ALWAYS wait for the human to choose.
+          // Consent is key. Do not auto-move.
           scheduleHumanPlayerAutoMove(gameId);
         }
       } else {
@@ -3167,7 +3158,7 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-roll timer for ${gameId}:`, error);
     }
-  }, 10000); // 10s buffer
+  }, 5000); // 5s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
@@ -3175,8 +3166,8 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
   if (humanPlayerTimers.has(gameId)) {
     clearTimeout(humanPlayerTimers.get(gameId));
   }
-  // Timer: 15s (Relaxed from 12s)
-  startTimerBroadcast(gameId, 15, 'move');
+  // Timer: 12s (Fast pace as requested)
+  startTimerBroadcast(gameId, 12, 'move');
   const timer = setTimeout(async () => {
     humanPlayerTimers.delete(gameId);
     const Game = require('./models/Game');
@@ -3201,7 +3192,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
     } catch (error) {
       console.error(`❌ Error in auto-move timer for ${gameId}:`, error);
     }
-  }, 15000); // 15s buffer
+  }, 12000); // 12s buffer
   humanPlayerTimers.set(gameId, timer);
 };
 
@@ -3416,10 +3407,22 @@ io.on('connection', (socket) => {
     if (result.success && result.state) {
       const plainState = result.state.toObject ? result.state.toObject() : result.state;
       io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-      if (result.state.status === 'ACTIVE' && result.state.turnState === 'ROLLING') {
+
+      if (result.state.status === 'ACTIVE') {
         const currentPlayer = result.state.players[result.state.currentPlayerIndex];
+
+        // RESUME LOGIC: Check whose turn it is
         if (currentPlayer && currentPlayer.userId === userId && !currentPlayer.isAI) {
-          scheduleHumanPlayerAutoRoll(gameId);
+          // It's MY turn - Restart my timer
+          console.log(`▶️ Resuming game ${gameId} - Player ${currentPlayer.color} (Rejoined) turn`);
+          if (result.state.turnState === 'ROLLING') scheduleHumanPlayerAutoRoll(gameId);
+          else if (result.state.turnState === 'MOVING') scheduleHumanPlayerAutoMove(gameId);
+        } else if (currentPlayer && (currentPlayer.isAI || currentPlayer.isDisconnected)) {
+          // It's OPPONENT'S turn and they are away - Kickstart Bot
+          console.log(`▶️ Resuming game ${gameId} - Opponent ${currentPlayer.color} (AI/Disc) turn`);
+          // Add a small delay so the frontend has time to load
+          const delay = result.state.turnState === 'ROLLING' ? AUTO_TURN_DELAYS.AI_ROLL : AUTO_TURN_DELAYS.AI_MOVE;
+          scheduleAutoTurn(gameId, delay + 500);
         }
       }
     } else {
@@ -3651,13 +3654,25 @@ io.on('connection', (socket) => {
       const result = await gameEngine.handleDisconnect(gameId, socket.id);
       if (result) {
         io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
-        if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+
+        // CHECK IF ANY HUMANS REMAIN
+        const hasConnectedHuman = result.state.players.some(p => p.userId && !p.isAI && !p.isDisconnected && p.socketId);
+
+        if (!hasConnectedHuman) {
+          console.log(`🤖 Game ${gameId} - No active humans. Bots playing in SLOW MODE.`);
+          // Allow bot to play, but SLOWLY (8 seconds) to give chance for rejoin
+          if (result.isCurrentTurn) scheduleAutoTurn(gameId, 8000);
+        } else {
+          if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+        }
       }
-    }
+
+    } // socket.gameId check
   });
 });
 
 
+// Scheduled Task: Cleanup Stale Games (Every 6 Hours)
 // Scheduled Task: Cleanup Stale Games (Every 6 Hours)
 setInterval(async () => {
   try {
@@ -3679,9 +3694,12 @@ setInterval(async () => {
             if (player.userId && !player.isAI) {
               try {
                 const user = await User.findById(player.userId);
-                if (user && user.reservedBalance >= stake) {
+                if (user) {
+                  // UNCONDITIONAL REFUND: If the game was ACTIVE, the money was deducted.
+                  // We must give it back. We don't care about reservedBalance state.
                   user.balance += stake;
-                  user.reservedBalance -= stake;
+                  user.reservedBalance = Math.max(0, (user.reservedBalance || 0) - stake);
+
                   user.transactions.push({
                     type: 'game_refund',
                     amount: stake,

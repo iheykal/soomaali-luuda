@@ -778,6 +778,14 @@ exports.handleAutoMove = async (gameId) => {
         }
     );
 
+    // FIX: Trigger settlement AFTER saving to DB.
+    // 'moveResult.gameCompleted' is set by executeMoveToken when a player wins.
+    if (moveResult.gameCompleted) {
+        console.log(`🏆 Game ${gameId} completed. Triggering settlement AFTER save...`);
+        // We pass 'game' object, but verify that it has the correct ID.
+        await processGameSettlement(game);
+    }
+
     return { success: true, state: game.toObject ? game.toObject() : game };
 };
 
@@ -932,7 +940,7 @@ function executeMoveToken(game, tokenId) {
             game.message = `Ciyaarta way dhamaatay, waxaana badiyay ${winnerName} wuxuuna ku guuleystay $${profit.toFixed(2)} oo dollar`;
 
             // DO NOT call settlement here. Just mark completion.
-            // settlementPromise = processGameSettlement(game); 
+            // settlementPromise = processGameSettlement(game);
             const gameCompleted = true; // Signal completion
 
             game.turnState = 'GAMEOVER';
