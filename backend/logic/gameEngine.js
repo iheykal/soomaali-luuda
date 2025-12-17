@@ -949,7 +949,9 @@ function executeMoveToken(game, tokenId) {
         }
     }
 
-    const grantExtraTurn = game.diceValue === 6 || captured || move.finalPosition.type === 'HOME' || arrowsTriggered;
+    // Restrict Extra Turns: ONLY on rolling 6 or Arrows (User Request)
+    // Removed: captured || move.finalPosition.type === 'HOME'
+    const grantExtraTurn = game.diceValue === 6 || arrowsTriggered;
 
     const nextPlayerIndex = getNextPlayerIndex(game, game.currentPlayerIndex, grantExtraTurn);
     game.currentPlayerIndex = nextPlayerIndex;
