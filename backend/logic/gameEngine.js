@@ -603,7 +603,8 @@ exports.handleRollDice = async (gameId, socketId) => {
                     message: game.message,
                     legalMoves: game.legalMoves,
                     timer: game.timer,
-                    lastEvent: game.lastEvent
+                    lastEvent: game.lastEvent,
+                    updatedAt: new Date()
                 }
             }
         );
@@ -647,7 +648,8 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
                     winners: updatedGameState.winners,
                     status: updatedGameState.status,
                     settlementProcessed: updatedGameState.settlementProcessed,
-                    lastEvent: updatedGameState.lastEvent
+                    lastEvent: updatedGameState.lastEvent,
+                    updatedAt: new Date()
                 }
             }
         );
@@ -705,7 +707,8 @@ exports.handleAutoRoll = async (gameId, force = false) => {
                 message: game.message,
                 legalMoves: game.legalMoves,
                 timer: game.timer,
-                lastEvent: game.lastEvent
+                lastEvent: game.lastEvent,
+                updatedAt: new Date()
             }
         }
     );
@@ -773,7 +776,8 @@ exports.handleAutoMove = async (gameId) => {
                 winners: game.winners,
                 status: game.status,
                 settlementProcessed: game.settlementProcessed,
-                lastEvent: game.lastEvent
+                lastEvent: game.lastEvent,
+                updatedAt: new Date()
             }
         }
     );
@@ -819,7 +823,8 @@ exports.handlePassTurn = async (gameId) => {
                 diceValue: game.diceValue,
                 legalMoves: game.legalMoves,
                 message: game.message,
-                lastEvent: game.lastEvent
+                lastEvent: game.lastEvent,
+                updatedAt: new Date()
             }
         }
     );

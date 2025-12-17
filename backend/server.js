@@ -3817,7 +3817,7 @@ setInterval(async () => {
 
     const gameEngine = require('./logic/gameEngine');
     const now = Date.now();
-    const stalledThreshold = 20000; // 20 seconds (Safe buffer > 15s move timer)
+    const stalledThreshold = 60000; // 60 seconds (Relaxed to prevent conflicting timer kicks)
 
     const activeGames = await Game.find({ status: 'ACTIVE' });
 
