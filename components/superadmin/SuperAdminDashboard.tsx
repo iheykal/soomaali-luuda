@@ -584,7 +584,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     if ((activeTab === 'revenue' || activeTab === 'dashboard') && user?.role === 'SUPER_ADMIN') {
       fetchRevenue();
     }
-    if ((activeTab === 'games' || activeTab === 'dashboard') && user?.role === 'SUPER_ADMIN') {
+    if ((activeTab === 'games' || activeTab === 'dashboard') && (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN')) {
       fetchActiveGames();
     }
     if (activeTab === 'dashboard' && user?.role === 'SUPER_ADMIN') {
@@ -614,8 +614,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 </div>
               )}
 
-              {/* Active Games - Only for SUPER_ADMIN */}
-              {(user?.role === 'SUPER_ADMIN') && (
+              {/* Active Games - For SUPER_ADMIN and ADMIN */}
+              {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && (
                 <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 sm:p-6 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-xl hover:scale-105 transition-all duration-200 cursor-pointer group" onClick={() => setActiveTab('games')}>
                   <div className="flex items-center justify-between mb-3">
                     <div className="p-3 bg-blue-500 rounded-xl group-hover:scale-110 transition-transform">
@@ -1767,17 +1767,19 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                     <span>{statusStyle.icon}</span>
                                     {req.status}
                                   </span>
-                                  {/* Delete Button */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation(); // Prevent card click
-                                      handleDeleteFinancialRequest(req.id || req._id!, req.userName || 'Unknown User');
-                                    }}
-                                    className="p-1.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
-                                    title={`Delete request ${req.shortId}`}
-                                  >
-                                    <span className="text-sm">🗑️</span>
-                                  </button>
+                                  {/* Delete Button - Only for SUPER_ADMIN */}
+                                  {user?.role === 'SUPER_ADMIN' && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation(); // Prevent card click
+                                        handleDeleteFinancialRequest(req.id || req._id!, req.userName || 'Unknown User');
+                                      }}
+                                      className="p-1.5 rounded-full bg-red-100 text-red-600 hover:bg-red-200 hover:text-red-700 transition-colors"
+                                      title={`Delete request ${req.shortId}`}
+                                    >
+                                      <span className="text-sm">🗑️</span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>

@@ -1823,7 +1823,7 @@ app.get('/api/admin/games/active', authenticateToken, async (req, res) => {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-active-games');
     let adminUser = lookupResult.success ? lookupResult.user : null;
 
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
       return res.status(403).json({ error: "Access denied" });
     }
 
@@ -3917,6 +3917,26 @@ setInterval(async () => {
     console.error('Watchdog error:', error);
   }
 }, 5000); // Check every 5s
+
+// --- Auto-Delete Old Pending Requests ---
+// Runs every 15 minutes to clean up pending requests older than 1 hour
+// Only deletes PENDING requests - APPROVED and REJECTED requests are not affected
+setInterval(async () => {
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+
+    const result = await FinancialRequest.deleteMany({
+      status: 'PENDING',
+      timestamp: { $lt: oneHourAgo }
+    });
+
+    if (result.deletedCount > 0) {
+      console.log(`🧹 Auto-cleanup: Deleted ${result.deletedCount} pending request(s) older than 1 hour`);
+    }
+  } catch (error) {
+    console.error('❌ Pending requests cleanup error:', error);
+  }
+}, 15 * 60 * 1000); // Run every 15 minutes
 
 // Start server after ensuring DB connection and performing startup cleanup.
 (async () => {
