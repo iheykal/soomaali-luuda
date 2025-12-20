@@ -929,10 +929,31 @@ exports.handlePassTurn = async (gameId) => {
 
 function executeRollDice(game) {
     const player = game.players[game.currentPlayerIndex];
-    const roll = crypto.randomInt(1, 7);
-    game.lastEvent = null;
 
-    console.log(`🎲 executeRollDice: player=${player.color}, roll=${roll}`);
+    // Calculate elapsed time since game creation
+    const gameStartTime = new Date(game.createdAt).getTime();
+    const currentTime = Date.now();
+    const elapsedSeconds = (currentTime - gameStartTime) / 1000;
+
+    // Boost chance of rolling 6 in first 90 seconds to help players start faster
+    let roll;
+    if (elapsedSeconds <= 90) {
+        // 60% chance of rolling a 6, 8% chance for each of 1-5
+        const rand = Math.random();
+        if (rand < 0.60) {
+            roll = 6; // 60% chance
+        } else {
+            // Remaining 40% distributed among 1-5 (8% each)
+            roll = Math.floor(Math.random() * 5) + 1;
+        }
+        console.log(`🎲 BOOSTED ROLL (${elapsedSeconds.toFixed(1)}s elapsed): player=${player.color}, roll=${roll}`);
+    } else {
+        // Normal random roll after 90 seconds
+        roll = crypto.randomInt(1, 7);
+        console.log(`🎲 executeRollDice: player=${player.color}, roll=${roll}`);
+    }
+
+    game.lastEvent = null;
 
     // Set diceValue and turnState
     game.diceValue = roll;
