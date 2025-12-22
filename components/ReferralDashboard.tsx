@@ -53,19 +53,19 @@ const ReferralDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     };
 
     const handleCopy = async () => {
-        if (!stats?.shareUrl) return;
+        if (!stats?.code) return;
 
         try {
-            // Try modern clipboard API first
-            await navigator.clipboard.writeText(stats.shareUrl);
+            // Copy just the referral code, not the full URL
+            await navigator.clipboard.writeText(stats.code);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-            console.log('✅ Copied to clipboard:', stats.shareUrl);
+            console.log('✅ Copied to clipboard:', stats.code);
         } catch (err) {
             // Fallback for older browsers
             try {
                 const textArea = document.createElement('textarea');
-                textArea.value = stats.shareUrl;
+                textArea.value = stats.code;
                 textArea.style.position = 'fixed';
                 textArea.style.left = '-999999px';
                 document.body.appendChild(textArea);
@@ -74,10 +74,10 @@ const ReferralDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 document.body.removeChild(textArea);
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
-                console.log('✅ Copied to clipboard (fallback):', stats.shareUrl);
+                console.log('✅ Copied to clipboard (fallback):', stats.code);
             } catch (fallbackErr) {
                 console.error('Failed to copy:', fallbackErr);
-                alert('Failed to copy. Please copy manually: ' + stats.shareUrl);
+                alert('Failed to copy. Your code: ' + stats.code);
             }
         }
     };
@@ -179,11 +179,7 @@ const ReferralDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                 <strong className="text-yellow-300">Ma ahan hal ciyaar</strong> - waa ciyaar walbo oo uu ciyaaro! Lacag joogto ah!
                             </span>
                         </p>
-                        <div className="bg-white/20 rounded-lg p-3 mt-3 backdrop-blur-sm">
-                            <p className="text-sm font-mono text-center">
-                                🎁 Linkigaga: <strong className="text-yellow-300">{stats.shareUrl}</strong>
-                            </p>
-                        </div>
+
                     </div>
                 </div>
 
@@ -197,7 +193,7 @@ const ReferralDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                             className="flex items-center gap-2 bg-white  text-cyan-900 px-6 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
                         >
                             {copied ? <Check size={18} /> : <Copy size={18} />}
-                            {copied ? 'Copied!' : 'Copy Link'}
+                            {copied ? 'Copied!' : 'Copy Code'}
                         </button>
                         <button
                             onClick={handleShare}

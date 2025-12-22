@@ -30,8 +30,18 @@ router.get('/stats', async (req, res) => {
         // Get count of referred users
         const referredCount = user.referredUsers?.length || 0;
 
-        // Calculate share URL (assuming frontend URL from env)
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        // Calculate share URL - MUST use environment variable in production
+        const frontendUrl = process.env.FRONTEND_URL;
+        if (!frontendUrl) {
+            console.error('⚠️ FRONTEND_URL not set in environment variables!');
+            return res.status(500).json({ error: 'Server configuration error: FRONTEND_URL not set' });
+        }
+
+        if (!user.referralCode) {
+            console.error('⚠️ User has no referral code:', userId);
+            return res.status(500).json({ error: 'Referral code not generated. Please contact support.' });
+        }
+
         const shareUrl = `${frontendUrl}/signup?ref=${user.referralCode}`;
 
         res.json({
@@ -109,7 +119,18 @@ router.get('/code', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        // Use environment variable - no hardcoded fallback
+        const frontendUrl = process.env.FRONTEND_URL;
+        if (!frontendUrl) {
+            console.error('⚠️ FRONTEND_URL not set in environment variables!');
+            return res.status(500).json({ error: 'Server configuration error: FRONTEND_URL not set' });
+        }
+
+        if (!user.referralCode) {
+            console.error('⚠️ User has no referral code:', userId);
+            return res.status(500).json({ error: 'Referral code not generated. Please contact support.' });
+        }
+
         const shareUrl = `${frontendUrl}/signup?ref=${user.referralCode}`;
 
         res.json({

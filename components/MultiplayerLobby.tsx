@@ -57,7 +57,7 @@ const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean
         <div className={`text-4xl font-black ${disabled ? 'text-slate-500' : 'text-white group-hover:text-cyan-300'}`}>
             ${amount.toFixed(2)}
         </div>
-            <div className="mt-4 px-3 py-1 rounded-full bg-slate-900 text-xs text-slate-500 font-mono border border-slate-700 group-hover:border-cyan-500/50 transition-colors">
+        <div className="mt-4 px-3 py-1 rounded-full bg-slate-900 text-xs text-slate-500 font-mono border border-slate-700 group-hover:border-cyan-500/50 transition-colors">
             Win: ${(amount * 0.8).toFixed(2)}
         </div>
     </button>
@@ -72,6 +72,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
     const [myRequestId, setMyRequestId] = useState<string | null>(null);
     const [countdown, setCountdown] = useState<number | null>(null);
     const [statusMessage, setStatusMessage] = useState('');
+    const [showInsufficientBalanceModal, setShowInsufficientBalanceModal] = useState(false);
     const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const { user } = useAuth();
 
@@ -338,6 +339,14 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         const userId = user?._id || user?.id || sessionId;
         const userName = user?.username || 'Player';
 
+        // Check if user has sufficient balance
+        const userBalance = user?.balance || 0;
+        if (userBalance < amount) {
+            console.log('⚠️ Insufficient balance:', { userBalance, required: amount });
+            setShowInsufficientBalanceModal(true);
+            return;
+        }
+
         // Super Admin check
         if (user && ((user.role && user.role.toString().toLowerCase().includes('super')) || (user as any).isSuperAdmin)) {
             setStatusMessage('Super Admin accounts cannot participate.');
@@ -405,6 +414,33 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
             {countdown !== null && <CountdownOverlay count={countdown} />}
 
+            {/* Insufficient Balance Modal */}
+            {showInsufficientBalanceModal && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] backdrop-blur-sm p-4" onClick={() => setShowInsufficientBalanceModal(false)}>
+                    <div className="bg-gradient-to-br from-red-500 via-red-600 to-orange-600 rounded-3xl max-w-md w-full p-8 shadow-2xl animate-in zoom-in duration-300" onClick={(e) => e.stopPropagation()}>
+                        <div className="text-center">
+                            <div className="bg-white/20 backdrop-blur-sm rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                                <span className="text-6xl">😟</span>
+                            </div>
+                            <h2 className="text-3xl font-bold text-white mb-4">Waanka xunnahay!</h2>
+                            <p className="text-xl text-white/95 mb-6 leading-relaxed">
+                                Lacag kuguma jirto ee fadlan ku shubo
+                            </p>
+                            <div className="bg-white/10 rounded-xl p-4 mb-6 backdrop-blur-sm">
+                                <p className="text-white/80 text-sm mb-1">Your Balance</p>
+                                <p className="text-3xl font-bold text-white">${(user?.balance || 0).toFixed(2)}</p>
+                            </div>
+                            <button
+                                onClick={() => setShowInsufficientBalanceModal(false)}
+                                className="w-full bg-white hover:bg-gray-100 text-red-600 font-bold py-4 px-6 rounded-xl shadow-lg transition-all transform hover:scale-105"
+                            >
+                                Fahantay (OK)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="z-10 w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Left Column: Create Request */}
                 <div className="text-center lg:text-left">
@@ -420,7 +456,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
                                         key={amount}
                                         amount={amount}
                                         onClick={() => handleCreateRequest(amount)}
-                                        disabled={false}
+                                        disabled={(user?.balance || 0) < amount}
                                     />
                                 ))}
                             </div>
