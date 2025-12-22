@@ -7,7 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loading: boolean;
   login: (phone: string, password: string) => Promise<void>;
-  register: (fullName: string, phone: string, password: string) => Promise<void>;
+  register: (fullName: string, phone: string, password: string, referralCode?: string) => Promise<void>;
   logout: () => void;
   requestPasswordReset: (phoneOrUsername: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
@@ -47,14 +47,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Check for stored authentication token
     const storedUser = localStorage.getItem('ludo_user');
     const storedToken = localStorage.getItem('ludo_token');
-    
+
     if (storedUser && storedToken) {
       try {
         const userData = JSON.parse(storedUser);
         // Immediately restore user from localStorage and keep them logged in
         setUser(userData);
         setLoading(false);
-        
+
         // Refresh user data in the background
         refreshUser();
       } catch {
@@ -112,8 +112,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('ludo_token', response.token);
   };
 
-  const register = async (fullName: string, phone: string, password: string) => {
-    const response = await authAPI.register(fullName, phone, password);
+  const register = async (fullName: string, phone: string, password: string, referralCode?: string) => {
+    const response = await authAPI.register(fullName, phone, password, referralCode);
     setUser(response.user);
     localStorage.setItem('ludo_user', JSON.stringify(response.user));
     localStorage.setItem('ludo_token', response.token);

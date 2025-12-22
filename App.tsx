@@ -23,6 +23,7 @@ import { notificationService, WinNotificationData } from './services/notificatio
 
 import SuperAdminDashboard from './components/superadmin/SuperAdminDashboard';
 import Wallet from './components/Wallet';
+import ReferralDashboard from './components/ReferralDashboard';
 
 type View = 'setup' | 'game' | 'multiplayer-lobby' | 'login' | 'register' | 'reset-password' | 'superadmin' | 'wallet';
 
@@ -45,6 +46,7 @@ const AppContent: React.FC = () => {
   const [showSuperAdminOverlay, setShowSuperAdminOverlay] = useState(false);
   const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
   const [showWallet, setShowWallet] = useState(false);
+  const [showReferrals, setShowReferrals] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any | null>(null);
   const [winNotification, setWinNotification] = useState<WinNotificationData | null>(null);
 
@@ -235,6 +237,18 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const handleEnterReferrals = async () => {
+    // Refresh user data before showing referral dashboard
+    if (refreshUser) {
+      await refreshUser();
+    }
+    setShowReferrals(true);
+  };
+
+  const handleExitReferrals = () => {
+    setShowReferrals(false);
+  };
+
   // Auto-navigate to setup view if user is already authenticated
   useEffect(() => {
     if (isAuthenticated && !authLoading && view === 'login') {
@@ -363,6 +377,7 @@ const AppContent: React.FC = () => {
     <>
       {renderSuperAdminOverlay()}
       {showWallet && <Wallet onClose={handleExitWallet} />}
+      {showReferrals && <ReferralDashboard onClose={handleExitReferrals} />}
       {winNotification && (
         <WinNotification
           playerName={winNotification.winnerUsername}
@@ -381,6 +396,7 @@ const AppContent: React.FC = () => {
           onRejoinGame={handleRejoinGame}
           onEnterSuperAdmin={handleEnterSuperAdmin}
           onEnterWallet={handleEnterWallet}
+          onEnterReferrals={handleEnterReferrals}
           onInstall={handleInstallClick}
           showInstallButton={!!installPrompt}
         />

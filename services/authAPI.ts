@@ -63,7 +63,7 @@ export const authAPI = {
     }
   },
 
-  async register(fullName: string, phone: string, password: string): Promise<LoginResponse> {
+  async register(fullName: string, phone: string, password: string, referralCode?: string): Promise<LoginResponse> {
     const url = `${getAuthUrl()}/auth/register`;
     const options = {
       method: 'POST',
@@ -74,6 +74,7 @@ export const authAPI = {
         fullName,
         phone,
         password,
+        ...(referralCode && { referralCode }) // Only include if provided
       }),
     };
 

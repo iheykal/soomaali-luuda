@@ -13,6 +13,12 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ['USER', 'ADMIN', 'SUPER_ADMIN'], default: 'USER' },
   status: { type: String, enum: ['Active', 'Suspended'], default: 'Active' },
   createdAt: { type: Date, default: Date.now },
+
+  // Referral System
+  referralCode: { type: String, unique: true, sparse: true }, // User's unique code to share (e.g., LUDO-ABC123)
+  referredBy: { type: String, ref: 'User' }, // ID of user who referred this user
+  referralEarnings: { type: Number, default: 0 }, // Total earned from referred users (20% of their rakes)
+  referredUsers: [{ type: String, ref: 'User' }], // Array of user IDs this user has referred
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },
   stats: {
@@ -38,7 +44,7 @@ const UserSchema = new mongoose.Schema({
   transactions: [{
     type: {
       type: String,
-      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake']
+      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake', 'referral_earning']
     },
     amount: Number,
     matchId: String,
@@ -50,5 +56,9 @@ const UserSchema = new mongoose.Schema({
 // ===== INDEX OPTIMIZATION =====
 // Compound index for admin dashboard (filter by role and status)
 UserSchema.index({ role: 1, status: 1 });
+// Index for referral code lookups
+UserSchema.index({ referralCode: 1 });
+// Index for referral queries
+UserSchema.index({ referredBy: 1 });
 
 module.exports = mongoose.model('User', UserSchema);

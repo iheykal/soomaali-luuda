@@ -420,7 +420,7 @@ const normalizePhone = (phone) => {
 // POST: Register/Sign Up
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { fullName, phone, password } = req.body;
+    const { fullName, phone, password, referralCode } = req.body;
 
     if (!fullName || !phone || !password) {
       return res.status(400).json({ error: 'Full name, phone number, and password are required' });
@@ -452,8 +452,26 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Username or phone number already exists' });
     }
 
+    // Validate referral code if provided
+    const { validateReferralCode, canBeReferred, generateUniqueReferralCode } = require('./utils/referralUtils');
+    let referrerId = null;
+
+    if (referralCode) {
+      const referrer = await validateReferralCode(referralCode);
+
+      if (referrer) {
+        referrerId = referrer._id;
+        console.log(`✅ Valid referral code: ${referralCode} from ${referrer.username}`);
+      } else {
+        console.log(`⚠️ Invalid referral code provided: ${referralCode}, proceeding without referrer`);
+      }
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Generate unique referral code for new user
+    const newUserReferralCode = await generateUniqueReferralCode();
 
     // Create new user - store phone with +252 prefix for consistency
     const userId = 'u' + Date.now().toString().slice(-6);
@@ -465,6 +483,10 @@ app.post('/api/auth/register', async (req, res) => {
       balance: 0, // Starting balance set to 0 as requested
       role: 'USER',
       status: 'Active',
+      referralCode: newUserReferralCode, // Assign unique code
+      referredBy: referrerId, // Link to referrer if valid code was used
+      referralEarnings: 0,
+      referredUsers: [],
       // avatar will be set via upload, not hardcoded
       stats: {
         gamesPlayed: 0,
@@ -473,6 +495,20 @@ app.post('/api/auth/register', async (req, res) => {
     });
 
     await newUser.save();
+
+    // If referred by someone, add this user to referrer's referredUsers array
+    if (referrerId) {
+      try {
+        await User.findByIdAndUpdate(
+          referrerId,
+          { $addToSet: { referredUsers: userId } } // addToSet prevents duplicates
+        );
+        console.log(`📎 Linked ${userId} to referrer ${referrerId}`);
+      } catch (error) {
+        console.error('Error updating referrer:', error);
+        // Non-critical, continue with registration
+      }
+    }
 
     // Generate JWT token with 1 year expiration (game should never logout)
     const token = jwt.sign(
@@ -498,7 +534,8 @@ app.post('/api/auth/register', async (req, res) => {
       status: userData.status,
       joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
       createdAt: userData.createdAt,
-      stats: userData.stats || { gamesPlayed: 0, wins: 0 }
+      stats: userData.stats || { gamesPlayed: 0, wins: 0 },
+      referralCode: userData.referralCode // Include referral code in response
     };
 
     res.json({
@@ -510,6 +547,7 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(500).json({ error: error.message || 'Registration failed' });
   }
 });
+
 
 // POST: Login
 app.post('/api/auth/login', async (req, res) => {
@@ -3953,6 +3991,11 @@ setInterval(async () => {
     console.error('⚠️ Startup cleanup failed:', err);
     console.log('🔄 Continuing server startup...');
   }
+
+  // Mount referral routes
+  const referralRoutes = require('./referralRoutes');
+  app.use('/api/referrals', authenticateToken, referralRoutes);
+  console.log('✅ Referral routes mounted at /api/referrals');
 
   // Start the server now that we've attempted DB connect + cleanup
   server.listen(PORT, HOST, () => {

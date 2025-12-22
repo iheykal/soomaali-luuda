@@ -55,7 +55,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
         <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">
           Welcome Back
         </h2>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-gray-600 text-sm font-bold mb-2">
@@ -66,7 +66,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
                 <span className="text-xl mr-2">🇸🇴</span>
                 <span className="text-gray-800 font-medium">+252</span>
               </div>
-              <input 
+              <input
                 type="tel"
                 inputMode="numeric"
                 value={phone}
@@ -78,11 +78,11 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
               />
             </div>
           </div>
-          
+
           <div>
             <label className="block text-gray-600 text-sm font-bold mb-2">Password</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 text-gray-900 focus:ring-2 focus:ring-cyan-500 outline-none"
@@ -91,7 +91,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
               disabled={loading}
             />
           </div>
-          
+
           {onSwitchToResetPassword && (
             <div className="text-right">
               <button
@@ -106,7 +106,7 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
               </button>
             </div>
           )}
-          
+
           {error && (
             <div className="bg-red-100 border border-red-300 rounded-lg p-3">
               <p className="text-red-700 text-sm text-center">{error}</p>
@@ -123,25 +123,25 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
               <p className="text-green-700 text-sm text-center">{success}</p>
             </div>
           )}
-          
-          <button 
-            type="submit" 
+
+          <button
+            type="submit"
             disabled={loading}
             className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-transform transform active:scale-95"
           >
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-        
+
         <div className="mt-6 text-center">
-          <button 
+          <button
             onClick={onSwitchToRegister}
             className="text-gray-600 hover:text-cyan-600 text-sm underline"
           >
-            Need an account? Sign Up
+            Akoon Cusub
           </button>
         </div>
-        
+
         <div className="mt-4 text-center">
         </div>
       </div>
