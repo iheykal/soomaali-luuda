@@ -25,7 +25,7 @@ router.get('/stats', async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const user = await User.findById(userId)
+        let user = await User.findById(userId)
             .populate('referredUsers', 'username createdAt stats')
             .select('referralCode referralEarnings referredUsers');
 
@@ -46,9 +46,15 @@ router.get('/stats', async (req, res) => {
         // Remove trailing slash to prevent double slashes in URLs
         frontendUrl = stripTrailingSlash(frontendUrl);
 
+        // Auto-generate referral code if user doesn't have one
         if (!user.referralCode) {
-            console.error('⚠️ User has no referral code:', userId);
-            return res.status(500).json({ error: 'Referral code not generated. Please contact support.' });
+            console.log(`⚠️ User ${userId} has no referral code, generating one...`);
+            const { generateUniqueReferralCode } = require('./utils/referralUtils');
+            user.referralCode = await generateUniqueReferralCode();
+            user.referralEarnings = user.referralEarnings || 0;
+            user.referredUsers = user.referredUsers || [];
+            await user.save();
+            console.log(`✅ Generated referral code ${user.referralCode} for user ${userId}`);
         }
 
         const shareUrl = `${frontendUrl}/signup?ref=${user.referralCode}`;
@@ -122,7 +128,7 @@ router.get('/code', async (req, res) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const user = await User.findById(userId).select('referralCode');
+        let user = await User.findById(userId).select('referralCode');
 
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
@@ -138,9 +144,13 @@ router.get('/code', async (req, res) => {
         // Remove trailing slash to prevent double slashes in URLs
         frontendUrl = stripTrailingSlash(frontendUrl);
 
+        // Auto-generate referral code if user doesn't have one
         if (!user.referralCode) {
-            console.error('⚠️ User has no referral code:', userId);
-            return res.status(500).json({ error: 'Referral code not generated. Please contact support.' });
+            console.log(`⚠️ User ${userId} has no referral code, generating one...`);
+            const { generateUniqueReferralCode } = require('./utils/referralUtils');
+            user.referralCode = await generateUniqueReferralCode();
+            await user.save();
+            console.log(`✅ Generated referral code ${user.referralCode} for user ${userId}`);
         }
 
         const shareUrl = `${frontendUrl}/signup?ref=${user.referralCode}`;
