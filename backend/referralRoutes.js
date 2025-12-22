@@ -4,6 +4,12 @@ const User = require('./models/User');
 const ReferralEarning = require('./models/ReferralEarning');
 const { validateReferralCode } = require('./utils/referralUtils');
 
+// Helper function to remove trailing slashes from URLs
+const stripTrailingSlash = (url) => {
+    if (!url) return url;
+    return url.replace(/\/+$/, '');
+};
+
 // Middleware to authenticate user (assumed to be passed from server.js)
 // You'll need to import or define authenticateToken middleware
 
@@ -31,11 +37,14 @@ router.get('/stats', async (req, res) => {
         const referredCount = user.referredUsers?.length || 0;
 
         // Calculate share URL - MUST use environment variable in production
-        const frontendUrl = process.env.FRONTEND_URL;
+        let frontendUrl = process.env.FRONTEND_URL;
         if (!frontendUrl) {
             console.error('⚠️ FRONTEND_URL not set in environment variables!');
             return res.status(500).json({ error: 'Server configuration error: FRONTEND_URL not set' });
         }
+
+        // Remove trailing slash to prevent double slashes in URLs
+        frontendUrl = stripTrailingSlash(frontendUrl);
 
         if (!user.referralCode) {
             console.error('⚠️ User has no referral code:', userId);
@@ -120,11 +129,14 @@ router.get('/code', async (req, res) => {
         }
 
         // Use environment variable - no hardcoded fallback
-        const frontendUrl = process.env.FRONTEND_URL;
+        let frontendUrl = process.env.FRONTEND_URL;
         if (!frontendUrl) {
             console.error('⚠️ FRONTEND_URL not set in environment variables!');
             return res.status(500).json({ error: 'Server configuration error: FRONTEND_URL not set' });
         }
+
+        // Remove trailing slash to prevent double slashes in URLs
+        frontendUrl = stripTrailingSlash(frontendUrl);
 
         if (!user.referralCode) {
             console.error('⚠️ User has no referral code:', userId);

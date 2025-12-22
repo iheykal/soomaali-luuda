@@ -44,9 +44,21 @@ const ReferralDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             setStats(statsData);
             setEarnings(earningsData.earnings || []);
             setError(null);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error loading referral data:', error);
-            setError('Failed to load referral data. Please try again.');
+
+            // Enhanced error message for debugging
+            let errorMessage = 'Failed to load referral data. Please try again.';
+
+            if (error?.responseData?.error) {
+                errorMessage = error.responseData.error;
+            } else if (error?.message) {
+                errorMessage = error.message;
+            } else if (error?.response?.status) {
+                errorMessage = `Server error (${error.response.status}): ${error.response.statusText || 'Unknown error'}`;
+            }
+
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }
