@@ -1437,6 +1437,80 @@ app.get('/api/admin/visitor-analytics', authenticateToken, async (req, res) => {
   }
 });
 
+// GET: Referral Leaderboard for SuperAdmin
+app.get('/api/admin/referral-leaderboard', authenticateToken, async (req, res) => {
+  try {
+    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-referral-leaderboard');
+    const adminUser = lookupResult.success ? lookupResult.user : null;
+
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    // Find all users who have referred someone (referredUsers array not empty)
+    const referrers = await User.find({
+      referredUsers: { $exists: true, $not: { $size: 0 } }
+    })
+      .select('_id username phone referralCode referralEarnings referredUsers')
+      .lean();
+
+    // For each referrer, populate their referred users' details
+    const leaderboard = await Promise.all(
+      referrers.map(async (referrer) => {
+        // Fetch full details of referred users
+        const referredUsersDetails = await User.find({
+          _id: { $in: referrer.referredUsers }
+        })
+          .select('_id username phone stats balance createdAt')
+          .lean();
+
+        // Calculate active vs inactive referrals
+        const activeReferrals = referredUsersDetails.filter(
+          u => (u.stats?.gamesPlayed || 0) > 0
+        ).length;
+
+        const inactiveReferrals = referredUsersDetails.length - activeReferrals;
+
+        return {
+          referrer: {
+            id: referrer._id,
+            username: referrer.username,
+            phone: referrer.phone,
+            referralCode: referrer.referralCode,
+            referralEarnings: referrer.referralEarnings || 0
+          },
+          totalReferrals: referredUsersDetails.length,
+          activeReferrals,
+          inactiveReferrals,
+          referredUsers: referredUsersDetails.map(u => ({
+            id: u._id,
+            username: u.username,
+            phone: u.phone,
+            stats: {
+              gamesPlayed: u.stats?.gamesPlayed || 0,
+              wins: u.stats?.wins || u.stats?.gamesWon || 0
+            },
+            balance: u.balance || 0,
+            createdAt: u.createdAt
+          }))
+        };
+      })
+    );
+
+    // Sort by total referral earnings (descending)
+    leaderboard.sort((a, b) => b.referrer.referralEarnings - a.referrer.referralEarnings);
+
+    res.json({
+      success: true,
+      leaderboard
+    });
+
+  } catch (error) {
+    console.error('Referral leaderboard error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch referral leaderboard' });
+  }
+});
+
 // Initialize cache for performance optimization
 // const NodeCache = require('node-cache'); // Already required at top
 const cache = new NodeCache({

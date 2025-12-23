@@ -275,6 +275,11 @@ const processGameSettlement = async (gameObj) => {
         // ============================================================================
         // REFERRAL COMMISSION PROCESSING
         // ============================================================================
+        // Process referral commissions for BOTH winner and loser if they were referred
+        // Both players contribute to the pot, so both should reward their referrers
+
+        let winnerReferrerId = null; // Track to avoid double-payment
+
         // Check if winner was referred by someone (single-tier referral system)
         if (winner.referredBy) {
             try {
@@ -284,13 +289,12 @@ const processGameSettlement = async (gameObj) => {
                 if (referrer) {
                     // Calculate referral commission: 20% of platform rake
                     const referralCommission = commission * 0.20;
-                    platformNetRevenue = commission * 0.80; // Platform keeps 80%
+                    platformNetRevenue -= referralCommission; // Deduct from platform revenue
 
-                    console.log(`\n🎁 REFERRAL COMMISSION PROCESSING:`);
+                    console.log(`\n🎁 REFERRAL COMMISSION PROCESSING (WINNER):`);
                     console.log(`   Winner ${winner.username} was referred by ${referrer.username}`);
                     console.log(`   Platform rake: $${commission.toFixed(2)}`);
                     console.log(`   Referrer gets (20%): $${referralCommission.toFixed(2)}`);
-                    console.log(`   Platform keeps (80%): $${platformNetRevenue.toFixed(2)}`);
 
                     // ATOMIC UPDATE: Credit referrer
                     const referrerUpdate = await User.updateOne(
@@ -305,7 +309,7 @@ const processGameSettlement = async (gameObj) => {
                                     type: 'referral_earning',
                                     amount: referralCommission,
                                     matchId: game.gameId,
-                                    description: `Referral bonus from ${winner.username}'s game ${game.gameId}`,
+                                    description: `Referral bonus from ${winner.username}'s win in game ${game.gameId}`,
                                     timestamp: new Date()
                                 }
                             }
@@ -314,6 +318,7 @@ const processGameSettlement = async (gameObj) => {
 
                     if (referrerUpdate.modifiedCount === 1) {
                         console.log(`   ✅ Referrer ${referrer.username} credited $${referralCommission.toFixed(2)}`);
+                        winnerReferrerId = referrer._id.toString(); // Track this referrer
 
                         // Create referral earning record for audit trail
                         const referralEarning = new ReferralEarning({
@@ -324,7 +329,7 @@ const processGameSettlement = async (gameObj) => {
                             platformRake: commission
                         });
                         await referralEarning.save();
-                        console.log(`   📊 Referral earning record created`);
+                        console.log(`   📊 Referral earning record created for winner's referrer`);
                     } else {
                         console.error(`   🚨 Failed to credit referrer ${referrer.username}`);
                     }
@@ -332,12 +337,82 @@ const processGameSettlement = async (gameObj) => {
                     console.warn(`   ⚠️ Referrer not found for winner ${winner.username} (referredBy: ${winner.referredBy})`);
                 }
             } catch (refError) {
-                console.error(`   ❌ Error processing referral commission:`, refError);
+                console.error(`   ❌ Error processing winner's referral commission:`, refError);
                 // Non-critical error, game settlement continues
             }
         } else {
             console.log(`\n   ℹ️ Winner ${winner.username} was not referred (organic user)`);
         }
+
+        // Check if loser was also referred by someone
+        if (loser.referredBy) {
+            try {
+                const ReferralEarning = require('../models/ReferralEarning');
+                const loserReferrer = await User.findById(loser.referredBy);
+
+                if (loserReferrer) {
+                    // Check if loser's referrer is different from winner's referrer to avoid double-payment
+                    if (loserReferrer._id.toString() === winnerReferrerId) {
+                        console.log(`\n   ℹ️ Loser ${loser.username} was referred by same person as winner. Skipping duplicate payment.`);
+                    } else {
+                        // Calculate referral commission: 20% of platform rake
+                        const referralCommission = commission * 0.20;
+                        platformNetRevenue -= referralCommission; // Deduct from platform revenue
+
+                        console.log(`\n🎁 REFERRAL COMMISSION PROCESSING (LOSER):`);
+                        console.log(`   Loser ${loser.username} was referred by ${loserReferrer.username}`);
+                        console.log(`   Platform rake: $${commission.toFixed(2)}`);
+                        console.log(`   Referrer gets (20%): $${referralCommission.toFixed(2)}`);
+
+                        // ATOMIC UPDATE: Credit loser's referrer
+                        const referrerUpdate = await User.updateOne(
+                            { _id: loserReferrer._id },
+                            {
+                                $inc: {
+                                    balance: referralCommission,
+                                    referralEarnings: referralCommission
+                                },
+                                $push: {
+                                    transactions: {
+                                        type: 'referral_earning',
+                                        amount: referralCommission,
+                                        matchId: game.gameId,
+                                        description: `Referral bonus from ${loser.username}'s game ${game.gameId}`,
+                                        timestamp: new Date()
+                                    }
+                                }
+                            }
+                        );
+
+                        if (referrerUpdate.modifiedCount === 1) {
+                            console.log(`   ✅ Referrer ${loserReferrer.username} credited $${referralCommission.toFixed(2)}`);
+
+                            // Create referral earning record for audit trail
+                            const referralEarning = new ReferralEarning({
+                                referrer: loserReferrer._id,
+                                referred: loser._id,
+                                gameId: game.gameId,
+                                amount: referralCommission,
+                                platformRake: commission
+                            });
+                            await referralEarning.save();
+                            console.log(`   📊 Referral earning record created for loser's referrer`);
+                        } else {
+                            console.error(`   🚨 Failed to credit loser's referrer ${loserReferrer.username}`);
+                        }
+                    }
+                } else {
+                    console.warn(`   ⚠️ Referrer not found for loser ${loser.username} (referredBy: ${loser.referredBy})`);
+                }
+            } catch (refError) {
+                console.error(`   ❌ Error processing loser's referral commission:`, refError);
+                // Non-critical error, game settlement continues
+            }
+        } else {
+            console.log(`\n   ℹ️ Loser ${loser.username} was not referred (organic user)`);
+        }
+
+        console.log(`\n💰 Final Platform Net Revenue: $${platformNetRevenue.toFixed(2)}`);
 
         // ============================================================================
         // PROCESS LOSER DEDUCTION

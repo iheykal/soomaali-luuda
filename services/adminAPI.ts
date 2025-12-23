@@ -1,5 +1,5 @@
 import { API_URL } from '../lib/apiConfig';
-import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse } from '../types';
+import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse, ReferralLeaderboardData } from '../types';
 import { instrumentedFetch } from './apiService';
 
 const getApiUrl = () => {
@@ -314,6 +314,22 @@ export const adminAPI = {
       return responseData;
     } catch (error: any) {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to refund game';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getReferralLeaderboard(): Promise<ReferralLeaderboardData> {
+    const url = `${getApiUrl()}/admin/referral-leaderboard`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch referral leaderboard';
       throw new Error(errorMessage);
     }
   }

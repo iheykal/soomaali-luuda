@@ -25,7 +25,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
   const [checkingActiveGame, setCheckingActiveGame] = useState(true);
 
-  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/DBz9cBdfu3x2oxRiGnox5f';
+  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/GmsXqKRVOGWGrJhSXUScIe';
 
 
 

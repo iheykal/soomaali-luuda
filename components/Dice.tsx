@@ -15,19 +15,19 @@ interface DiceProps {
 }
 
 const Dot: React.FC<{ style: React.CSSProperties; color: string }> = ({ style, color }) => (
-  <div 
-    className="absolute w-5 h-5 rounded-full shadow-inner" 
-    style={{ ...style, backgroundColor: color }} 
+  <div
+    className="absolute w-5 h-5 rounded-full shadow-inner"
+    style={{ ...style, backgroundColor: color }}
   />
 );
 
 const DiceFace: React.FC<{ value: number; dotColor: string }> = ({ value, dotColor }) => {
-    // Use numbers instead of dots for better visibility
-    return (
-        <div className="dice-number" style={{ color: dotColor, visibility: dotColor === 'transparent' ? 'hidden' : 'visible' }}>
-            {value}
-        </div>
-    );
+  // Use numbers instead of dots for better visibility
+  return (
+    <div className="dice-number" style={{ color: dotColor, visibility: dotColor === 'transparent' ? 'hidden' : 'visible' }}>
+      {value}
+    </div>
+  );
 };
 
 const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer, turnState, potAmount }) => {
@@ -48,23 +48,23 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
       setShowNumber(true);
       // Check if this is a new roll (value changed from null/undefined/different number)
       const isNewRoll = lastValue === null || lastValue === undefined || lastValue !== value;
-      
+
       if (isNewRoll) {
         console.log(`✅ NEW ROLL detected: ${value}, starting animation for ${playerColor} (previous: ${lastValue})`);
-        
+
         // Update ref immediately
         prevValueRef.current = value;
-        
+
         // Play dice roll sound
         audioService.play('diceRoll');
-        
+
         // Stop any ongoing animation and reset
         setIsAnimating(false);
         setCubeClass('');
-        
+
         // Start animation immediately
         setIsAnimating(true);
-        
+
         // Set final state after animation completes (shorter for snappier feel)
         animationTimerRef.current = setTimeout(() => {
           console.log(`🎲 Animation complete, setting cubeClass to show-${value}`);
@@ -78,7 +78,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
           setCubeClass(`show-${value}`);
         }
       }
-    } 
+    }
     // Handle null value (new turn starting)
     else if (value === null) {
       setShowNumber(false);
@@ -86,11 +86,11 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
       setIsAnimating(false);
       setCubeClass('');
       prevValueRef.current = null;
-    } 
+    }
     // Handle undefined (keep current state)
     else if (value === undefined) {
       console.log(`⚠️ Dice value is undefined, keeping current state (cubeClass="${cubeClass}") for ${playerColor}`);
-    } 
+    }
     // Handle invalid values
     else {
       setShowNumber(false);
@@ -119,73 +119,73 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
     console.log(`🎲 isAnimating: ${isAnimating}`);
     console.log(`🎲 cubeClass: "${cubeClass}"`);
     console.log(`🎲 clickableClass: "${clickableClass}"`);
-    
+
     // CRITICAL FIX: Allow click even if timer is 0 - backend will handle auto-roll
     // User should be able to manually roll until backend timer fires
     if (isMyTurn) {
-        console.log(`✅ It's my turn, calling onRoll function...`);
-        console.log(`✅ Timer is ${timer}s - allowing roll (backend will validate)`);
-        onRoll();
-        console.log(`✅ onRoll function called successfully`);
+      console.log(`✅ It's my turn, calling onRoll function...`);
+      console.log(`✅ Timer is ${timer}s - allowing roll (backend will validate)`);
+      onRoll();
+      console.log(`✅ onRoll function called successfully`);
     } else {
-        console.log(`❌ Not my turn - click blocked`);
+      console.log(`❌ Not my turn - click blocked`);
     }
     console.log(`🎲 ===================================`);
   }
 
   const clickableClass = isMyTurn ? 'dice-clickable' : '';
   const blinkingClass = isMyTurn && turnState === 'ROLLING' ? 'animate-fast-pulse' : '';
-  const colors = PLAYER_TAILWIND_COLORS[playerColor];
+  const colors = PLAYER_TAILWIND_COLORS[playerColor] || PLAYER_TAILWIND_COLORS['red'];
 
   // Determine dot color for contrast (Yellow needs dark text/dots)
-  const dotColor = playerColor === 'yellow' ? '#1e293b' : '#ffffff';
-  
+  const dotColor = (playerColor === 'yellow' || !colors) ? '#1e293b' : '#ffffff';
+
   // Dynamic styles for the dice faces
   const faceStyle = {
-      backgroundColor: colors.hex,
-      borderColor: 'rgba(255,255,255,0.5)',
-      transition: 'background-color 0.25s ease',
-      boxShadow: 'inset 0 0 20px rgba(0,0,0,0.1)'
+    backgroundColor: colors.hex,
+    borderColor: 'rgba(255,255,255,0.5)',
+    transition: 'background-color 0.25s ease',
+    boxShadow: 'inset 0 0 20px rgba(0,0,0,0.1)'
   };
 
   return (
     <div className="flex flex-col items-center space-y-4">
-        <div className="relative">
-            {/* Circular Timer Indicator (always show if timer provided) */}
-            <div className="absolute -inset-4 rounded-full border-4 border-slate-700/0 flex items-center justify-center pointer-events-none">
-              {typeof timer === 'number' && (
-                <span className={`absolute -top-8 text-sm font-bold ${timer <= 5 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
-                  {timer}s
-                </span>
-              )}
-            </div>
-
-            
-
-            <div 
-                className={`scene ${clickableClass} ${blinkingClass} touch-manipulation z-20`}
-                onClick={handleClick}
-                onTouchEnd={(e) => {
-                    // Prevent default to avoid double-firing with onClick if supported, 
-                    // but usually simple prevention of ghost clicks is enough.
-                    // However, we want to ensure touch works even if click is finicky.
-                    e.preventDefault(); 
-                    handleClick();
-                }}
-                role="button"
-                tabIndex={0}
-                aria-label="Roll dice"
-                aria-disabled={!isMyTurn}
-            >
-                <div className={`cube ${isAnimating ? 'is-rolling' : ''} ${!isAnimating && cubeClass ? cubeClass : ''}`}>
-                    {[1, 2, 3, 4, 5, 6].map(num => (
-                        <div key={num} className={`face face-${num}`} style={faceStyle}>
-                            <DiceFace value={num} dotColor={showNumber ? dotColor : 'transparent'} />
-                        </div>
-                    ))}
-                </div>
-            </div>
+      <div className="relative">
+        {/* Circular Timer Indicator (always show if timer provided) */}
+        <div className="absolute -inset-4 rounded-full border-4 border-slate-700/0 flex items-center justify-center pointer-events-none">
+          {typeof timer === 'number' && (
+            <span className={`absolute -top-8 text-sm font-bold ${timer <= 5 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
+              {timer}s
+            </span>
+          )}
         </div>
+
+
+
+        <div
+          className={`scene ${clickableClass} ${blinkingClass} touch-manipulation z-20`}
+          onClick={handleClick}
+          onTouchEnd={(e) => {
+            // Prevent default to avoid double-firing with onClick if supported, 
+            // but usually simple prevention of ghost clicks is enough.
+            // However, we want to ensure touch works even if click is finicky.
+            e.preventDefault();
+            handleClick();
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Roll dice"
+          aria-disabled={!isMyTurn}
+        >
+          <div className={`cube ${isAnimating ? 'is-rolling' : ''} ${!isAnimating && cubeClass ? cubeClass : ''}`}>
+            {[1, 2, 3, 4, 5, 6].map(num => (
+              <div key={num} className={`face face-${num}`} style={faceStyle}>
+                <DiceFace value={num} dotColor={showNumber ? dotColor : 'transparent'} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

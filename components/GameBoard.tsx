@@ -35,9 +35,16 @@ function usePrevious<T>(value: T): T | undefined {
 
 
 const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red' }) => {
-  const { tokens, legalMoves, diceValue, turnState } = gameState;
+  // Defensive destructuring: Ensure tokens and legalMoves are always arrays
+  const { tokens = [], legalMoves = [], diceValue, turnState } = gameState || {};
 
-  console.log(`🎯 Board render: legalMoves=${legalMoves?.length || 0}, diceValue=${diceValue}, turnState=${turnState}, isMyTurn=${isMyTurn}`);
+  console.log(`🎯 Board render: tokens=${tokens?.length || 0}, legalMoves=${legalMoves?.length || 0}, diceValue=${diceValue}, turnState=${turnState}, isMyTurn=${isMyTurn}`);
+
+  if (!gameState) {
+    console.error('❌ Board received null/undefined gameState!');
+    return <div className="flex items-center justify-center p-10 text-red-500 font-bold">Error: Game state missing</div>;
+  }
+
   if (legalMoves && legalMoves.length > 0) {
     console.log(`🎯 Available moves: ${legalMoves.map(m => `${m.tokenId} -> ${m.finalPosition.type}:${m.finalPosition.index}`).join(', ')}`);
   }
@@ -427,12 +434,13 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
   }
 
   return (
-    <div className="aspect-square w-full lg:w-auto lg:h-full max-w-full bg-gray-200 p-2 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="w-full h-full bg-gray-200 p-1 sm:p-2 rounded-2xl shadow-inner overflow-hidden flex items-center justify-center">
       <svg
         viewBox={`0 0 ${size} ${size}`}
+        className="w-full h-full transition-all duration-500 ease-in-out"
         style={{
           transform: `rotate(${rotation}deg)`,
-          transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          filter: 'drop-shadow(0 0 10px rgba(0,0,0,0.1))'
         }}
       >
         <defs>

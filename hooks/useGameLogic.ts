@@ -568,9 +568,23 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
 
         socket.on('GAME_STATE_UPDATE', (data: { state: GameState }) => {
             debugService.socket({ event: 'receive', type: 'GAME_STATE_UPDATE', data });
-            const correctedState = data.state.players
-                ? { ...data.state, players: data.state.players.map(player => ({ ...player, isAI: false })) }
-                : data.state;
+
+            if (!data || !data.state) {
+                console.error('❌ Received invalid GAME_STATE_UPDATE data:', data);
+                return;
+            }
+
+            const stateFromApi = data.state;
+            const correctedState: GameState = {
+                ...stateFromApi,
+                players: stateFromApi.players
+                    ? stateFromApi.players.map(player => ({
+                        ...player,
+                        // Preserve isAI or default to false only if missing
+                        isAI: player.isAI === undefined ? false : !!player.isAI
+                    }))
+                    : []
+            };
 
             if (correctedState.diceValue !== undefined && correctedState.diceValue !== null) {
                 correctedState.diceValue = Number(correctedState.diceValue);

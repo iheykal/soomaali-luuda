@@ -2,10 +2,13 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import html2canvas from 'html2canvas';
 import { adminAPI } from '../../services/adminAPI';
 import { useAuth } from '../../context/AuthContext';
-import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse } from '../../types';
+import type { User, FinancialRequest, Revenue, RevenueWithdrawal, GameState, UserDetailsResponse, ReferralLeaderboardEntry } from '../../types';
 import Board from '../GameBoard';
+import Dice from '../Dice';
 import { useGameLogic } from '../../hooks/useGameLogic';
 import TransactionReceipt from '../TransactionReceipt';
+
+import ErrorBoundary from '../ErrorBoundary';
 
 // --- Spectator Modal Component ---
 const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gameId, onClose }) => {
@@ -19,124 +22,157 @@ const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gam
   const isGameLoaded = state.players && state.players.length > 0;
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col h-[90vh]">
-        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-2 sm:p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[98vh] overflow-hidden flex flex-col h-[95vh]">
+        <div className="p-3 sm:p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
           <div className="flex items-center gap-3">
             <span className="relative flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
             </span>
-            <h3 className="text-xl font-bold text-gray-900">LIVE Spectator View - Game #{gameId}</h3>
+            <h3 className="text-base sm:text-xl font-bold text-gray-900 truncate">LIVE Spectator - Game #{gameId}</h3>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
-            <span className="text-2xl leading-none">&times;</span>
+          <button onClick={onClose} className="p-1 sm:p-2 hover:bg-gray-200 rounded-full transition-colors">
+            <span className="text-xl sm:text-2xl leading-none">&times;</span>
           </button>
         </div>
 
-        {!isGameLoaded ? (
-          <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col items-center justify-center text-white">
-            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p className="text-lg font-bold">Connecting to game...</p>
-            <p className="text-sm text-slate-400 mt-2">Waiting for server response...</p>
-            <button
-              onClick={onClose}
-              className="mt-8 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col md:flex-row">
-            {/* Game Board Area */}
-            <div className="flex-1 flex items-center justify-center p-4 overflow-auto relative">
-              {/* Status Overlay */}
-              <div className="absolute top-4 left-4 bg-white/90 p-4 rounded-xl shadow-lg z-10 backdrop-blur-sm border border-white/20 max-w-xs">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-3 h-3 rounded-full ${state.players[state.currentPlayerIndex]?.color === 'red' ? 'bg-red-500' :
-                    state.players[state.currentPlayerIndex]?.color === 'green' ? 'bg-green-500' :
-                      state.players[state.currentPlayerIndex]?.color === 'yellow' ? 'bg-yellow-500' :
-                        'bg-blue-500'
-                    }`}></div>
-                  <p className="font-bold text-gray-800 uppercase text-sm">Current Turn</p>
-                </div>
-                <p className="text-sm text-gray-600 mb-2">{state.message || 'Waiting for move...'}</p>
-
-                {state.diceValue && (
-                  <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg">
-                    <span className="text-2xl">🎲</span>
-                    <span className="text-xl font-black text-slate-800">{state.diceValue}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="w-full max-w-[600px] aspect-square shadow-2xl rounded-full overflow-hidden border-4 border-slate-700">
-                <Board
-                  gameState={state}
-                  onMoveToken={() => { }} // Spectators can't move
-                  onAnimationComplete={handleAnimationComplete}
-                  isMyTurn={false} // Always false for spectators
-                  perspectiveColor={state.players[state.currentPlayerIndex]?.color || 'red'}
-                />
-              </div>
+        <ErrorBoundary name="SpectatorModal Content">
+          {!isGameLoaded ? (
+            <div className="flex-1 overflow-hidden bg-slate-800 flex flex-col items-center justify-center text-white p-4">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p className="text-base sm:text-lg font-bold">Connecting to game...</p>
+              <p className="text-xs sm:text-sm text-slate-400 mt-2 text-center">Waiting for server response...</p>
+              <button
+                onClick={onClose}
+                className="mt-8 px-5 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors"
+              >
+                Cancel
+              </button>
             </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto bg-slate-800 flex flex-col md:flex-row min-h-0">
+              {/* Game Board Area */}
+              <div className="w-full md:flex-1 flex flex-col items-center justify-center p-2 sm:p-4 relative min-h-[350px] sm:min-h-[500px]">
+                {/* Status Overlay - Optimized for mobile */}
+                <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-white/95 p-2 sm:p-4 rounded-lg sm:rounded-xl shadow-lg z-10 backdrop-blur-sm border border-white/20 max-w-[140px] sm:max-w-xs transition-all pointer-events-auto">
+                  <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-2">
+                    <div className={`w-2.5 h-2.5 sm:w-3 h-3 rounded-full ${state.players[state.currentPlayerIndex]?.color === 'red' ? 'bg-red-500' :
+                      state.players[state.currentPlayerIndex]?.color === 'green' ? 'bg-green-500' :
+                        state.players[state.currentPlayerIndex]?.color === 'yellow' ? 'bg-yellow-500' :
+                          'bg-blue-500'
+                      }`}></div>
+                    <p className="font-bold text-gray-800 uppercase text-[10px] sm:text-xs">Current Turn</p>
+                  </div>
+                  <p className="text-[10px] sm:text-sm text-gray-600 mb-1.5 sm:mb-2 line-clamp-2 leading-tight">{state.message || 'Waiting...'}</p>
 
-            {/* Sidebar Info */}
-            <div className="w-full md:w-80 bg-slate-900 text-white p-6 border-l border-slate-700 overflow-y-auto">
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Players</h4>
-              <div className="space-y-3">
-                {state.players.map((p, i) => (
-                  <div key={i} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${i === state.currentPlayerIndex
-                    ? 'bg-slate-800 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]'
-                    : 'bg-slate-800/50 border-slate-700'
-                    }`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${p.color === 'green' ? 'bg-green-500 text-white' :
-                        p.color === 'blue' ? 'bg-blue-500 text-white' :
-                          p.color === 'red' ? 'bg-red-500 text-white' :
-                            'bg-yellow-500 text-black'
+                  <div className={`flex justify-center my-1 scale-75 sm:scale-90 origin-top min-h-[60px] transition-opacity duration-300 ${state.diceValue === null ? 'opacity-40 grayscale blur-[1px]' : 'opacity-100'}`}>
+                    <ErrorBoundary name="Dice Component">
+                      <Dice
+                        value={state.diceValue}
+                        onRoll={() => { }}
+                        isMyTurn={false}
+                        playerColor={state.players?.[state.currentPlayerIndex]?.color || 'red'}
+                        timer={state.timer || 0}
+                        turnState={(state.turnState as any) || 'ROLLING'}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                </div>
+
+                {/* Board Container - Fix Clipping and Aspect Ratio */}
+                <div className="w-full h-full max-w-[90vw] max-h-[90vw] md:max-w-[85%] md:max-h-[85%] aspect-square shadow-2xl rounded-2xl overflow-hidden border-2 sm:border-4 border-slate-700 bg-slate-900 group relative">
+                  <ErrorBoundary name="Board Component">
+                    <Board
+                      gameState={state}
+                      onMoveToken={() => { }} // Spectators can't move
+                      onAnimationComplete={handleAnimationComplete}
+                      isMyTurn={false} // Always false for spectators
+                      perspectiveColor={state.players[state.currentPlayerIndex]?.color || 'red'}
+                    />
+                  </ErrorBoundary>
+                </div>
+              </div>
+
+              {/* Sidebar Info - Scrollable and Flex-optimized */}
+              <div className="w-full md:w-72 lg:w-80 bg-slate-900 text-white flex flex-col border-t md:border-t-0 md:border-l border-slate-700">
+                <div className="p-4 sm:p-6 flex-1 overflow-y-auto lg:h-full">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Players Stats</h4>
+                  <div className="space-y-2.5">
+                    {state.players.map((p, i) => (
+                      <div key={i} className={`flex items-center justify-between p-2.5 sm:p-3 rounded-xl border transition-all ${i === state.currentPlayerIndex
+                        ? 'bg-slate-800 border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.15)] ring-1 ring-green-500/20'
+                        : 'bg-slate-800/40 border-slate-700'
                         }`}>
-                        {p.color.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-200 capitalize">{p.color}</p>
-                        <div className="flex items-center gap-1 text-[10px]">
-                          {p.isAI ? (
-                            <span className="text-purple-400">🤖 Bot</span>
-                          ) : (
-                            <span className="text-blue-400">👤 Human</span>
-                          )}
-                          {p.isDisconnected && <span className="text-red-400 ml-1">⚠️ Offline</span>}
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs font-black shadow-lg translate-y-[-1px] ${p.color === 'green' ? 'bg-green-500 text-white' :
+                            p.color === 'blue' ? 'bg-blue-500 text-white' :
+                              p.color === 'red' ? 'bg-red-500 text-white' :
+                                'bg-yellow-500 text-black'
+                            }`}>
+                            {p.color.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs sm:text-sm font-black text-slate-100 capitalize">{p.name || p.color}</p>
+                            <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold">
+                              {p.isAI ? (
+                                <span className="text-purple-400 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-purple-400"></span> AI Bot
+                                </span>
+                              ) : (
+                                <span className="text-blue-400 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-blue-400"></span> Human
+                                </span>
+                              )}
+                              {p.isDisconnected && <span className="text-red-400 flex items-center gap-1">
+                                <span className="w-1 h-1 rounded-full bg-red-400 animate-pulse"></span> Offline
+                              </span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 justify-end">
+                            <span className="text-[10px] text-slate-400">Home:</span>
+                            <p className="text-xs sm:text-sm font-black text-white">{p.tokensAtHome || 0}/4</p>
+                          </div>
+                          <p className="text-[9px] text-slate-500 font-mono mt-0.5">{(p.id || '??????').slice(-6)}</p>
                         </div>
                       </div>
-                    </div>
-                    {i === state.currentPlayerIndex && (
-                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    )}
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              <div className="mt-8 pt-8 border-t border-slate-800">
-                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Game Info</h4>
-                <div className="space-y-2 text-sm text-slate-400">
-                  <div className="flex justify-between">
-                    <span>State:</span>
-                    <span className="text-white">{state.turnState}</span>
+                  <div className="mt-8 pt-6 border-t border-slate-800">
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Game Summary</h4>
+                    <div className="space-y-2.5 text-xs text-slate-400">
+                      <div className="flex justify-between items-center bg-slate-800/30 p-2 rounded-lg">
+                        <span className="font-semibold px-2">Turn State:</span>
+                        <span className="text-white font-black bg-slate-700 px-2 py-0.5 rounded">{state.turnState || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-slate-800/30 p-2 rounded-lg">
+                        <span className="font-semibold px-2">Match Bet:</span>
+                        <span className="text-green-400 font-black text-sm">${((state.stake || 0)).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center bg-slate-800/30 p-2 rounded-lg">
+                        <span className="font-semibold px-2">Total Pot:</span>
+                        <span className="text-yellow-400 font-black text-sm">${((state.stake || 0) * 2).toFixed(2)}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Status:</span>
-                    <span className="text-white">{state.gameStarted ? 'In Progress' : 'Waiting'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Pot:</span>
-                    <span className="text-green-400 font-mono">${((state.stake || 0) * 2).toFixed(2)}</span>
-                  </div>
+                </div>
+
+                {/* Sidebar Action - Only on desktop maybe? Or simple exit */}
+                <div className="p-4 bg-slate-950/50 border-t border-slate-800">
+                  <button
+                    onClick={onClose}
+                    className="w-full py-2.5 bg-slate-700 hover:bg-red-600 rounded-xl text-sm font-bold transition-all shadow-lg"
+                  >
+                    Exit Spectator Mode
+                  </button>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </ErrorBoundary>
       </div>
     </div>
   );
@@ -180,6 +216,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     topVisitors: Array<{ username: string | null; pageViews: number; isAuthenticated: boolean; lastActivity: string }>;
     hourlyActivity: Array<{ hour: number; visitors: number }>;
   } | null>(null);
+  const [referralLeaderboard, setReferralLeaderboard] = useState<ReferralLeaderboardEntry[]>([]);
 
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: 'wins' | 'balance' | 'joined' | 'username'; direction: 'asc' | 'desc' }>({ key: 'joined', direction: 'desc' });
@@ -221,6 +258,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   // User Modal State
   const [selectedUser, setSelectedUser] = useState<UserDetailsResponse | null>(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [userFinancialRequests, setUserFinancialRequests] = useState<FinancialRequest[]>([]);
+  const [financialReceiptsToShow, setFinancialReceiptsToShow] = useState(5);
   // Admin balance adjustment state
   const [balanceAmount, setBalanceAmount] = useState<string>('');
   const [balanceType, setBalanceType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
@@ -336,11 +375,29 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
   }, []);
 
+  const fetchReferralLeaderboard = useCallback(async () => {
+    try {
+      const result = await adminAPI.getReferralLeaderboard();
+      setReferralLeaderboard(result.leaderboard || []);
+    } catch (err: any) {
+      console.error('Error fetching referral leaderboard:', err);
+    }
+  }, []);
+
   const handleUserClick = async (userId: string) => {
     setLoading(true);
     try {
       const details = await adminAPI.getUserDetails(userId);
       setSelectedUser(details);
+
+      // Fetch user's approved financial requests
+      const allRequests = await adminAPI.getWalletRequests();
+      const userApprovedRequests = allRequests.filter(
+        req => req.userId === userId && req.status === 'APPROVED'
+      );
+      setUserFinancialRequests(userApprovedRequests);
+      setFinancialReceiptsToShow(5); // Reset pagination
+
       setShowUserModal(true);
       // reset balance adjust fields
       setBalanceAmount('');
@@ -589,8 +646,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
     if (activeTab === 'dashboard' && user?.role === 'SUPER_ADMIN') {
       fetchVisitorAnalytics();
+      fetchReferralLeaderboard();
     }
-  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, user]);
+  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, user]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -714,6 +772,34 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 )}
               </div>
             )}
+
+            {/* Referral Leaderboard */}
+            {referralLeaderboard && referralLeaderboard.length > 0 && user?.role === 'SUPER_ADMIN' && (
+              <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+                    <span>🏆</span> Referral Leaderboard
+                  </h3>
+                  <button
+                    onClick={fetchReferralLeaderboard}
+                    className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    🔄 Refresh
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {referralLeaderboard && referralLeaderboard.slice(0, 10).map((entry, index) => (
+                    <ReferralCard
+                      key={entry.referrer.id}
+                      entry={entry}
+                      index={index}
+                      onUserClick={handleUserClick}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         );
       case 'users':
@@ -749,6 +835,12 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                         className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${sortConfig.key === 'joined' ? 'font-bold text-green-600' : 'text-gray-700'}`}
                       >
                         📅 Newest First
+                      </button>
+                      <button
+                        onClick={() => setSortConfig({ key: 'username', direction: 'asc' })}
+                        className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${sortConfig.key === 'username' ? 'font-bold text-green-600' : 'text-gray-700'}`}
+                      >
+                        🔤 By Name (A-Z)
                       </button>
                     </div>
                   </div>
@@ -862,6 +954,11 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 {phoneSearchQuery && (
                   <p className="mt-2 text-xs text-gray-600">
                     💡 Showing results matching: <span className="font-semibold text-green-600">{phoneSearchQuery}</span>
+                    {users.length > 0 && (
+                      <span className="ml-2 text-gray-500">
+                        (Searching {users.length} total users)
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
@@ -888,52 +985,73 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             )}
 
             {!loading && !error && (() => {
-              // Fuzzy search function for phone numbers and names
-              const fuzzyMatch = (phone: string | undefined, username: string | undefined, query: string): boolean => {
-                console.log('🔍 Fuzzy search - Query:', query, 'Username:', username, 'Phone:', phone);
+              // Enhanced fuzzy search function for comprehensive matching
+              const fuzzyMatch = (user: User, query: string): boolean => {
                 if (!query) return true;
 
-                const queryLower = query.toLowerCase();
+                const queryLower = query.trim().toLowerCase();
+                if (!queryLower) return true; // Empty query after trim
 
-                // Check phone number
-                if (phone) {
-                  const phoneDigits = phone.replace(/\D/g, '');
+                // Check phone number (digits only comparison)
+                if (user.phone) {
+                  const phoneDigits = user.phone.replace(/\D/g, '');
                   const queryDigits = query.replace(/\D/g, '');
-                  if (phoneDigits.includes(queryDigits) || phone.toLowerCase().includes(queryLower)) {
+                  if (queryDigits && phoneDigits.includes(queryDigits)) {
+                    return true;
+                  }
+                  // Also check raw phone string
+                  if (user.phone.toLowerCase().includes(queryLower)) {
                     return true;
                   }
                 }
 
-                // Check username
-                if (username && username.toLowerCase().includes(queryLower)) {
-                  console.log('✅ Found match in username!');
+                // Check username with null safety
+                if (user.username) {
+                  if (user.username.toLowerCase().includes(queryLower)) {
+                    return true;
+                  }
+                }
+
+                // Check user ID (for searching by ID)
+                const userId = user.id || user._id;
+                if (userId && userId.toLowerCase().includes(queryLower)) {
                   return true;
                 }
 
                 return false;
               };
 
-              // Filter users based on search
-              const filteredUsers = (phoneSearchQuery.trim()
-                ? users.filter(user => fuzzyMatch(user.phone, user.username, phoneSearchQuery))
-                : users).sort((a, b) => {
-                  if (sortConfig.key === 'wins') {
-                    return sortConfig.direction === 'asc'
-                      ? (a.stats?.wins || 0) - (b.stats?.wins || 0)
-                      : (b.stats?.wins || 0) - (a.stats?.wins || 0);
-                  }
-                  if (sortConfig.key === 'balance') {
-                    return sortConfig.direction === 'asc'
-                      ? (a.balance || 0) - (b.balance || 0)
-                      : (b.balance || 0) - (a.balance || 0);
-                  }
-                  if (sortConfig.key === 'joined') {
-                    const dateA = new Date(a.createdAt || a.joined || 0).getTime();
-                    const dateB = new Date(b.createdAt || b.joined || 0).getTime();
-                    return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
-                  }
-                  return 0;
-                });
+              // Apply search filter first
+              let filteredUsers = phoneSearchQuery.trim()
+                ? users.filter(user => fuzzyMatch(user, phoneSearchQuery))
+                : users;
+
+              // Then apply sorting to the filtered results
+              filteredUsers = filteredUsers.sort((a, b) => {
+                if (sortConfig.key === 'wins') {
+                  const aWins = a.stats?.wins || a.stats?.gamesWon || 0;
+                  const bWins = b.stats?.wins || b.stats?.gamesWon || 0;
+                  return sortConfig.direction === 'asc' ? aWins - bWins : bWins - aWins;
+                }
+                if (sortConfig.key === 'balance') {
+                  const aBalance = a.balance || 0;
+                  const bBalance = b.balance || 0;
+                  return sortConfig.direction === 'asc' ? aBalance - bBalance : bBalance - aBalance;
+                }
+                if (sortConfig.key === 'joined') {
+                  const dateA = new Date(a.createdAt || a.joined || 0).getTime();
+                  const dateB = new Date(b.createdAt || b.joined || 0).getTime();
+                  return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+                }
+                if (sortConfig.key === 'username') {
+                  const nameA = (a.username || '').toLowerCase();
+                  const nameB = (b.username || '').toLowerCase();
+                  return sortConfig.direction === 'asc'
+                    ? nameA.localeCompare(nameB)
+                    : nameB.localeCompare(nameA);
+                }
+                return 0;
+              });
 
               return (
                 <div className="p-4 sm:p-6">
@@ -1290,9 +1408,21 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                           </td>
                           <td className="px-3 py-2">
                             {rev.gameDetails?.players.length > 0 ? (
-                              <div className="flex flex-col">
+                              <div className="flex flex-col gap-1">
                                 {rev.gameDetails.players.map(p => (
-                                  <span key={p.userId} className="text-xs text-gray-700 capitalize">{p.username || `Player ${p.color}`}</span>
+                                  <button
+                                    key={p.userId}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (p.userId) {
+                                        handleUserClick(p.userId);
+                                      }
+                                    }}
+                                    className="text-xs text-gray-700 capitalize text-left hover:text-green-600 hover:underline transition-colors cursor-pointer font-medium"
+                                    title={`View ${p.username || `Player ${p.color}`}'s details`}
+                                  >
+                                    👤 {p.username || `Player ${p.color}`}
+                                  </button>
                                 ))}
                                 <span className="text-[10px] text-gray-500 font-mono mt-1">ID: {rev.gameDetails.gameId}</span>
                               </div>
@@ -1302,7 +1432,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                           </td>
                           <td className="px-3 py-2">
                             {rev.gameDetails?.winner ? (
-                              <span className="text-xs font-bold text-green-600 capitalize">{rev.gameDetails.winner.username || rev.gameDetails.winner.color}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (rev.gameDetails?.winner.userId) {
+                                    handleUserClick(rev.gameDetails.winner.userId);
+                                  }
+                                }}
+                                className="text-xs font-bold text-green-600 capitalize hover:text-green-700 hover:underline transition-colors cursor-pointer"
+                                title={`View ${rev.gameDetails.winner.username || rev.gameDetails.winner.color}'s details`}
+                              >
+                                🏆 {rev.gameDetails.winner.username || rev.gameDetails.winner.color}
+                              </button>
                             ) : (
                               <span className="text-xs text-gray-500">N/A</span>
                             )}
@@ -1970,108 +2111,161 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
           {renderContent()}
         </div>
 
-        {/* User Details Modal */}
+        {/* User Details Modal - MODERNIZED */}
         {showUserModal && selectedUser && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                <h3 className="text-2xl font-bold text-gray-900">User Profile</h3>
-                <button onClick={() => setShowUserModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+          <div className="fixed inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-md">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col border-4 border-white">
+              {/* Modern Gradient Header */}
+              <div className="p-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 flex justify-between items-center relative overflow-hidden">
+                {/* Animated background pattern */}
+                <div className="absolute inset-0 opacity-10">
+                  <div className="absolute inset-0" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,.1) 10px, rgba(255,255,255,.1) 20px' }}></div>
+                </div>
+                <div className="relative z-10">
+                  <h3 className="text-3xl font-black text-white flex items-center gap-2">
+                    <span className="text-4xl">👤</span> User Profile
+                  </h3>
+                  <p className="text-indigo-100 text-sm mt-1">Complete user information and activity</p>
+                </div>
+                <button
+                  onClick={() => setShowUserModal(false)}
+                  className="relative z-10 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-2xl font-bold transition-all hover:rotate-90 duration-300 flex items-center justify-center backdrop-blur-sm"
+                >
+                  ×
+                </button>
               </div>
 
-              <div className="p-6 overflow-y-auto custom-scrollbar">
-                {/* User Stats Header */}
-                <div className="flex items-center gap-6 mb-8">
-                  <div className="w-24 h-24 rounded-full bg-slate-200 overflow-hidden border-4 border-white shadow-lg">
-                    <img src={selectedUser.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedUser.user.username}`} alt="Avatar" className="w-full h-full object-cover" />
-                  </div>
-                  <div>
-                    <h2 className="text-3xl font-black text-gray-900">{selectedUser.user.username}</h2>
-                    <p className="text-gray-500 font-mono text-sm mb-2">ID: {selectedUser.user.id || selectedUser.user._id}</p>
-                    <div className="flex gap-3">
-                      <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-bold">
-                        Balance: ${selectedUser.user.balance?.toFixed(2)}
-                      </span>
-                      <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-bold">
-                        Role: {selectedUser.user.role}
-                      </span>
+              <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-gradient-to-br from-gray-50 to-gray-100">
+                {/* User Header Card with Gradient */}
+                <div className="bg-gradient-to-br from-white via-indigo-50 to-purple-50 p-6 rounded-2xl shadow-lg mb-6 border border-indigo-100">
+                  <div className="flex items-center gap-6">
+                    <div className="relative">
+                      <div className="w-28 h-28 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 p-1 shadow-xl">
+                        <img
+                          src={selectedUser.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedUser.user.username}`}
+                          alt="Avatar"
+                          className="w-full h-full rounded-full object-cover border-4 border-white"
+                        />
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                        Active
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-4xl font-black bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-2">
+                        {selectedUser.user.username}
+                      </h2>
+                      {selectedUser.user.phone && (
+                        <p className="text-gray-600 flex items-center gap-2 mb-2">
+                          <span className="text-lg">📞</span>
+                          <span className="font-mono font-semibold">{selectedUser.user.phone}</span>
+                        </p>
+                      )}
+                      <p className="text-gray-500 font-mono text-sm mb-3">ID: {selectedUser.user.id || selectedUser.user._id}</p>
+                      <div className="flex gap-3 flex-wrap">
+                        <span className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-black shadow-md flex items-center gap-2">
+                          <span>💰</span> ${selectedUser.user.balance?.toFixed(2)}
+                        </span>
+                        <span className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-sm font-black shadow-md flex items-center gap-2">
+                          <span>👑</span> {selectedUser.user.role}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Stats Cards */}
-                <div className="grid grid-cols-3 gap-4 mb-8">
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
-                    <p className="text-xs uppercase font-bold text-slate-500 mb-1">Games Played</p>
-                    <p className="text-3xl font-black text-slate-800">{selectedUser.user.stats?.gamesPlayed || 0}</p>
+                {/* Modern Stats Cards with Gradients */}
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:-translate-y-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold uppercase tracking-wider opacity-90">Games</p>
+                      <span className="text-3xl">🎮</span>
+                    </div>
+                    <p className="text-5xl font-black">{selectedUser.user.stats?.gamesPlayed || 0}</p>
+                    <p className="text-xs opacity-75 mt-1">Total Played</p>
                   </div>
-                  <div className="bg-green-50 p-4 rounded-xl border border-green-200 text-center">
-                    <p className="text-xs uppercase font-bold text-green-600 mb-1">Won</p>
-                    <p className="text-3xl font-black text-green-700">{selectedUser.user.stats?.wins || 0}</p>
+                  <div className="bg-gradient-to-br from-emerald-500 to-green-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:-translate-y-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold uppercase tracking-wider opacity-90">Won</p>
+                      <span className="text-3xl">🏆</span>
+                    </div>
+                    <p className="text-5xl font-black">{selectedUser.user.stats?.wins || 0}</p>
+                    <p className="text-xs opacity-75 mt-1">Victories</p>
                   </div>
-                  <div className="bg-red-50 p-4 rounded-xl border border-red-200 text-center">
-                    <p className="text-xs uppercase font-bold text-red-600 mb-1">Lost</p>
-                    <p className="text-3xl font-black text-red-700">
+                  <div className="bg-gradient-to-br from-rose-500 to-red-600 p-6 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:-translate-y-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold uppercase tracking-wider opacity-90">Lost</p>
+                      <span className="text-3xl">❌</span>
+                    </div>
+                    <p className="text-5xl font-black">
                       {(selectedUser.user.stats?.gamesPlayed || 0) - (selectedUser.user.stats?.wins || 0)}
                     </p>
+                    <p className="text-xs opacity-75 mt-1">Defeats</p>
                   </div>
                 </div>
 
-                {/* Admin Balance Adjustment */}
-                <div className="mb-8 p-4 bg-white border border-gray-200 rounded-xl">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-lg font-bold text-gray-800">Admin Balance Adjustment</h4>
-                    <span className="text-xs text-gray-500">Adjust a user's wallet directly</span>
+                {/* Admin Balance Adjustment - Modern */}
+                <div className="mb-6 p-6 bg-white rounded-2xl shadow-lg border-2 border-indigo-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                      <span className="text-2xl">⚙️</span> Admin Balance Adjustment
+                    </h4>
                   </div>
 
-                  <div className="flex gap-2 mb-3">
+                  <div className="flex gap-3 mb-4">
                     <button
                       type="button"
                       onClick={() => setBalanceType('DEPOSIT')}
-                      className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'DEPOSIT' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      className={`flex-1 px-6 py-3 rounded-xl text-sm font-black transition-all transform hover:scale-105 ${balanceType === 'DEPOSIT'
+                        ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                     >
-                      Lacag-Dhigasho
+                      💰 Lacag-Dhigasho
                     </button>
                     <button
                       type="button"
                       onClick={() => setBalanceType('WITHDRAWAL')}
-                      className={`px-3 py-1 rounded-lg text-sm font-semibold ${balanceType === 'WITHDRAWAL' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      className={`flex-1 px-6 py-3 rounded-xl text-sm font-black transition-all transform hover:scale-105 ${balanceType === 'WITHDRAWAL'
+                        ? 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-lg'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                     >
-                      Lacag-Labixid
+                      💸 Lacag-Labixid
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                     <div className="md:col-span-1">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Amount ($)</label>
+                      <label className="block text-xs font-bold text-gray-600 mb-2 uppercase tracking-wider">Amount ($)</label>
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         value={balanceAmount}
                         onChange={(e) => setBalanceAmount(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg"
+                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all"
                         placeholder="0.00"
                       />
                     </div>
 
                     <div className="md:col-span-2">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Comment (optional)</label>
+                      <label className="block text-xs font-bold text-gray-600 mb-2 uppercase tracking-wider">Comment</label>
                       <input
                         type="text"
                         value={balanceComment}
                         onChange={(e) => setBalanceComment(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg"
+                        className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all"
                         placeholder="Reason or note for this adjustment"
                       />
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm text-gray-600">
-                      <div>Current Balance: <span className="font-bold text-green-700">${selectedUser?.user.balance?.toFixed(2) || '0.00'}</span></div>
+                    <div className="text-sm">
+                      <div className="text-gray-600">Current Balance: <span className="font-black text-green-600 text-lg">${selectedUser?.user.balance?.toFixed(2) || '0.00'}</span></div>
                       {balanceType === 'WITHDRAWAL' && (
-                        <div className="text-xs text-red-600">Withdrawals cannot exceed current balance.</div>
+                        <div className="text-xs text-red-600 font-semibold mt-1">⚠️ Cannot exceed current balance</div>
                       )}
                     </div>
                     <div className="flex gap-2">
@@ -2081,14 +2275,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                           if (!selectedUser) return;
                           confirmAndUpdateBalance(selectedUser.user.id || selectedUser.user._id!);
                         }}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold"
+                        className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-black shadow-lg transition-all transform hover:scale-105"
                       >
-                        Confirm
+                        ✓ Confirm
                       </button>
                       <button
                         type="button"
                         onClick={() => { setBalanceAmount(''); setBalanceComment(''); setBalanceType('DEPOSIT'); }}
-                        className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-semibold"
+                        className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl font-bold transition-all"
                       >
                         Reset
                       </button>
@@ -2096,37 +2290,140 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   </div>
                 </div>
 
-                {/* Match History */}
-                <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <span>📜</span> Match History
+                {/* Financial Receipts Section - APPROVED ONLY */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+                      <span className="text-3xl">🧾</span> Financial Receipts
+                    </h4>
+                    {userFinancialRequests.length > 0 && (
+                      <span className="text-xs font-bold text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                        {userFinancialRequests.length} Approved Receipt{userFinancialRequests.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+
+                  {userFinancialRequests.length === 0 ? (
+                    <div className="p-12 text-center bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl border-2 border-dashed border-gray-300">
+                      <p className="text-6xl mb-3">📝</p>
+                      <p className="text-gray-600 font-semibold">No approved deposit or withdrawal receipts</p>
+                      <p className="text-xs text-gray-500 mt-2">Only approved financial requests appear here</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {userFinancialRequests.slice(0, financialReceiptsToShow).map((req) => {
+                          const isDeposit = req.type === 'DEPOSIT';
+                          return (
+                            <div
+                              key={req.id || req._id}
+                              className={`p-5 rounded-2xl border-2 shadow-lg hover:shadow-xl transition-all hover:-translate-y-1 ${isDeposit
+                                ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-200'
+                                : 'bg-gradient-to-br from-red-50 to-rose-50 border-red-200'
+                                }`}
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-md ${isDeposit ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gradient-to-br from-red-500 to-rose-600'
+                                    }`}>
+                                    <span className="text-white">{isDeposit ? '💰' : '💸'}</span>
+                                  </div>
+                                  <div>
+                                    <p className={`text-sm font-black uppercase tracking-wider ${isDeposit ? 'text-green-700' : 'text-red-700'
+                                      }`}>
+                                      {isDeposit ? 'Lacag-Dhigasho' : 'Lacag-Labixid'}
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                      {new Date(req.timestamp).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-black rounded-full uppercase">
+                                  ✓ Approved
+                                </span>
+                              </div>
+                              <div className="flex items-end justify-between">
+                                <div>
+                                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Amount</p>
+                                  <p className={`text-3xl font-black ${isDeposit ? 'text-green-600' : 'text-red-600'}`}>
+                                    {isDeposit ? '+' : ''}${req.amount.toFixed(2)}
+                                  </p>
+                                </div>
+                                {req.details && (
+                                  <p className="text-xs text-gray-600 max-w-[200px] line-clamp-2" title={req.details}>
+                                    {req.details}
+                                  </p>
+                                )}
+                              </div>
+                              {req.adminComment && (
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Admin Note</p>
+                                  <p className="text-xs text-gray-600 italic">{req.adminComment}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Show More Button */}
+                      {financialReceiptsToShow < userFinancialRequests.length && (
+                        <div className="mt-4 text-center">
+                          <button
+                            onClick={() => setFinancialReceiptsToShow(prev => prev + 10)}
+                            className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-bold shadow-lg transition-all transform hover:scale-105 flex items-center gap-2 mx-auto"
+                          >
+                            <span>📄</span> Show 10 More ({userFinancialRequests.length - financialReceiptsToShow} remaining)
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Match History - Modernized */}
+                <h4 className="text-2xl font-black text-gray-800 mb-4 flex items-center gap-2">
+                  <span className="text-3xl">🎮</span> Match History
                 </h4>
 
                 {selectedUser.history.length === 0 ? (
-                  <div className="p-8 text-center bg-gray-50 rounded-xl border border-gray-200 border-dashed">
-                    <p className="text-gray-500">No match history found.</p>
+                  <div className="p-12 text-center bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl border-2 border-dashed border-gray-300">
+                    <p className="text-6xl mb-3">🎯</p>
+                    <p className="text-gray-600 font-semibold">No match history found</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {selectedUser.history.map((match) => (
-                      <div key={match.gameId} className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
+                      <div
+                        key={match.gameId}
+                        className="flex items-center justify-between p-5 bg-white rounded-2xl shadow-md hover:shadow-xl transition-all border-2 border-gray-100 hover:border-indigo-200"
+                      >
                         <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold ${match.result === 'WON' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black shadow-lg ${match.result === 'WON'
+                            ? 'bg-gradient-to-br from-green-500 to-emerald-600 text-white'
+                            : 'bg-gradient-to-br from-red-500 to-rose-600 text-white'
                             }`}>
-                            {match.result === 'WON' ? 'W' : 'L'}
+                            {match.result === 'WON' ? '🏆' : '❌'}
                           </div>
                           <div>
-                            <p className="font-bold text-gray-900">vs {match.opponentName}</p>
-                            <p className="text-xs text-gray-500">
-                              {new Date(match.date).toLocaleDateString()} at {new Date(match.date).toLocaleTimeString()}
+                            <p className="font-black text-gray-900 text-lg">vs {match.opponentName}</p>
+                            <p className="text-xs text-gray-500 font-mono">
+                              {new Date(match.date).toLocaleDateString()} • {new Date(match.date).toLocaleTimeString()}
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className={`font-bold text-lg ${match.amount >= 0 ? 'text-green-600' : 'text-red-600'
+                          <p className={`font-black text-2xl ${match.amount >= 0 ? 'text-green-600' : 'text-red-600'
                             }`}>
                             {match.amount >= 0 ? '+' : ''}${Math.abs(match.amount).toFixed(2)}
                           </p>
-                          <p className="text-xs text-gray-400">Stake: ${match.stake}</p>
+                          <p className="text-xs text-gray-400 font-mono">Stake: ${match.stake}</p>
                         </div>
                       </div>
                     ))}
@@ -2134,10 +2431,11 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 )}
               </div>
 
-              <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+              {/* Modern Footer */}
+              <div className="p-4 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 flex justify-end gap-3">
                 <button
                   onClick={() => setShowUserModal(false)}
-                  className="px-6 py-2 bg-gray-800 hover:bg-gray-900 text-white font-bold rounded-lg transition-colors"
+                  className="px-8 py-3 bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-800 hover:to-black text-white font-black rounded-xl transition-all shadow-lg transform hover:scale-105"
                 >
                   Close
                 </button>
@@ -2206,6 +2504,90 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- Referral Card Component ---
+const ReferralCard: React.FC<{
+  entry: ReferralLeaderboardEntry;
+  index: number;
+  onUserClick: (userId: string) => void;
+}> = ({ entry, index, onUserClick }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const getRankBadge = (rank: number) => {
+    if (rank === 0) return { emoji: '🥇', gradient: 'from-yellow-400 to-yellow-600' };
+    if (rank === 1) return { emoji: '🥈', gradient: 'from-gray-300 to-gray-500' };
+    if (rank === 2) return { emoji: '🥉', gradient: 'from-orange-400 to-orange-600' };
+    return { emoji: `#${rank + 1}`, gradient: 'from-indigo-500 to-purple-600' };
+  };
+
+  const badge = getRankBadge(index);
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-all">
+      <div
+        className={`p-5 cursor-pointer bg-gradient-to-r ${badge.gradient}`}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="text-4xl">{badge.emoji}</div>
+            <div className="text-white">
+              <h4 className="text-lg font-black">{entry.referrer.username}</h4>
+              {entry.referrer.phone && <p className="text-sm opacity-90 font-mono">{entry.referrer.phone}</p>}
+              <p className="text-xs opacity-75 font-mono mt-1">Code: {entry.referrer.referralCode}</p>
+            </div>
+          </div>
+          <div className="text-right text-white">
+            <p className="text-3xl font-black">${entry.referrer.referralEarnings.toFixed(2)}</p>
+            <p className="text-xs opacity-90 font-semibold mt-1">{entry.totalReferrals} Referrals</p>
+            <p className="text-[10px] opacity-75">✅ {entry.activeReferrals} Active • ❌ {entry.inactiveReferrals} Inactive</p>
+            <div className="flex gap-2 justify-end mt-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUserClick(entry.referrer.id);
+                }}
+                className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors"
+              >
+                Profile
+              </button>
+              <span className="text-xs bg-black/20 px-2 py-1 rounded-lg">
+                {expanded ? '▲ Hide' : '▼ Show Referrals'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {expanded && entry.referredUsers && entry.referredUsers.length > 0 && (
+        <div className="bg-gray-50 p-4 border-t border-gray-200">
+          <h5 className="text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider">Referred Users</h5>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {entry.referredUsers.map((refUser) => (
+              <div
+                key={refUser.id}
+                onClick={() => onUserClick(refUser.id)}
+                className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
+              >
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">{refUser.username}</p>
+                  <div className="flex gap-2 mt-1">
+                    <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">🎮 {refUser.stats.gamesPlayed}</span>
+                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">🏆 {refUser.stats.wins}</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-black text-green-600">${refUser.balance.toFixed(2)}</p>
+                  <p className="text-[9px] text-gray-400">{new Date(refUser.createdAt).toLocaleDateString()}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

@@ -162,3 +162,36 @@ export interface UserDetailsResponse {
   history: MatchHistory[];
   transactions: Transaction[];
 }
+
+// Referral Leaderboard Types
+export interface ReferredUser {
+  id: string;
+  username: string;
+  phone?: string;
+  stats: {
+    gamesPlayed: number;
+    wins: number;
+  };
+  balance: number;
+  createdAt: string;
+}
+
+export interface ReferralLeaderboardEntry {
+  referrer: {
+    id: string;
+    username: string;
+    phone?: string;
+    referralCode: string;
+    referralEarnings: number;
+  };
+  totalReferrals: number;
+  activeReferrals: number;
+  inactiveReferrals: number;
+  referredUsers: ReferredUser[];
+}
+
+export interface ReferralLeaderboardData {
+  success: boolean;
+  leaderboard: ReferralLeaderboardEntry[];
+}
+
