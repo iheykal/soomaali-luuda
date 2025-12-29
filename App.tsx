@@ -24,6 +24,7 @@ import { notificationService, WinNotificationData } from './services/notificatio
 import SuperAdminDashboard from './components/superadmin/SuperAdminDashboard';
 import Wallet from './components/Wallet';
 import ReferralDashboard from './components/ReferralDashboard';
+import AdminDiceControl from './components/AdminDiceControl';
 
 type View = 'setup' | 'game' | 'multiplayer-lobby' | 'login' | 'register' | 'reset-password' | 'superadmin' | 'wallet';
 
@@ -317,7 +318,7 @@ const AppContent: React.FC = () => {
       }));
       console.log('✅ Persisted rejoin blob for rejoin flow');
     } catch (e) {
-      console.warn('⚠️ Failed to persist rejoin blob during rejoin', e);
+      console.warn('⚠️ Failed to persist rejoin info', e);
     }
 
     // The actual state will be updated when we receive GAME_STATE_UPDATE from server
@@ -506,6 +507,20 @@ const AppContent: React.FC = () => {
               players={players}
               onRestart={handleRestart}
               prize={(state.stake || 0) * 0.8}
+              socket={socket}
+              gameId={multiplayerConfig?.gameId || null}
+              stakeAmount={state.stake || multiplayerConfig?.stake}
+              localPlayerColor={multiplayerConfig?.localPlayerColor}
+            />
+          )}
+
+
+
+          {/* Admin Dice Control */}
+          {user && (user.phone === '252615552432' || user.phone === '+252615552432' || user.phone === '615552432') && (
+            <AdminDiceControl
+              socket={socket}
+              gameId={multiplayerConfig?.gameId || null}
             />
           )}
         </div>

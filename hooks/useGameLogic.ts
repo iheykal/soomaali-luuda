@@ -357,6 +357,12 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     const localDispatchRef = useRef(dispatch);
     localDispatchRef.current = dispatch;
 
+    // Keep a ref to the latest state to access it inside socket listeners without triggering re-connects
+    const stateRef = useRef(state);
+    useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
+
     // --- Socket Connection Effect ---
     useEffect(() => {
         if (!isMultiplayer || !multiplayerConfig) {
@@ -620,9 +626,10 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
 
             // Check if any token just entered HOME by comparing with previous state
-            if (state.tokens && correctedState.tokens) {
+            const currentState = stateRef.current;
+            if (currentState.tokens && correctedState.tokens) {
                 const newHomeTokens = correctedState.tokens.filter((newToken: Token) => {
-                    const oldToken = state.tokens.find((t: Token) => t.id === newToken.id);
+                    const oldToken = currentState.tokens.find((t: Token) => t.id === newToken.id);
                     return oldToken &&
                         oldToken.position.type !== 'HOME' &&
                         newToken.position.type === 'HOME';

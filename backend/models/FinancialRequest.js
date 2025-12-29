@@ -12,7 +12,8 @@ const FinancialRequestSchema = new mongoose.Schema({
   details: String,
   timestamp: { type: Date, default: Date.now },
   adminComment: String,
-  processedBy: { type: String } // User ID of the admin who processed this request
+  processedBy: { type: String }, // User ID of the admin who processed this request
+  approverName: { type: String } // Name of the admin who processed this request
 });
 
 // ===== INDEX OPTIMIZATION =====

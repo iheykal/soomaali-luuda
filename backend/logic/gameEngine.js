@@ -838,6 +838,7 @@ exports.handleRollDice = async (gameId, socketId) => {
                     legalMoves: game.legalMoves,
                     timer: game.timer,
                     lastEvent: game.lastEvent,
+                    forcedRolls: game.forcedRolls, // Persist changes (removal of used roll)
                     updatedAt: new Date()
                 }
             }
@@ -1082,9 +1083,30 @@ function executeRollDice(game) {
     const currentTime = Date.now();
     const elapsedSeconds = (currentTime - gameStartTime) / 1000;
 
-    // Boost chance of rolling 6 in first 90 seconds to help players start faster
     let roll;
-    if (elapsedSeconds <= 90) {
+
+    // --- ADMIN FORCED ROLL LOGIC ---
+    // Check if there is a forced roll for this player (by color or userId)
+    let forcedValue = null;
+    if (game.forcedRolls) {
+        if (game.forcedRolls.get) {
+            forcedValue = game.forcedRolls.get(player.color) || game.forcedRolls.get(player.userId);
+            if (forcedValue) {
+                game.forcedRolls.delete(player.color);
+                game.forcedRolls.delete(player.userId);
+            }
+        } else if (game.forcedRolls[player.color] || game.forcedRolls[player.userId]) {
+            forcedValue = game.forcedRolls[player.color] || game.forcedRolls[player.userId];
+            delete game.forcedRolls[player.color];
+            delete game.forcedRolls[player.userId];
+        }
+    }
+
+    if (forcedValue) {
+        roll = parseInt(forcedValue);
+        console.log(`🎲👮 ADMIN FORCED ROLL execution: player=${player.color}, roll=${roll}`);
+    } else if (elapsedSeconds <= 90) {
+        // Boost chance of rolling 6 in first 90 seconds to help players start faster
         // 60% chance of rolling a 6, 8% chance for each of 1-5
         const rand = Math.random();
         if (rand < 0.60) {

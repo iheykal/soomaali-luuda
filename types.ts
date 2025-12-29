@@ -98,6 +98,7 @@ export interface FinancialRequest {
   details?: string;
   adminComment?: string;
   processedBy?: string; // ID of the admin who processed the request
+  approverName?: string;
 }
 
 export interface Revenue {
@@ -195,3 +196,133 @@ export interface ReferralLeaderboardData {
   leaderboard: ReferralLeaderboardEntry[];
 }
 
+// Analytics Types for SuperAdmin Dashboard
+export type AnalyticsTimeRange = '7d' | '30d' | '90d' | 'all';
+
+export interface GGRDataPoint {
+  date: Date;
+  revenue: number;
+  gamesCount: number;
+}
+
+export interface GGRData {
+  success: boolean;
+  timeRange: AnalyticsTimeRange;
+  data: GGRDataPoint[];
+  summary: {
+    total: number;
+    averageDaily: number;
+    daysCount: number;
+  };
+}
+
+export interface DAUDataPoint {
+  date: Date;
+  activeUsers: number;
+}
+
+export interface DAUData {
+  success: boolean;
+  timeRange: AnalyticsTimeRange;
+  data: DAUDataPoint[];
+  summary: {
+    peak: number;
+    average: number;
+    daysCount: number;
+  };
+}
+
+export interface AvgStakeDataPoint {
+  date: Date;
+  averageStake: number;
+  totalStake: number;
+  gamesCount: number;
+}
+
+export interface AvgStakeData {
+  success: boolean;
+  timeRange: AnalyticsTimeRange;
+  data: AvgStakeDataPoint[];
+  summary: {
+    current: number;
+    daysCount: number;
+  };
+}
+
+export interface RetentionDataPoint {
+  date: Date;
+  retentionRate: number;
+  totalUsers: number;
+  returnedUsers: number;
+}
+
+export interface RetentionData {
+  success: boolean;
+  timeRange: AnalyticsTimeRange;
+  data: RetentionDataPoint[];
+  summary: {
+    overallRetention: number;
+    totalUsers: number;
+    daysCount: number;
+  };
+}
+
+export interface MatchVelocityDataPoint {
+  hour: number;
+  matches: number;
+}
+
+export interface MatchVelocityData {
+  success: boolean;
+  timeRange: AnalyticsTimeRange;
+  data: MatchVelocityDataPoint[];
+  summary: {
+    peakHour: number;
+    peakMatches: number;
+    averagePerHour: number;
+    totalMatches: number;
+  };
+}
+
+export interface AnalyticsOverview {
+  success: boolean;
+  timeRange: AnalyticsTimeRange;
+  overview: {
+    ggr: number;
+    dau: number;
+    avgStake: number;
+    totalGames: number;
+    revenueGames: number;
+  };
+}
+
+export interface TodayAnalytics {
+  success: boolean;
+  timeRange: 'today';
+  data: {
+    moneyFlow: {
+      deposits: {
+        amount: number;
+        count: number;
+      };
+      withdrawals: {
+        amount: number;
+        count: number;
+      };
+      netFlow: number;
+      totalTransactions: number;
+    };
+    rake: {
+      totalEarned: number;
+      fromGamesCount: number;
+      totalPotValue: number;
+    };
+    gameplay: {
+      totalGames: number;
+      totalStaked: number;
+      depositsPlayed: number;
+      depositsPlayedPercentage: string;
+      rakeFromDeposits: number;
+    };
+  };
+}

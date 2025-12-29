@@ -332,5 +332,174 @@ export const adminAPI = {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch referral leaderboard';
       throw new Error(errorMessage);
     }
+  },
+
+  // Analytics API methods
+  async getGGRData(timeRange: string = '30d'): Promise<import('../types').GGRData> {
+    const url = `${getApiUrl()}/admin/analytics/ggr?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch GGR data';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getDAUData(timeRange: string = '30d'): Promise<import('../types').DAUData> {
+    const url = `${getApiUrl()}/admin/analytics/dau?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch DAU data';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getAvgStakeData(timeRange: string = '30d'): Promise<import('../types').AvgStakeData> {
+    const url = `${getApiUrl()}/admin/analytics/avg-stake?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch average stake data';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getRetentionData(timeRange: string = '30d'): Promise<import('../types').RetentionData> {
+    const url = `${getApiUrl()}/admin/analytics/retention?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch retention data';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getMatchVelocityData(timeRange: string = '7d'): Promise<import('../types').MatchVelocityData> {
+    const url = `${getApiUrl()}/admin/analytics/match-velocity?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch match velocity data';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getAnalyticsOverview(timeRange: string = '30d'): Promise<import('../types').AnalyticsOverview> {
+    const url = `${getApiUrl()}/admin/analytics/overview?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch analytics overview';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async getTodayAnalytics(): Promise<import('../types').TodayAnalytics> {
+    const url = `${getApiUrl()}/admin/analytics/today`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch today analytics';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Quick Admin Actions
+  async getQuickUserInfo(userId: string): Promise<{ success: boolean; user?: any; matches?: any[]; error?: string }> {
+    const url = `${getApiUrl()}/admin/quick/user/${userId}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      // Return the error response if available to allow the component to handle specific messages like "User not found"
+      if (error.responseData) {
+        return error.responseData;
+      }
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async performQuickTransaction(userId: string, type: 'DEPOSIT' | 'WITHDRAWAL', amount: number, adminId: string): Promise<{
+    success: boolean;
+    newBalance: number;
+    error?: string;
+    request?: {
+      id: string;
+      shortId: number;
+      type: 'DEPOSIT' | 'WITHDRAWAL';
+      amount: number;
+      status: string;
+      timestamp: string;
+      userName: string;
+      approverName: string;
+      userPhone: string;
+    };
+  }> {
+    const url = `${getApiUrl()}/admin/quick/transaction`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ userId, type, amount, adminId }),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      if (error.responseData) {
+        return error.responseData;
+      }
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Transaction failed';
+      throw new Error(errorMessage);
+    }
   }
 };

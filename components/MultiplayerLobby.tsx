@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { SOCKET_URL } from '../lib/apiConfig';
+import { SOCKET_URL, API_URL } from '../lib/apiConfig';
+import { api } from '../services/api'; // Or wherever global axios instance is defined, checking lib/apiConfig
 import { useAuth } from '../context/AuthContext';
 import type { Player, PlayerColor } from '../types';
 import MatchRequestList from './MatchRequestList';
 import { Loader2, X } from 'lucide-react';
+import axios from 'axios'; // We can use direct axios or the configured one
+
 
 interface MultiplayerLobbyProps {
     onStartGame: (players: Player[], config: { gameId: string, localPlayerColor: PlayerColor, sessionId: string, stake: number }) => void;
@@ -376,6 +379,29 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             userId,
             userName
         });
+
+        // --- Sending Push Notifications (OneSignal) ---
+        // If stake is 0.25, invite other players!
+        if (amount === 0.25) {
+            console.log('📢 Triggering push notification for 0.25 match...');
+            // Need to get token from header for authenticated request
+            const token = localStorage.getItem('ludo_token');
+
+            axios.post(`${API_URL}/notifications/announce`,
+                { stake: amount },
+                { headers: { Authorization: `Bearer ${token}` } }
+            )
+                .then(res => {
+                    if (res.data.success) {
+                        console.log('✅ Invite sent to:', res.data.recipientCount, 'players');
+                        // Optionally update status message briefly
+                        // setStatusMessage('Inviting players...');
+                    } else {
+                        console.log('⚠️ Invite skipped/failed:', JSON.stringify(res.data));
+                    }
+                })
+                .catch(err => console.error('❌ Failed to trigger notification:', err));
+        }
     };
 
     const handleAcceptRequest = (requestId: string) => {

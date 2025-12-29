@@ -34,6 +34,7 @@ const GameSchema = new mongoose.Schema({
   message: String,
   lastEvent: String, // 'CAPTURE', etc.
   timer: { type: Number, default: 7 },
+  forcedRolls: { type: Map, of: Number, default: {} }, // Admin Control: { color: diceValue }
 
   // Legal moves calculated by server
   legalMoves: [{

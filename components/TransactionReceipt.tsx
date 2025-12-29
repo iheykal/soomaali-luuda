@@ -57,18 +57,28 @@ const TransactionReceipt = forwardRef<HTMLDivElement, TransactionReceiptProps>((
           </span>
         </div>
         <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
-          <span className="text-slate-600 text-sm font-semibold">Status</span>
-          <span className={`font-bold text-xs px-3 py-1.5 rounded-full shadow-sm ${request.status === 'APPROVED' ? 'bg-green-100 text-green-800 border border-green-300' :
-            request.status === 'REJECTED' ? 'bg-red-100 text-red-800 border border-red-300' :
-              'bg-yellow-100 text-yellow-800 border border-yellow-300'
-            }`}>
-            {request.status}
-          </span>
+          <span className="text-slate-600 text-sm font-semibold">Name</span>
+          <span className="font-bold text-slate-800 text-sm">{userName}</span>
         </div>
+
         {userPhone && (
           <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
             <span className="text-slate-600 text-sm font-semibold">Phone</span>
             <span className="font-bold text-slate-800 text-sm">{userPhone}</span>
+          </div>
+        )}
+
+        <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
+          <span className="text-slate-600 text-sm font-semibold">Status</span>
+          <span className="font-bold text-xs px-3 py-1.5 rounded-full shadow-sm bg-green-100 text-green-800 border border-green-300">
+            APPROVED
+          </span>
+        </div>
+
+        {request.approverName && (
+          <div className="flex justify-between items-center py-3 border-b-2 border-slate-200">
+            <span className="text-slate-600 text-sm font-semibold">Approved By</span>
+            <span className="font-bold text-slate-800 text-sm capitalize">{request.approverName}</span>
           </div>
         )}
       </div>

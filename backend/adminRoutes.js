@@ -1,3 +1,9 @@
+// ===== CURRENCY PRECISION HELPER =====
+// Rounds a number to 2 decimal places to prevent floating-point precision errors
+const roundCurrency = (value) => {
+    return Math.round(value * 100) / 100;
+};
+
 // POST: Admin - Update user balance (DEPOSIT or WITHDRAWAL)
 app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => {
     try {
@@ -28,7 +34,7 @@ app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => 
         const amountNum = parseFloat(amount);
 
         if (type.toLowerCase() === 'deposit') {
-            targetUser.balance += amountNum;
+            targetUser.balance = roundCurrency(targetUser.balance + amountNum);
             targetUser.transactions.push({
                 type: 'admin_deposit',
                 amount: amountNum,
@@ -40,7 +46,7 @@ app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => 
             if (targetUser.balance < amountNum) {
                 return res.status(400).json({ error: 'Insufficient user balance for withdrawal' });
             }
-            targetUser.balance -= amountNum;
+            targetUser.balance = roundCurrency(targetUser.balance - amountNum);
             targetUser.transactions.push({
                 type: 'admin_withdrawal',
                 amount: -amountNum,

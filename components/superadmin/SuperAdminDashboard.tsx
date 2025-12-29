@@ -9,6 +9,7 @@ import { useGameLogic } from '../../hooks/useGameLogic';
 import TransactionReceipt from '../TransactionReceipt';
 
 import ErrorBoundary from '../ErrorBoundary';
+import AnalyticsDashboard from './AnalyticsDashboard';
 
 // --- Spectator Modal Component ---
 const SpectatorModal: React.FC<{ gameId: string; onClose: () => void }> = ({ gameId, onClose }) => {
@@ -182,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'users' | 'games' | 'wallet' | 'revenue' | 'settings';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'settings';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -773,8 +774,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               </div>
             )}
 
-            {/* Referral Leaderboard */}
-            {referralLeaderboard && referralLeaderboard.length > 0 && user?.role === 'SUPER_ADMIN' && (
+            {/* Referral Leaderboard - HIDDEN */}
+            {/* {referralLeaderboard && referralLeaderboard.length > 0 && user?.role === 'SUPER_ADMIN' && (
               <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-2xl font-black text-gray-900 flex items-center gap-2">
@@ -799,8 +800,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   ))}
                 </div>
               </div>
-            )}
+            )} */}
           </>
+        );
+      case 'analytics':
+        return (
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+            <AnalyticsDashboard userRole={user?.role || 'USER'} />
+          </div>
         );
       case 'users':
         return (
@@ -855,8 +862,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               </div>
             </div>
 
-            {/* Top 3 Leaders Section */}
-            {!loading && !error && users.length > 0 && (
+            {/* Top 3 Leaders Section - HIDDEN */}
+            {/* {!loading && !error && users.length > 0 && (
               <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-b from-white to-gray-50">
                 <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                   <span>🏆</span> Top 3 Champions
@@ -922,7 +929,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     })}
                 </div>
               </div>
-            )}
+            )} */}
 
             {/* Search Box */}
             <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
@@ -2032,6 +2039,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <span className="text-lg sm:text-xl">📊</span>
             <span>Dashboard</span>
           </button>
+
+          {/* Analytics Tab - Only for SUPER_ADMIN */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'analytics'
+                ? 'bg-green-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">📉</span>
+              <span>Analytics</span>
+            </button>
+          )}
 
           {/* Users - Super Admin Only */}
           {user?.role === 'SUPER_ADMIN' && (

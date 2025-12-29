@@ -1,10 +1,13 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Player, PlayerColor } from '../types';
 import { PLAYER_TAILWIND_COLORS, PLAYER_COLORS } from '../lib/boardLayout';
 import { useAuth } from '../context/AuthContext';
 import { gameAPI } from '../services/gameAPI';
 import RejoinGameBanner from './RejoinGameBanner';
+import WithdrawalTestimonials from './WithdrawalTestimonials';
+import { Copy } from 'lucide-react';
+import { toast } from 'react-hot-toast';
+import AdminQuickActions from './AdminQuickActions';
 
 interface GameSetupProps {
   onStartGame: (players: Player[]) => void;
@@ -404,21 +407,70 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
             </div>
           </div>
 
-          {user.avatar && (
-            <div className="flex items-center gap-2">
-              <div className="text-right">
-                <p className="text-sm font-bold text-white">{user.username}</p>
-                <p className="text-xs text-slate-400">{user.phone}</p>
-              </div>
-              <img
-                src={user.avatar}
-                alt={user.username}
-                className="w-10 h-10 rounded-full border-2 border-slate-600 shadow-lg"
-              />
+          <div className="flex items-center gap-3 bg-slate-800/50 p-1.5 pr-4 rounded-full border border-slate-700/50">
+            <img
+              src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`}
+              alt={user.username}
+              className="w-10 h-10 rounded-full border-2 border-slate-600 shadow-md bg-slate-700"
+            />
+            <div className="text-left">
+              <p className="text-sm font-bold text-white leading-tight">{user.username}</p>
+              <button
+                onClick={() => {
+                  const textToCopy = user.phone;
+                  // Try modern API first
+                  if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(textToCopy)
+                      .then(() => toast.success('Phone number copied!', { id: 'copy-phone' }))
+                      .catch((err) => {
+                        console.error('Clipboard failed:', err);
+                        toast.error('Failed to copy');
+                      });
+                  } else {
+                    // Fallback for non-secure contexts (like HTTP on LAN)
+                    const textArea = document.createElement("textarea");
+                    textArea.value = textToCopy;
+
+                    // Ensure it's not visible but part of DOM
+                    textArea.style.position = "fixed";
+                    textArea.style.left = "-999999px";
+                    textArea.style.top = "-999999px";
+                    document.body.appendChild(textArea);
+
+                    textArea.focus();
+                    textArea.select();
+
+                    try {
+                      document.execCommand('copy');
+                      toast.success('Phone number copied!', { id: 'copy-phone' });
+                    } catch (err) {
+                      console.error('Fallback copy failed:', err);
+                      toast.error('Failed to copy');
+                    }
+
+                    document.body.removeChild(textArea);
+                  }
+                }}
+                className="flex items-center gap-1.5 group"
+                title="Copy Phone Number"
+              >
+                <p className="text-xs text-slate-400 group-hover:text-cyan-400 transition-colors font-mono">{user.phone}</p>
+                <Copy className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+              </button>
             </div>
-          )}
+          </div>
         </div>
+
       </div>
+
+      {/* Withdrawal Testimonials Slider */}
+      {/* Withdrawal Testimonials Slider */}
+      <WithdrawalTestimonials />
+
+      {/* Admin Quick Actions (Only visible to Admin/SuperAdmin/Cali) */}
+      {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.phone === '+2520614171577' || user?.phone === '2520614171577' || user?.phone === '0614171577') && (
+        <AdminQuickActions />
+      )}
 
       <img src="/icons/laddea.png" alt="Ludo Master Logo" className="w-32 h-auto mb-4 mt-4" />
 
@@ -438,12 +490,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
             <span className="text-3xl">🧑‍🤝‍🧑</span>
             <span>{user?.balance !== undefined && user.balance > 0 ? 'Multiplayer (Online)' : 'Insufficient Balance'}</span>
           </button>
-          <button
-            onClick={() => setMode('local_setup')}
-            className="w-full bg-slate-600 hover:bg-slate-500 text-white font-bold text-xl py-3 rounded-lg shadow-lg transition transform hover:scale-105"
-          >
-            Local Game (2P)
-          </button>
+
 
           {/* Wallet Button */}
           <button

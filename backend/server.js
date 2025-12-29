@@ -19,25 +19,17 @@ const Game = require('./models/Game');
 const VisitorAnalytics = require('./models/VisitorAnalytics');
 const { smartUserSync, smartUserLookup } = require('./utils/userSync');
 const NodeCache = require('node-cache'); // For caching performance optimization
-const webPush = require('web-push'); // For Web Push notifications
 
-// Load environment variables
-require('dotenv').config();
-
-// Configure web-push with VAPID keys
-if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-  webPush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@ludo-game.com',
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
-  console.log('✅ Web Push configured with VAPID keys');
-} else {
-  console.warn('⚠️ VAPID keys not configured. Web Push notifications disabled.');
-}
 
 const app = express();
 const server = http.createServer(app);
+
+// ===== CURRENCY PRECISION HELPER =====
+// Rounds a number to 2 decimal places to prevent floating-point precision errors
+// Example: 0.24999999... becomes 0.25
+const roundCurrency = (value) => {
+  return Math.round(value * 100) / 100;
+};
 
 // Simple request logger middleware
 app.use((req, res, next) => {
@@ -222,7 +214,7 @@ app.use(async (req, res, next) => {
 });
 
 // Database Connection
-const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/ludo-master';
+const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb+srv://ludo:ilyaas@ludo.1umgvpn.mongodb.net/ludo?retryWrites=true&w=majority&appName=ludo';
 
 // Optimized MongoDB connection options for 512MB RAM
 const mongooseOptions = {
@@ -700,166 +692,93 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   }
 });
 
-// --- WEB PUSH SUBSCRIPTION ROUTES ---
 
-// POST: Subscribe to push notifications
-app.post('/api/push/subscribe', authenticateToken, async (req, res) => {
+
+// --- ONESIGNAL PUSH NOTIFICATION ROUTES ---
+
+const axios = require('axios');
+const ONESIGNAL_APP_ID = '0416f4a4-ca9d-42c6-8106-eb44fa34f0ab';
+// ⚠️ IMPORTANT: Get this from OneSignal Dashboard -> Settings -> Keys & IDs
+const ONESIGNAL_API_KEY = process.env.ONESIGNAL_API_KEY || 'os_v2_app_aqlpjjgktvbmnaig5ncpunhqvotbzj3axr4uji5gd2dqxp2ad5cm3fvebqspyw62sbbfvr2mdpoyjvdvfrgfyxfzrmhby4t7vbdhopq';
+
+// POST: Save OneSignal Player ID
+app.post('/api/notifications/player-id', authenticateToken, async (req, res) => {
   try {
-    const { subscription } = req.body;
+    const { playerId } = req.body;
 
-    if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ error: 'Valid subscription object required' });
+    if (!playerId) {
+      return res.status(400).json({ error: 'Player ID is required' });
     }
 
-    const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    await User.findByIdAndUpdate(req.user.userId, {
+      oneSignalPlayerId: playerId
+    });
+
+    res.json({ success: true, message: 'Push subscription updated' });
+  } catch (error) {
+    console.error('Error saving player ID:', error);
+    res.status(500).json({ error: 'Failed to update subscription' });
+  }
+});
+
+// Rate limiting for campaign invites (Key: userId, Value: timestamp)
+const inviteCooldowns = new Map();
+
+// POST: Announce a Game (Send Push to relevant users)
+app.post('/api/notifications/announce', authenticateToken, async (req, res) => {
+  try {
+    const { stake } = req.body;
+    const userId = req.user.userId;
+    const username = req.user.username;
+
+    if (!stake) {
+      return res.status(400).json({ error: 'Stake amount required' });
     }
 
-    // Check if this subscription already exists
-    const existingIndex = user.pushSubscriptions.findIndex(
-      sub => sub.endpoint === subscription.endpoint
-    );
+    // 1. Rate Check (Prevent Spam) - 1 minute cooldown per user
+    const lastInvite = inviteCooldowns.get(userId);
+    const now = Date.now();
+    if (lastInvite && now - lastInvite < 60000) {
+    }
 
-    const subscriptionData = {
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth
-      },
-      expirationTime: subscription.expirationTime,
-      userAgent: req.headers['user-agent'],
-      createdAt: new Date()
+    console.log(`📢 Sending game invite for $${stake} to ${playerIds.length} players...`);
+
+    // 3. Send Notification via OneSignal API
+    const notificationBody = {
+      app_id: ONESIGNAL_APP_ID,
+      include_player_ids: playerIds,
+      headings: { en: "Game Invite! 🎲" },
+      contents: { en: `${username} wants to play a $${stake} match! Click to join.` },
+      url: process.env.FRONTEND_URL || "https://soomaali-luuda-1.onrender.com", // Adjust to your actual URL
+      data: { type: 'game_invite', stake, requester: username }
     };
 
-    if (existingIndex !== -1) {
-      // Update existing subscription
-      user.pushSubscriptions[existingIndex] = subscriptionData;
-      console.log(`🔄 Updated push subscription for user ${user.username}`);
-    } else {
-      // Add new subscription
-      user.pushSubscriptions.push(subscriptionData);
-      console.log(`✅ Added new push subscription for user ${user.username}`);
-    }
+    const response = await axios.post(
+      'https://onesignal.com/api/v1/notifications',
+      notificationBody,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${ONESIGNAL_API_KEY}`
+        }
+      }
+    );
 
-    await user.save();
+    console.log('✅ Notification sent:', response.data);
 
     res.json({
       success: true,
-      message: 'Successfully subscribed to push notifications',
-      subscriptionCount: user.pushSubscriptions.length
+      recipientCount: playerIds.length,
+      message: `Invited ${playerIds.length} players!`
     });
+
   } catch (error) {
-    console.error('Push subscribe error:', error);
-    res.status(500).json({ error: error.message || 'Failed to subscribe to push notifications' });
+    console.error('Error sending announcement:', error?.response?.data || error.message);
+    // Don't fail the request completely if notification fails, just warn
+    res.json({ success: false, error: 'Failed to send notifications, but match created.' });
   }
 });
 
-// POST: Unsubscribe from push notifications
-app.post('/api/push/unsubscribe', authenticateToken, async (req, res) => {
-  try {
-    const { endpoint } = req.body;
-
-    if (!endpoint) {
-      return res.status(400).json({ error: 'Endpoint required' });
-    }
-
-    const user = await User.findById(req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const initialCount = user.pushSubscriptions.length;
-    user.pushSubscriptions = user.pushSubscriptions.filter(
-      sub => sub.endpoint !== endpoint
-    );
-
-    if (user.pushSubscriptions.length < initialCount) {
-      await user.save();
-      console.log(`🗑️ Removed push subscription for user ${user.username}`);
-      res.json({ success: true, message: 'Successfully unsubscribed from push notifications' });
-    } else {
-      res.json({ success: true, message: 'Subscription not found (may already be removed)' });
-    }
-  } catch (error) {
-    console.error('Push unsubscribe error:', error);
-    res.status(500).json({ error: error.message || 'Failed to unsubscribe from push notifications' });
-  }
-});
-
-// Helper function to send Web Push notifications to a user
-async function sendPushNotificationToUser(userId, payload) {
-  try {
-    const user = await User.findById(userId);
-    if (!user || !user.pushSubscriptions || user.pushSubscriptions.length === 0) {
-      console.log(`⚠️ No push subscriptions found for user ${userId}`);
-      return { success: false, reason: 'no_subscriptions' };
-    }
-
-    console.log(`📤 Sending push notification to ${user.username} (${user.pushSubscriptions.length} subscriptions)`);
-
-    const notificationPayload = JSON.stringify(payload);
-    const results = [];
-    const invalidSubscriptions = [];
-
-    // Send to all subscriptions
-    for (let i = 0; i < user.pushSubscriptions.length; i++) {
-      const subscription = user.pushSubscriptions[i];
-      try {
-        await webPush.sendNotification(
-          {
-            endpoint: subscription.endpoint,
-            keys: {
-              p256dh: subscription.keys.p256dh,
-              auth: subscription.keys.auth
-            }
-          },
-          notificationPayload
-        );
-        console.log(`✅ Push notification sent to ${user.username} (subscription ${i + 1})`);
-        results.push({ success: true, index: i });
-      } catch (error) {
-        console.error(`❌ Failed to send push notification to subscription ${i}:`, error.message);
-
-        // If subscription is invalid/expired (410 Gone), mark for removal
-        if (error.statusCode === 410 || error.statusCode === 404) {
-          console.log(`🗑️ Marking invalid subscription ${i} for removal`);
-          invalidSubscriptions.push(i);
-        }
-        results.push({ success: false, index: i, error: error.message });
-      }
-    }
-
-    // Remove invalid subscriptions
-    if (invalidSubscriptions.length > 0) {
-      user.pushSubscriptions = user.pushSubscriptions.filter((_, index) =>
-        !invalidSubscriptions.includes(index)
-      );
-      await user.save();
-      console.log(`🧹 Removed ${invalidSubscriptions.length} invalid subscription(s) from ${user.username}`);
-    }
-
-    const successCount = results.filter(r => r.success).length;
-    return {
-      success: successCount > 0,
-      totalSent: successCount,
-      totalFailed: results.length - successCount,
-      results
-    };
-  } catch (error) {
-    console.error('Error sending push notification:', error);
-    return { success: false, error: error.message };
-  }
-}
-
-// GET: Get VAPID public key
-app.get('/api/push/vapid-public-key', (req, res) => {
-  if (process.env.VAPID_PUBLIC_KEY) {
-    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
-  } else {
-    res.status(503).json({ error: 'Push notifications not configured' });
-  }
-});
 
 
 // POST: Request Password Reset
@@ -1322,7 +1241,7 @@ app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => 
     const amountNum = parseFloat(amount);
 
     if (type.toLowerCase() === 'deposit') {
-      targetUser.balance += amountNum;
+      targetUser.balance = roundCurrency(targetUser.balance + amountNum);
       targetUser.transactions.push({
         type: 'admin_deposit',
         amount: amountNum,
@@ -1331,10 +1250,11 @@ app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => 
       });
       console.log(`✅ Admin ${adminUser.username} deposited $${amountNum} to ${targetUser.username}`);
     } else {
-      if (targetUser.balance < amountNum) {
+      // FIX: Use rounding to prevent floating point errors (e.g. 0.24999 < 0.25)
+      if (Math.round(targetUser.balance * 100) < Math.round(amountNum * 100)) {
         return res.status(400).json({ error: 'Insufficient user balance for withdrawal' });
       }
-      targetUser.balance -= amountNum;
+      targetUser.balance = roundCurrency(targetUser.balance - amountNum);
       targetUser.transactions.push({
         type: 'admin_withdrawal',
         amount: -amountNum,
@@ -1888,20 +1808,20 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
     let transactionDescription = '';
 
     if (normalizedType === 'DEPOSIT') {
-      newBalance += amount;
+      newBalance = roundCurrency(newBalance + amount);
       transactionType = 'deposit';
       transactionDescription = comment || `Admin deposit by ${adminUser.username}`;
     } else { // WITHDRAWAL
       if (user.balance < amount) {
         return res.status(400).json({ error: `Insufficient funds. User balance: $${user.balance}, requested withdrawal: $${amount}.` });
       }
-      newBalance -= amount;
+      newBalance = roundCurrency(newBalance - amount);
       transactionType = 'withdrawal';
       transactionDescription = comment || `Admin withdrawal by ${adminUser.username}`;
     }
 
     // 4. Update User Balance and Log Transaction
-    user.balance = newBalance;
+    user.balance = roundCurrency(newBalance);
     user.transactions.push({
       type: transactionType,
       amount: type === 'DEPOSIT' ? amount : -amount, // Store withdrawals as negative amounts
@@ -2045,8 +1965,8 @@ app.post('/api/admin/games/:gameId/refund', authenticateToken, async (req, res) 
         const user = await User.findById(player.userId);
         if (user) {
           // Move stake from reserved back to main balance
-          user.balance += stake;
-          user.reservedBalance = Math.max(0, user.reservedBalance - stake);
+          user.balance = roundCurrency(user.balance + stake);
+          user.reservedBalance = roundCurrency(Math.max(0, user.reservedBalance - stake));
 
           // Add a clear transaction log
           user.transactions.push({
@@ -2096,7 +2016,7 @@ app.delete('/api/admin/matches/:gameId', authenticateToken, async (req, res) => 
         if (player.userId && !player.isAI) {
           const user = await User.findById(player.userId);
           if (user) {
-            user.balance += (game.stake || 0);
+            user.balance = roundCurrency(user.balance + (game.stake || 0));
             await user.save();
             console.log(`💰 Refunded ${game.stake} to ${user.username} due to admin deletion`);
           }
@@ -2341,7 +2261,8 @@ app.post('/api/wallet/request', authenticateToken, async (req, res) => {
     }
 
     if (type === 'WITHDRAWAL') {
-      if (user.balance < amount) {
+      // FIX: Use rounding to prevent floating point errors
+      if (Math.round(user.balance * 100) < Math.round(amount * 100)) {
         return res.status(400).json({ error: "Insufficient funds" });
       }
       // Check for withdrawal limit (1 per 24h)
@@ -2538,7 +2459,9 @@ app.get('/api/admin/wallet/requests', authenticateToken, async (req, res) => {
       paymentMethod: req.paymentMethod || '',
       timestamp: req.timestamp ? new Date(req.timestamp).toISOString() : new Date().toISOString(),
       adminComment: req.adminComment || '',
-      processedBy: req.processedBy || ''
+      adminComment: req.adminComment || '',
+      processedBy: req.processedBy || '',
+      approverName: req.approverName || ''
     }));
 
     const pendingCount = formattedRequests.filter(r => r.status === 'PENDING').length;
@@ -2637,12 +2560,12 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
           return res.json({ success: true, message: "Request rejected (Balance limit exceeded)", request });
         }
 
-        user.balance += request.amount;
+        user.balance = roundCurrency(user.balance + request.amount);
         request.status = 'APPROVED';
         request.adminComment = adminComment || "Approved by admin";
       } else if (request.type === 'WITHDRAWAL') {
         if (user.balance >= request.amount) {
-          user.balance -= request.amount;
+          user.balance = roundCurrency(user.balance - request.amount);
           request.status = 'APPROVED';
           request.adminComment = adminComment || "Approved by admin";
         } else {
@@ -2656,8 +2579,9 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
       request.adminComment = adminComment || "Rejected by admin";
     }
 
-    // Save the admin ID who processed the request
+    // Save the admin ID and Name who processed the request
     request.processedBy = adminUser._id.toString();
+    request.approverName = adminUser.username;
     await request.save();
 
     // Format the request for frontend compatibility
@@ -2672,7 +2596,9 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
       details: request.details || '',
       timestamp: request.timestamp ? new Date(request.timestamp).toISOString() : new Date().toISOString(),
       adminComment: request.adminComment || '',
-      processedBy: request.processedBy || ''
+      adminComment: request.adminComment || '',
+      processedBy: request.processedBy || '',
+      approverName: request.approverName || ''
     };
 
     // Send real-time notification to user via Socket.IO
@@ -2800,6 +2726,37 @@ const createMatch = async (player1, player2, stake) => {
       return;
     }
 
+    // --- AUTO-REJECT PENDING WITHDRAWALS ---
+    // User requested to remove withdrawal request immediately if they enter a match
+    // to prevent admin from approving it after balance is used for game.
+    const withdrawalUpdate1 = await FinancialRequest.updateMany(
+      { userId: user1._id, status: 'PENDING', type: 'WITHDRAWAL' },
+      {
+        status: 'REJECTED',
+        adminComment: 'Auto-rejected: User entered a match during pending request',
+        processedBy: 'SYSTEM',
+        timestamp: new Date()
+      }
+    );
+
+    const withdrawalUpdate2 = await FinancialRequest.updateMany(
+      { userId: user2._id, status: 'PENDING', type: 'WITHDRAWAL' },
+      {
+        status: 'REJECTED',
+        adminComment: 'Auto-rejected: User entered a match during pending request',
+        processedBy: 'SYSTEM',
+        timestamp: new Date()
+      }
+    );
+
+    if (withdrawalUpdate1.modifiedCount > 0) {
+      console.log(`🚫 Auto-rejected ${withdrawalUpdate1.modifiedCount} pending withdrawals for user ${user1.username} (entered match)`);
+    }
+    if (withdrawalUpdate2.modifiedCount > 0) {
+      console.log(`🚫 Auto-rejected ${withdrawalUpdate2.modifiedCount} pending withdrawals for user ${user2.username} (entered match)`);
+    }
+    // ---------------------------------------
+
     // Explicitly check for 0 balance if stake is involved
     if (stake > 0 && (user1.balance <= 0 || user2.balance <= 0)) {
       console.error('❌ Match failed: One or both players have a zero or negative balance for a staked game.');
@@ -2826,8 +2783,8 @@ const createMatch = async (player1, player2, stake) => {
     }
 
     // Reserve balance for Player 1
-    user1.balance -= stake;
-    user1.reservedBalance = (user1.reservedBalance || 0) + stake;
+    user1.balance = roundCurrency(user1.balance - stake);
+    user1.reservedBalance = roundCurrency((user1.reservedBalance || 0) + stake);
     user1.transactions.push({
       type: 'match_stake',
       amount: -stake,
@@ -2837,8 +2794,8 @@ const createMatch = async (player1, player2, stake) => {
     await user1.save();
 
     // Reserve balance for Player 2
-    user2.balance -= stake;
-    user2.reservedBalance = (user2.reservedBalance || 0) + stake;
+    user2.balance = roundCurrency(user2.balance - stake);
+    user2.reservedBalance = roundCurrency((user2.reservedBalance || 0) + stake);
     user2.transactions.push({
       type: 'match_stake',
       amount: -stake,
@@ -2944,12 +2901,12 @@ const createMatch = async (player1, player2, stake) => {
 
       // Try to refund the stakes since match failed
       try {
-        user1.balance += stake;
-        user1.reservedBalance = Math.max(0, (user1.reservedBalance || 0) - stake);
+        user1.balance = roundCurrency(user1.balance + stake);
+        user1.reservedBalance = roundCurrency(Math.max(0, (user1.reservedBalance || 0) - stake));
         await user1.save();
 
-        user2.balance += stake;
-        user2.reservedBalance = Math.max(0, (user2.reservedBalance || 0) - stake);
+        user2.balance = roundCurrency(user2.balance + stake);
+        user2.reservedBalance = roundCurrency(Math.max(0, (user2.reservedBalance || 0) - stake));
         await user2.save();
 
         console.log(`💰 Refunded stakes to both players due to match creation failure`);
@@ -3414,7 +3371,8 @@ io.on('connection', (socket) => {
       if (activeGame) {
         return socket.emit('ERROR', { message: 'You are already in an active game. Please finish it first.' });
       }
-      if (user.balance < numericStake) {
+      // FIX: Use rounding to prevent floating point errors (e.g. 0.24999 < 0.25)
+      if (Math.round(user.balance * 100) < Math.round(numericStake * 100)) {
         return socket.emit('ERROR', { message: 'Insufficient funds to create match request' });
       }
 
@@ -3451,11 +3409,11 @@ io.on('connection', (socket) => {
     if (request.userId === userId) {
       return socket.emit('ERROR', { message: 'Cannot accept your own match request' });
     }
-    const acceptor = await User.findById(userId);
     if (!acceptor) {
       return socket.emit('ERROR', { message: 'User not found' });
     }
-    if (acceptor.balance < request.stake) {
+    // FIX: Use rounding to prevent floating point errors
+    if (Math.round(acceptor.balance * 100) < Math.round(request.stake * 100)) {
       return socket.emit('ERROR', { message: 'Insufficient funds' });
     }
 
@@ -3755,6 +3713,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('admin_force_roll', async ({ gameId, targetColor, diceValue }) => {
+    console.log(`👮 SOCKET: admin_force_roll received for game ${gameId}. Target: ${targetColor}, Value: ${diceValue}`);
+    try {
+      const game = await Game.findOne({ gameId });
+      if (game) {
+        if (!game.forcedRolls) {
+          game.forcedRolls = {}; // Initialize if missing (though schema default handles it)
+        }
+
+        // Handle Mongoose Map or POJO
+        if (game.forcedRolls instanceof Map) {
+          game.forcedRolls.set(targetColor, Number(diceValue));
+        } else {
+          // Fallback if somehow it's just an object
+          game.forcedRolls[targetColor] = Number(diceValue);
+        }
+
+        game.markModified('forcedRolls');
+        await game.save();
+        console.log(`✅ Forced roll saved. Next roll for ${targetColor} will be ${diceValue}`);
+        socket.emit('admin_ack', { message: `Force roll set: ${diceValue} for ${targetColor}` });
+      } else {
+        socket.emit('ERROR', { message: 'Game not found' });
+      }
+    } catch (e) {
+      console.error('Error setting forced roll:', e);
+    }
+  });
+
   socket.on('send_chat_message', async ({ gameId, userId, message }) => {
 
     const game = await Game.findOne({ gameId });
@@ -3789,59 +3776,262 @@ io.on('connection', (socket) => {
       }
     } catch (e) {
       console.error('Resync error:', e);
+      if (socket.gameId) {
+        const gameId = socket.gameId;
+
+        const game = await Game.findOne({ gameId });
+        if (game) {
+          const player = game.players.find(p => p.socketId === socket.id);
+          if (player && player.userId) {
+            const userId = player.userId;
+            const disconnectTimeout = setTimeout(async () => {
+              pendingDisconnects.delete(userId);
+              if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+              const result = await gameEngine.handleDisconnect(gameId, socket.id);
+              if (result) {
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+                if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+              }
+
+            }, 5000);
+            pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+            return;
+          }
+        }
+        if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+        const result = await gameEngine.handleDisconnect(gameId, socket.id);
+        if (result) {
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+
+          const hasConnectedHuman = result.state.players.some(p => p.userId && !p.isAI && !p.isDisconnected && p.socketId);
+
+          if (!hasConnectedHuman) {
+            console.log(`🤖 Game ${gameId} - No active humans. Bots playing in SLOW MODE.`);
+            if (result.isCurrentTurn) scheduleAutoTurn(gameId, 8000);
+          } else {
+            if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+          }
+        }
+
+      }
     }
   });
 
-  socket.on('disconnect', async () => {
-    // Keep removing from matchmaking queue logic if it was there? Yes.
-    // Assuming removeFromQueue is global
-    if (typeof removeFromQueue === 'function') removeFromQueue(socket.id);
+  // ===== REMATCH SYSTEM =====
+  // Track pending rematch requests: gameId -> { requesterId, requesterColor, stakeAmount, opponentId, timeout }
+  const rematchRequests = new Map();
 
-    if (socket.gameId) {
-      const gameId = socket.gameId;
+  socket.on('request_rematch', async ({ gameId, stakeAmount }) => {
+    console.log(`🔄 REMATCH REQUEST from ${socket.id} for game ${gameId}`);
+    try {
+      const game = await Game.findOne({ gameId });
+      if (!game || game.status !== 'COMPLETED') {
+        return socket.emit('ERROR', { message: 'Game not found or not completed' });
+      }
+
+      // Find the player who requested rematch
+      const requester = game.players.find(p => p.socketId === socket.id);
+      if (!requester) {
+        return socket.emit('ERROR', { message: 'You are not a player in this game' });
+      }
+
+      const opponent = game.players.find(p => p.userId !== requester.userId);
+      if (!opponent) {
+        return socket.emit('ERROR', { message: 'Opponent not found' });
+      }
+
+      // Check if requester has sufficient balance
+      const user = await User.findById(requester.userId);
+      if (!user || Math.round(user.balance * 100) < Math.round(stakeAmount * 100)) {
+        return socket.emit('ERROR', { message: 'Insufficient balance for rematch' });
+      }
+
+      // Store rematch request
+      rematchRequests.set(gameId, {
+        requesterId: requester.userId,
+        requesterColor: requester.color,
+        requesterSocketId: socket.id,
+        opponentId: opponent.userId,
+        opponentSocketId: opponent.socketId,
+        stakeAmount: stakeAmount || game.stake,
+        expiresAt: Date.now() + 30000
+      });
+
+      // Notify opponent
+      io.to(gameId).emit('rematch_requested', {
+        requesterId: requester.userId,
+        requesterColor: requester.color
+      });
+
+      // Set timeout to auto-decline after 30 seconds
+      setTimeout(() => {
+        const request = rematchRequests.get(gameId);
+        if (request) {
+          rematchRequests.delete(gameId);
+          // Emit decline to both players
+          io.to(gameId).emit('rematch_declined', { reason: 'timeout' });
+          console.log(`⏰ Rematch request for ${gameId} timed out`);
+        }
+      }, 30000);
+
+    } catch (error) {
+      console.error('Rematch request error:', error);
+      socket.emit('ERROR', { message: 'Failed to request rematch' });
+    }
+  });
+
+  socket.on('accept_rematch', async ({ gameId }) => {
+    console.log(`✅ REMATCH ACCEPTED from ${socket.id} for game ${gameId}`);
+    try {
+      const request = rematchRequests.get(gameId);
+      if (!request) {
+        return socket.emit('ERROR', { message: 'No pending rematch request' });
+      }
 
       const game = await Game.findOne({ gameId });
-      if (game) {
-        const player = game.players.find(p => p.socketId === socket.id);
-        if (player && player.userId) {
-          const userId = player.userId;
-          const disconnectTimeout = setTimeout(async () => {
-            pendingDisconnects.delete(userId);
-            if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
-            const result = await gameEngine.handleDisconnect(gameId, socket.id);
-            if (result) {
-              io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
-              if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
-            }
-
-          }, 5000); // Reduced from 15000 to 5000 for smoother gameplay (User Request)
-          pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
-          return;
-        }
-      }
-      if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
-      const result = await gameEngine.handleDisconnect(gameId, socket.id);
-      if (result) {
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
-
-        // CHECK IF ANY HUMANS REMAIN
-        const hasConnectedHuman = result.state.players.some(p => p.userId && !p.isAI && !p.isDisconnected && p.socketId);
-
-        if (!hasConnectedHuman) {
-          console.log(`🤖 Game ${gameId} - No active humans. Bots playing in SLOW MODE.`);
-          // Allow bot to play, but SLOWLY (8 seconds) to give chance for rejoin
-          if (result.isCurrentTurn) scheduleAutoTurn(gameId, 8000);
-        } else {
-          if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
-        }
+      if (!game) {
+        return socket.emit('ERROR', { message: 'Original game not found' });
       }
 
-    } // socket.gameId check
+      // Find the acceptor (should be the opponent)
+      const acceptor = game.players.find(p => p.socketId === socket.id);
+      if (!acceptor || acceptor.userId === request.requesterId) {
+        return socket.emit('ERROR', { message: 'Invalid acceptor' });
+      }
+
+      // Check both players have sufficient balance
+      const requesterUser = await User.findById(request.requesterId);
+      const acceptorUser = await User.findById(acceptor.userId);
+
+      const stake = request.stakeAmount;
+
+      if (!requesterUser || Math.round(requesterUser.balance * 100) < Math.round(stake * 100)) {
+        rematchRequests.delete(gameId);
+        io.to(gameId).emit('rematch_declined', { reason: 'requester_insufficient_funds' });
+        return;
+      }
+
+      if (!acceptorUser || Math.round(acceptorUser.balance * 100) < Math.round(stake * 100)) {
+        rematchRequests.delete(gameId);
+        socket.emit('ERROR', { message: 'Insufficient balance for rematch' });
+        return;
+      }
+
+      // Clear the request
+      rematchRequests.delete(gameId);
+
+      // Create a new match between the two players
+      const requesterPlayer = game.players.find(p => p.userId === request.requesterId);
+
+      const player1 = {
+        socketId: request.requesterSocketId,
+        userId: request.requesterId,
+        userName: requesterPlayer?.username || requesterUser.username
+      };
+
+      const player2 = {
+        socketId: socket.id,
+        userId: acceptor.userId,
+        userName: acceptor.username || acceptorUser.username
+      };
+
+      console.log(`🎮 Creating rematch game between ${player1.userName} and ${player2.userName} for $${stake}`);
+
+      // Use existing createMatch function
+      await createMatch(player1, player2, stake);
+
+      // Emit rematch accepted so frontend can handle transition
+      io.to(gameId).emit('rematch_accepted', {
+        stakeAmount: stake,
+        message: 'Rematch starting...'
+      });
+
+    } catch (error) {
+      console.error('Accept rematch error:', error);
+      socket.emit('ERROR', { message: 'Failed to accept rematch' });
+    }
+  });
+
+  socket.on('decline_rematch', async ({ gameId }) => {
+    console.log(`❌ REMATCH DECLINED from ${socket.id} for game ${gameId}`);
+    try {
+      const request = rematchRequests.get(gameId);
+      if (request) {
+        // Clear the request
+        rematchRequests.delete(gameId);
+
+        // Notify the requester that rematch was declined
+        if (request.requesterSocketId) {
+          io.to(request.requesterSocketId).emit('rematch_declined', { reason: 'declined' });
+          io.to(request.requesterSocketId).emit('rematch_searching', {
+            message: 'Searching for new opponent with same stake...',
+            stakeAmount: request.stakeAmount
+          });
+
+          // Create a new match request for the original requester
+          const requesterUser = await User.findById(request.requesterId);
+          if (requesterUser && Math.round(requesterUser.balance * 100) >= Math.round(request.stakeAmount * 100)) {
+            // Create match request so they can find another player
+            const requestId = crypto.randomBytes(8).toString('hex');
+            const expiresAt = Date.now() + 120000;
+
+            const newRequest = {
+              requestId,
+              userId: request.requesterId,
+              userName: requesterUser.username,
+              stake: request.stakeAmount,
+              socketId: request.requesterSocketId,
+              expiresAt,
+              createdAt: Date.now()
+            };
+            activeMatchRequests.set(requestId, newRequest);
+
+            const timer = setTimeout(() => {
+              activeMatchRequests.delete(requestId);
+              requestTimers.delete(requestId);
+              const creatorSocket = io.sockets.sockets.get(newRequest.socketId);
+              if (creatorSocket) {
+                creatorSocket.emit('match_request_expired', { requestId });
+              }
+              io.emit('match_request_removed', { requestId });
+            }, 120000);
+            requestTimers.set(requestId, timer);
+
+            // Notify the requester their request is created
+            io.to(request.requesterSocketId).emit('match_request_created', { requestId });
+
+            // Broadcast to other potential players
+            const broadcastRequest = {
+              requestId,
+              userId: request.requesterId,
+              userName: requesterUser.username,
+              stake: request.stakeAmount,
+              timeRemaining: 120
+            };
+            io.emit('new_match_request', { request: broadcastRequest });
+
+            console.log(`🔍 Created new match request for ${requesterUser.username} after rematch decline`);
+          }
+        }
+
+        // Also notify the decliner's socket
+        socket.emit('rematch_declined', { reason: 'self_declined' });
+      }
+    } catch (error) {
+      console.error('Decline rematch error:', error);
+    }
+  });
+
+  socket.on('rematch_timeout', async ({ gameId }) => {
+    console.log(`⏰ REMATCH TIMEOUT from ${socket.id} for game ${gameId}`);
+    const request = rematchRequests.get(gameId);
+    if (request) {
+      rematchRequests.delete(gameId);
+      io.to(gameId).emit('rematch_declined', { reason: 'timeout' });
+    }
   });
 });
 
-
-// Scheduled Task: Cleanup Stale Games (Every 6 Hours)
 // Scheduled Task: Cleanup Stale Games (Every 6 Hours)
 setInterval(async () => {
   try {
@@ -3866,7 +4056,7 @@ setInterval(async () => {
                 if (user) {
                   // UNCONDITIONAL REFUND: If the game was ACTIVE, the money was deducted.
                   // We must give it back. We don't care about reservedBalance state.
-                  user.balance += stake;
+                  user.balance = roundCurrency(user.balance + stake);
                   user.reservedBalance = Math.max(0, (user.reservedBalance || 0) - stake);
 
                   user.transactions.push({
@@ -4069,9 +4259,17 @@ setInterval(async () => {
   // Mount referral routes
   const referralRoutes = require('./referralRoutes');
   app.use('/api/referrals', authenticateToken, referralRoutes);
-  console.log('✅ Referral routes mounted at /api/referrals');
 
-  // Start the server now that we've attempted DB connect + cleanup
+  // Admin Quick Actions routes
+  const adminQuickActionsRoutes = require('./routes/adminQuickActions');
+  app.use('/api/admin/quick', authenticateToken, adminQuickActionsRoutes);
+
+  // Analytics Routes
+  const analyticsRoutes = require('./routes/analyticsRoutes');
+  app.use('/api/admin/analytics', authenticateToken, analyticsRoutes);
+
+  const todayAnalyticsRoutes = require('./routes/todayAnalyticsRoutes');
+  app.use('/api/admin/analytics', authenticateToken, todayAnalyticsRoutes);
   server.listen(PORT, HOST, () => {
     console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);

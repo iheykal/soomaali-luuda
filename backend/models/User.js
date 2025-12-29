@@ -30,17 +30,8 @@ const UserSchema = new mongoose.Schema({
     totalLosses: { type: Number, default: 0 },
   },
 
-  // Web Push subscriptions (for notifications when app is closed)
-  pushSubscriptions: [{
-    endpoint: String,
-    keys: {
-      p256dh: String,
-      auth: String
-    },
-    expirationTime: Date,
-    userAgent: String,
-    createdAt: { type: Date, default: Date.now }
-  }],
+  // OneSignal Player ID for push notifications
+  oneSignalPlayerId: { type: String },
   transactions: [{
     type: {
       type: String,
