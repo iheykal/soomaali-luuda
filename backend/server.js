@@ -3402,6 +3402,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
+    // CRITICAL: Fetch request FIRST before any validation
     const request = activeMatchRequests.get(requestId);
     if (!request) {
       return socket.emit('ERROR', { message: 'Match request no longer available' });
@@ -3409,47 +3410,71 @@ io.on('connection', (socket) => {
     if (request.userId === userId) {
       return socket.emit('ERROR', { message: 'Cannot accept your own match request' });
     }
-    if (!acceptor) {
-      return socket.emit('ERROR', { message: 'User not found' });
-    }
-    // FIX: Use rounding to prevent floating point errors
-    if (Math.round(acceptor.balance * 100) < Math.round(request.stake * 100)) {
-      return socket.emit('ERROR', { message: 'Insufficient funds' });
-    }
 
-    // DUPLICATE MATCH PREVENTION
-    // 1. Check if acceptor is already in an active game
-    const acceptorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': userId });
-    if (acceptorActiveGame) {
-      return socket.emit('ERROR', { message: 'You are already in an active game.' });
-    }
-
-    // 2. Check if acceptor has an active match request (cleanup)
-    for (const [id, req] of activeMatchRequests.entries()) {
-      if (req.userId === userId) {
-        // Remove their request automatically or block?
-        // Let's block to avoid confusion, or auto-remove. Blocking is safer.
-        return socket.emit('ERROR', { message: 'You have an active match request. Cancel it first.' });
+    try {
+      // Validate MongoDB ObjectId format before querying
+      if (!userId || typeof userId !== 'string') {
+        console.error(`[MATCHMAKING] Invalid userId format: ${userId}`);
+        return socket.emit('ERROR', { message: 'Invalid user ID' });
       }
-    }
 
-    // 3. RACE CONDITION CHECK: Check if creator is already in an active game
-    // (They might have accepted another request or started a game in parallel)
-    const creatorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': request.userId });
-    if (creatorActiveGame) {
-      activeMatchRequests.delete(requestId); // Invalid request now
-      io.emit('match_request_removed', { requestId });
-      return socket.emit('ERROR', { message: 'The match creator is already in a game.' });
-    }
+      // CRITICAL FIX: Fetch the acceptor user from database with error handling
+      let acceptor;
+      try {
+        acceptor = await User.findById(userId);
+      } catch (dbError) {
+        console.error(`[MATCHMAKING] Database error finding user ${userId}:`, dbError);
+        return socket.emit('ERROR', { message: 'Failed to verify user' });
+      }
 
-    activeMatchRequests.delete(requestId);
-    const timer = requestTimers.get(requestId);
-    if (timer) {
-      clearTimeout(timer);
-      requestTimers.delete(requestId);
+      if (!acceptor) {
+        console.error(`[MATCHMAKING] User not found: ${userId}`);
+        return socket.emit('ERROR', { message: 'User not found' });
+      }
+
+      // FIX: Use rounding to prevent floating point errors
+      if (Math.round(acceptor.balance * 100) < Math.round(request.stake * 100)) {
+        console.log(`[MATCHMAKING] User ${userId} has insufficient balance: ${acceptor.balance} < ${request.stake}`);
+        return socket.emit('ERROR', { message: 'Insufficient funds' });
+      }
+
+      // DUPLICATE MATCH PREVENTION
+      // 1. Check if acceptor is already in an active game
+      const acceptorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': userId });
+      if (acceptorActiveGame) {
+        return socket.emit('ERROR', { message: 'You are already in an active game.' });
+      }
+
+      // 2. Check if acceptor has an active match request (cleanup)
+      for (const [id, req] of activeMatchRequests.entries()) {
+        if (req.userId === userId) {
+          // Remove their request automatically or block?
+          // Let's block to avoid confusion, or auto-remove. Blocking is safer.
+          return socket.emit('ERROR', { message: 'You have an active match request. Cancel it first.' });
+        }
+      }
+
+      // 3. RACE CONDITION CHECK: Check if creator is already in an active game
+      // (They might have accepted another request or started a game in parallel)
+      const creatorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': request.userId });
+      if (creatorActiveGame) {
+        activeMatchRequests.delete(requestId); // Invalid request now
+        io.emit('match_request_removed', { requestId });
+        return socket.emit('ERROR', { message: 'The match creator is already in a game.' });
+      }
+
+      activeMatchRequests.delete(requestId);
+      const timer = requestTimers.get(requestId);
+      if (timer) {
+        clearTimeout(timer);
+        requestTimers.delete(requestId);
+      }
+      io.emit('match_request_accepted', { requestId, acceptorName: userName || acceptor.username });
+      await createMatch({ socketId: request.socketId, userId: request.userId, userName: request.userName }, { socketId: socket.id, userId, userName: userName || acceptor.username }, request.stake);
+    } catch (error) {
+      console.error(`[MATCHMAKING CRITICAL] Unexpected error in accept_match_request:`, error);
+      return socket.emit('ERROR', { message: 'Failed to process match request' });
     }
-    io.emit('match_request_accepted', { requestId, acceptorName: userName || acceptor.username });
-    await createMatch({ socketId: request.socketId, userId: request.userId, userName: request.userName }, { socketId: socket.id, userId, userName: userName || acceptor.username }, request.stake);
   });
 
   socket.on('cancel_match_request', async ({ requestId, userId }) => {

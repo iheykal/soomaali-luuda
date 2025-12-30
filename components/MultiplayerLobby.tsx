@@ -50,6 +50,12 @@ const CountdownOverlay: React.FC<{ count: number }> = ({ count }) => (
 const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean }> = ({ amount, onClick, disabled }) => (
     <button
         onMouseDown={onClick}
+        onTouchStart={(e) => {
+            if (!disabled) {
+                e.preventDefault();
+                onClick();
+            }
+        }}
         disabled={disabled}
         className={`
             relative group flex flex-col items-center justify-center p-6 rounded-2xl border-2 transition-all duration-300

@@ -163,8 +163,19 @@ router.post('/transaction', async (req, res) => {
         });
 
         await financialRequest.save();
+        // Log the transaction
+        console.log(`[QuickAction] Admin ${adminId} (${req.user.id}) performed ${type} of $${numAmount} for user ${userId}`);
 
-        console.log(`[QuickAction] Admin ${approverName} (${adminId || 'Unknown'}) performed ${type} of $${numAmount} for user ${user.phone}`);
+        // Emit socket event to notify user of balance update (triggers auto-refresh)
+        const io = req.app.get('io');
+        if (io) {
+            io.to(userId).emit('balance_updated', {
+                newBalance: user.balance,
+                type,
+                amount: numAmount,
+                message: type === 'DEPOSIT' ? 'Your account has been credited' : 'Withdrawal processed'
+            });
+        }
 
         res.json({
             success: true,

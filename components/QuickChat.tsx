@@ -35,6 +35,7 @@ const QuickChat: React.FC<QuickChatProps> = ({ gameId, socket, userId, playerCol
     const [recentMessages, setRecentMessages] = useState<ReceivedMessage[]>([]);
     const [cooldown, setCooldown] = useState(0);
     const [unreadCount, setUnreadCount] = useState(0);
+    const [customMessage, setCustomMessage] = useState('');
 
     // Listen for incoming chat messages
     useEffect(() => {
@@ -77,14 +78,17 @@ const QuickChat: React.FC<QuickChatProps> = ({ gameId, socket, userId, playerCol
         }
     }, [isOpen]);
 
-    const sendMessage = (message: ChatMessage) => {
+    const sendMessage = (message: ChatMessage | string) => {
         if (cooldown > 0) return;
         if (!socket || !socket.connected) {
             console.error('Socket not connected');
             return;
         }
 
-        const messageText = message.emoji ? `${message.emoji} ${message.text}` : message.text;
+        const messageText = typeof message === 'string'
+            ? message
+            : (message.emoji ? `${message.emoji} ${message.text}` : message.text);
+
         socket.emit('send_chat_message', {
             gameId,
             userId,
@@ -92,6 +96,7 @@ const QuickChat: React.FC<QuickChatProps> = ({ gameId, socket, userId, playerCol
         });
 
         setCooldown(2); // 2 second cooldown
+        setCustomMessage(''); // Clear custom input
         setIsOpen(false); // Close after sending
     };
 
@@ -117,7 +122,7 @@ const QuickChat: React.FC<QuickChatProps> = ({ gameId, socket, userId, playerCol
                             }}
                         >
                             <div className="text-xs opacity-80">{msg.playerName}</div>
-                            <div>{msg.message}</div>
+                            <div className="text-sm font-medium">{msg.message}</div>
                         </div>
                     </div>
                 ))}
@@ -159,8 +164,8 @@ const QuickChat: React.FC<QuickChatProps> = ({ gameId, socket, userId, playerCol
                         )}
                     </div>
 
-                    {/* Messages List */}
-                    <div className="p-3 max-h-64 overflow-y-auto">
+                    {/* Messages List - Scrollable */}
+                    <div className="p-3 max-h-[40vh] overflow-y-auto">
                         <div className="flex flex-col gap-2">
                             {CHAT_MESSAGES.map(msg => (
                                 <button
@@ -179,6 +184,38 @@ const QuickChat: React.FC<QuickChatProps> = ({ gameId, socket, userId, playerCol
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Custom Message Input */}
+                    <div className="px-3 pb-3">
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={customMessage}
+                                onChange={(e) => setCustomMessage(e.target.value.slice(0, 50))}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && customMessage.trim() && cooldown === 0) {
+                                        sendMessage(customMessage.trim());
+                                    }
+                                }}
+                                placeholder="Qor farriin..."
+                                maxLength={50}
+                                disabled={cooldown > 0}
+                                className="flex-1 px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none text-sm text-gray-900 placeholder-gray-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                            />
+                            <button
+                                onClick={() => {
+                                    if (customMessage.trim()) {
+                                        sendMessage(customMessage.trim());
+                                    }
+                                }}
+                                disabled={cooldown > 0 || !customMessage.trim()}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                            >
+                                Dir
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1 text-center">{customMessage.length}/50</p>
                     </div>
 
                     {/* Footer */}

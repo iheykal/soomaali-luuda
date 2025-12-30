@@ -518,4 +518,74 @@ router.get('/overview', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/admin/analytics/churn
+ * Calculate churn rate (% of players who played once and never returned)
+ * Query params: timeRange (7d, 30d, 90d, all)
+ */
+router.get('/churn', async (req, res) => {
+    try {
+        const { timeRange = '30d' } = req.query;
+        const { startDate, endDate } = getDateRange(timeRange);
+
+        // Get all users who played during the time range with their play dates
+        const allPlayers = await Game.aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: startDate, $lte: endDate },
+                    status: { $in: ['ACTIVE', 'COMPLETED'] }
+                }
+            },
+            {
+                $unwind: '$players'
+            },
+            {
+                $match: {
+                    'players.isAI': false
+                }
+            },
+            {
+                $group: {
+                    _id: '$players.userId',
+                    playDates: { $addToSet: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } } },
+                    totalGames: { $sum: 1 }
+                }
+            }
+        ]);
+
+        // Filter to find one-time players (played on exactly one date)
+        const oneTimePlayers = allPlayers.filter(player => player.playDates.length === 1);
+
+        // Of those one-time players, find how many never came back
+        // (In this context, "never came back" means they only have 1 unique play date)
+        const churnedPlayers = oneTimePlayers.length; // All one-time players are considered churned
+        const totalOneTimePlayers = oneTimePlayers.length;
+
+        // Calculate overall churn rate
+        const churnRate = totalOneTimePlayers > 0
+            ? (churnedPlayers / totalOneTimePlayers) * 100
+            : 0;
+
+        // Get total unique players for context
+        const totalPlayers = allPlayers.length;
+
+        res.json({
+            success: true,
+            timeRange,
+            data: {
+                churnRate: Math.round(churnRate * 10) / 10, // Round to 1 decimal
+                churnedPlayers,
+                totalOneTimePlayers,
+                totalPlayers,
+                percentageOfTotal: totalPlayers > 0
+                    ? Math.round((churnedPlayers / totalPlayers) * 1000) / 10
+                    : 0
+            }
+        });
+    } catch (error) {
+        console.error('Churn analytics error:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch churn data' });
+    }
+});
+
 module.exports = router;

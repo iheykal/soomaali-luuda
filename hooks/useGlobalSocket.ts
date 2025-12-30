@@ -199,6 +199,36 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
             }, 1000); // Small delay to let the notification show
         });
 
+        // Listen for balance updates (admin deposits/withdrawals)
+        socket.on('balance_updated', (data: { newBalance: number, type: string, amount: number, message: string }) => {
+            console.log('💰 Balance update received:', data);
+
+            // Show notification
+            if ('Notification' in window && Notification.permission === 'granted') {
+                const title = data.type === 'DEPOSIT' ? '💵 Balance Credited' : '💸 Withdrawal Processed';
+                const notification = new Notification(title, {
+                    body: `${data.message}: $${data.amount}. New balance: $${data.newBalance}`,
+                    icon: '/wello.png',
+                    badge: '/wello.png',
+                    tag: `balance_update_${Date.now()}`,
+                    requireInteraction: false,
+                });
+
+                setTimeout(() => notification.close(), 5000);
+
+                notification.onclick = () => {
+                    window.focus();
+                    notification.close();
+                };
+            }
+
+            // Auto-refresh to show new balance
+            console.log('🔄 Reloading page to update balance...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500); // Small delay to show notification
+        });
+
         // Listen for financial request updates
         socket.on('financial_request_update', (data: FinancialNotification) => {
             console.log('💰 Financial request update received:', data);

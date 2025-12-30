@@ -23,6 +23,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
     const [velocityData, setVelocityData] = useState<any>(null);
     const [overview, setOverview] = useState<any>(null);
     const [todayData, setTodayData] = useState<any>(null);
+    const [churnData, setChurnData] = useState<any>(null);
 
     useEffect(() => {
         if (userRole === 'SUPER_ADMIN') {
@@ -46,13 +47,14 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
 
         try {
             // Fetch all analytics data in parallel
-            const [ggr, dau, avgStake, retention, velocity, overviewData] = await Promise.all([
+            const [ggr, dau, avgStake, retention, velocity, overviewData, churn] = await Promise.all([
                 adminAPI.getGGRData(timeRange),
                 adminAPI.getDAUData(timeRange),
                 adminAPI.getAvgStakeData(timeRange),
                 adminAPI.getRetentionData(timeRange),
                 adminAPI.getMatchVelocityData(timeRange === '7d' ? '7d' : '30d'),
-                adminAPI.getAnalyticsOverview(timeRange)
+                adminAPI.getAnalyticsOverview(timeRange),
+                adminAPI.getChurnData(timeRange)
             ]);
 
             setGgrData(ggr);
@@ -61,6 +63,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
             setRetentionData(retention);
             setVelocityData(velocity);
             setOverview(overviewData.overview);
+            setChurnData(churn);
         } catch (err: any) {
             console.error('Analytics fetch error:', err);
             setError(err.message || 'Failed to load analytics');
@@ -271,6 +274,15 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                         icon="📈"
                         gradient="from-pink-50 to-pink-100 border-pink-200"
                     />
+                    {churnData && churnData.data && (
+                        <MetricCard
+                            title="Churn Rate"
+                            value={`${churnData.data.percentageOfTotal.toFixed(1)}%`}
+                            subtitle={`${churnData.data.churnedPlayers} one-timers`}
+                            icon="⚠️"
+                            gradient="from-red-50 to-red-100 border-red-200"
+                        />
+                    )}
                 </div>
             )}
 

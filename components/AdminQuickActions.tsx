@@ -24,6 +24,10 @@ const AdminQuickActions: React.FC = () => {
     const [amount, setAmount] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
 
+    // Confirmation Modal State
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [confirmAction, setConfirmAction] = useState<{ type: 'DEPOSIT' | 'WITHDRAWAL', amount: number } | null>(null);
+
     // Receipt state
     const receiptRef = useRef<HTMLDivElement>(null);
     const [receiptData, setReceiptData] = useState<{ req: FinancialRequest, user: { username: string, phone?: string } } | null>(null);
@@ -111,22 +115,28 @@ const AdminQuickActions: React.FC = () => {
             return;
         }
 
-        // Confirmation
-        if (!window.confirm(`Are you sure you want to ${type} $${amount} for ${user.username}?`)) {
-            return;
-        }
+        // Show confirmation modal instead of window.confirm
+        setConfirmAction({ type, amount: parseFloat(amount) });
+        setShowConfirmModal(true);
+    };
 
+    const executeTransaction = async () => {
+        if (!user || !confirmAction) return;
+
+        const { type, amount: transactionAmount } = confirmAction;
+        setShowConfirmModal(false);
         setActionLoading(true);
         try {
             // Pass the authenticated admin's ID for proper tracking
             const adminId = authUser?.id || authUser?._id || 'admin_quick_action';
-            const response = await adminAPI.performQuickTransaction(user.userId, type, parseFloat(amount), adminId);
+            const response = await adminAPI.performQuickTransaction(user.userId, type, transactionAmount, adminId);
 
             if (response.success) {
                 toast.success(`${type} Successful! New Balance: $${response.newBalance.toFixed(2)}`);
                 // Update local state
                 setUser({ ...user, balance: response.newBalance });
                 setAmount('');
+                setConfirmAction(null);
 
                 // Auto-generate receipt if request data is returned
                 if (response.request) {
@@ -138,7 +148,7 @@ const AdminQuickActions: React.FC = () => {
                         userName: response.request.userName,
                         type: response.request.type,
                         amount: response.request.amount,
-                        status: response.request.status,
+                        status: response.request.status as 'PENDING' | 'APPROVED' | 'REJECTED',
                         timestamp: response.request.timestamp,
                         approverName: response.request.approverName
                     };
@@ -270,6 +280,76 @@ const AdminQuickActions: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Confirmation Modal */}
+            {showConfirmModal && confirmAction && user && (
+                <div
+                    className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] backdrop-blur-sm p-4 animate-in fade-in duration-200"
+                    onClick={() => {
+                        setShowConfirmModal(false);
+                        setConfirmAction(null);
+                    }}
+                >
+                    <div
+                        className={`bg-gradient-to-br ${confirmAction.type === 'DEPOSIT' ? 'from-green-500 via-green-600 to-emerald-600' : 'from-red-500 via-red-600 to-rose-600'} rounded-3xl max-w-md w-full p-8 shadow-2xl animate-in zoom-in duration-300`}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="text-center">
+                            {/* Icon */}
+                            <div className="bg-white/20 backdrop-blur-sm rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
+                                <span className="text-6xl">
+                                    {confirmAction.type === 'DEPOSIT' ? '💵' : '💸'}
+                                </span>
+                            </div>
+
+                            {/* Title */}
+                            <h2 className="text-3xl font-bold text-white mb-4">
+                                {confirmAction.type === 'DEPOSIT' ? 'Dhigasho' : 'Bixiso'}
+                            </h2>
+
+                            {/* Message in Somali */}
+                            <p className="text-xl text-white/95 mb-2 leading-relaxed">
+                                {confirmAction.type === 'DEPOSIT'
+                                    ? `Mahubtaa inaad lacag u dhigto`
+                                    : `Mahubtaa inaad lacag u bixiso`}
+                            </p>
+
+                            {/* Amount and User */}
+                            <div className="bg-white/10 rounded-xl p-4 mb-6 backdrop-blur-sm">
+                                <p className="text-4xl font-black text-white mb-2">
+                                    ${confirmAction.amount.toFixed(2)}
+                                </p>
+                                <p className="text-lg text-white/90">
+                                    {user.username}
+                                </p>
+                            </div>
+
+                            {/* Buttons */}
+                            <div className="flex gap-3">
+                                {/* MAYA (No) Button */}
+                                <button
+                                    onClick={() => {
+                                        setShowConfirmModal(false);
+                                        setConfirmAction(null);
+                                    }}
+                                    className="flex-1 bg-white/20 hover:bg-white/30 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition-all transform hover:scale-105 border-2 border-white/30"
+                                >
+                                    MAYA
+                                </button>
+
+                                {/* HAA (Yes) Button */}
+                                <button
+                                    onClick={executeTransaction}
+                                    disabled={actionLoading}
+                                    className="flex-1 bg-white hover:bg-gray-100 text-gray-900 font-bold py-4 px-6 rounded-xl shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {actionLoading ? '⏳...' : 'HAA'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Hidden Receipt Template for Generation */}
             <div className="fixed left-[-9999px] top-0">

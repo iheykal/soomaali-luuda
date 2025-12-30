@@ -399,6 +399,22 @@ export const adminAPI = {
     }
   },
 
+  async getChurnData(timeRange: string = '30d'): Promise<{ success: boolean, timeRange: string, data: { churnRate: number, churnedPlayers: number, totalPlayers: number, percentageOfTotal: number } }> {
+    const url = `${getApiUrl()}/admin/analytics/churn?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch churn data';
+      throw new Error(errorMessage);
+    }
+  },
+
   async getMatchVelocityData(timeRange: string = '7d'): Promise<import('../types').MatchVelocityData> {
     const url = `${getApiUrl()}/admin/analytics/match-velocity?timeRange=${timeRange}`;
     const options = {
