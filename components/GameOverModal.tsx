@@ -11,6 +11,7 @@ interface GameOverModalProps {
   players?: Player[];
   onRestart: () => void;
   onCancel?: () => void;
+  onRematchAccepted?: (newGameId: string) => void;
   message?: string;
   prize?: number;
   socket?: Socket | null;
@@ -31,7 +32,8 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
   socket,
   gameId,
   stakeAmount,
-  localPlayerColor
+  localPlayerColor,
+  onRematchAccepted
 }) => {
   // Get the winner's player info if available
   const winnerPlayer = players?.find(p => p.color === winners[0]);
@@ -55,8 +57,12 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
 
     const handleRematchAccepted = (data: { newGameId: string; stakeAmount: number }) => {
       console.log('Rematch accepted, new game:', data);
-      // The server will automatically start the new game, just reload
-      window.location.reload();
+      if (onRematchAccepted) {
+        onRematchAccepted(data.newGameId);
+      } else {
+        // Fallback: The server will automatically start the new game, just reload
+        window.location.reload();
+      }
     };
 
     const handleRematchDeclined = () => {

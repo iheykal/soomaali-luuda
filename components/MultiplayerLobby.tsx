@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL, API_URL } from '../lib/apiConfig';
-import { api } from '../services/api'; // Or wherever global axios instance is defined, checking lib/apiConfig
 import { useAuth } from '../context/AuthContext';
 import type { Player, PlayerColor } from '../types';
 import MatchRequestList from './MatchRequestList';
 import { Loader2, X } from 'lucide-react';
-import axios from 'axios'; // We can use direct axios or the configured one
+import axios from 'axios';
+import SlidingNotification from './SlidingNotification';
 
 
 interface MultiplayerLobbyProps {
@@ -23,7 +23,7 @@ interface MatchRequest {
     canAccept: boolean;
 }
 
-const BET_OPTIONS = [0.25, 0.50, 1.00];
+const BET_OPTIONS = [0.25, 0.50, 1.00, 2.00, 3.00, 5.00];
 
 const getSessionId = () => {
     let id = sessionStorage.getItem('ludoSessionId');
@@ -47,30 +47,71 @@ const CountdownOverlay: React.FC<{ count: number }> = ({ count }) => (
     </div>
 );
 
-const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean }> = ({ amount, onClick, disabled }) => (
-    <button
-        onMouseDown={onClick}
-        onTouchStart={(e) => {
-            if (!disabled) {
-                e.preventDefault();
+const BetCard: React.FC<{ amount: number; onClick: () => void; disabled: boolean }> = ({ amount, onClick, disabled }) => {
+    const [touchStart, setTouchStart] = React.useState<{ x: number; y: number } | null>(null);
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (!disabled) {
+            const touch = e.touches[0];
+            setTouchStart({ x: touch.clientX, y: touch.clientY });
+        }
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (!disabled && touchStart) {
+            const touch = e.changedTouches[0];
+            const deltaX = Math.abs(touch.clientX - touchStart.x);
+            const deltaY = Math.abs(touch.clientY - touchStart.y);
+
+            // Only trigger click if movement is less than 10 pixels (tap, not scroll)
+            if (deltaX < 10 && deltaY < 10) {
                 onClick();
             }
-        }}
-        disabled={disabled}
-        className={`
-            relative group flex flex-col items-center justify-center p-6 rounded-2xl border-2 transition-all duration-300
-            ${disabled ? 'border-slate-700 bg-slate-800/50 opacity-50 cursor-not-allowed' : 'border-slate-600 bg-slate-800 hover:border-cyan-400 hover:bg-slate-750 hover:shadow-[0_0_20px_rgba(6,182,212,0.3)] cursor-pointer active:scale-95'}
-        `}
-    >
-        <div className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-2">Stake</div>
-        <div className={`text-4xl font-black ${disabled ? 'text-slate-500' : 'text-white group-hover:text-cyan-300'}`}>
-            ${amount.toFixed(2)}
-        </div>
-        <div className="mt-4 px-3 py-1 rounded-full bg-slate-900 text-xs text-slate-500 font-mono border border-slate-700 group-hover:border-cyan-500/50 transition-colors">
-            Win: ${(amount * 0.8).toFixed(2)}
-        </div>
-    </button>
-);
+            setTouchStart(null);
+        }
+    };
+
+    const handleMouseClick = (e: React.MouseEvent) => {
+        if (!disabled) {
+            onClick();
+        }
+    };
+
+    return (
+        <button
+            onClick={handleMouseClick}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            disabled={disabled}
+            className={`
+                relative group flex flex-col items-center justify-center p-5 rounded-xl border-2 transition-all duration-300 shadow-lg select-none
+                ${disabled
+                    ? 'border-slate-700 bg-slate-800/50 opacity-50 cursor-not-allowed'
+                    : 'border-cyan-500/30 bg-gradient-to-br from-slate-800 to-slate-900 hover:border-cyan-400 hover:from-cyan-900/30 hover:to-slate-800 hover:shadow-[0_0_25px_rgba(6,182,212,0.4)] cursor-pointer active:scale-95 transform'
+                }
+            `}
+        >
+            <div className="text-cyan-400 text-xs font-bold uppercase tracking-widest mb-1.5">Stake</div>
+            <div className={`text-3xl font-black mb-1 ${disabled ? 'text-slate-500' : 'text-white group-hover:text-cyan-300 transition-colors'}`}>
+                ${amount.toFixed(2)}
+            </div>
+            <div className="h-px w-12 bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent my-2"></div>
+            <div className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${disabled
+                ? 'bg-slate-900 text-slate-500 border-slate-700'
+                : 'bg-gradient-to-r from-green-900/30 to-emerald-900/30 text-green-400 border-green-500/30 group-hover:border-green-400 group-hover:from-green-800/40 group-hover:to-emerald-800/40'
+                }`}>
+                Win: ${(amount * 0.8).toFixed(2)}
+            </div>
+        </button>
+    );
+};
+
+const ANIMATIONS = [
+    '/icons/waving.webm',
+    '/icons/dice.webm',
+    '/icons/money1.webm',
+    '/icons/jump.webm'
+];
 
 // --- Main Component ---
 
@@ -83,10 +124,19 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
     const [statusMessage, setStatusMessage] = useState('');
     const [showInsufficientBalanceModal, setShowInsufficientBalanceModal] = useState(false);
     const matchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [currentAnimIndex, setCurrentAnimIndex] = useState(0);
     const { user } = useAuth();
 
     const sessionId = getSessionId();
     const socketRef = useRef<Socket | null>(null);
+
+    // Animation Loop logic
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setCurrentAnimIndex((prev) => (prev + 1) % ANIMATIONS.length);
+        }, 4000); // Change animation every 4 seconds
+        return () => clearInterval(interval);
+    }, []);
 
     // Initialize Socket.IO connection
     useEffect(() => {
@@ -473,16 +523,53 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
                 </div>
             )}
 
-            <div className="z-10 w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
                 {/* Left Column: Create Request */}
                 <div className="text-center lg:text-left">
-                    <h1 className="text-5xl font-black text-white mb-2 tracking-tight">Multiplayer Arena</h1>
-                    <p className="text-slate-400 text-lg mb-8">Create a request or join an existing game.</p>
+                    <div className="flex flex-col items-center lg:items-start min-h-[160px]">
+                        <video
+                            key={ANIMATIONS[currentAnimIndex]}
+                            src={ANIMATIONS[currentAnimIndex]}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="w-32 h-32 mb-4 rounded-xl object-contain shadow-lg mix-blend-screen"
+                        />
+                        <h1
+                            className="text-2xl sm:text-3xl font-bold mb-2 tracking-tight bg-gradient-to-r from-yellow-400 via-emerald-400 to-cyan-400 bg-clip-text text-transparent leading-tight"
+                            style={{ fontFamily: 'Papyrus, "Comic Sans MS", cursive' }}
+                        >
+                            halkaan ka dooro lacagta aad dhiganayso
+                        </h1>
+                    </div>
+
+                    {/* Sliding Notification */}
+                    <div className="mb-8 max-w-md mx-auto lg:mx-0">
+                        <SlidingNotification
+                            text="intaa lacag doorato gameka haka bixin hadii kale computer ayaa kuu dheelayo, hadii aadka baxayso taabo calaamada (X)"
+                            speed={20}
+                            className="rounded-2xl border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.1)]"
+                        />
+                    </div>
 
                     {status === 'SELECT' ? (
                         <div className="space-y-6">
-                            <h3 className="text-xl font-bold text-white mb-4">Create Match Request</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="flex items-center justify-between mb-4 px-1">
+                                <h3 className="text-xl sm:text-2xl font-bold text-white bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">Select Your Stake</h3>
+                                <button
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        onExit();
+                                    }}
+                                    className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 hover:bg-red-700 text-white transition-all shadow-lg"
+                                    title="Close"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto lg:mx-0">
                                 {BET_OPTIONS.map((amount) => (
                                     <BetCard
                                         key={amount}
@@ -513,8 +600,12 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
 
                     {status === 'SELECT' && (
                         <button
-                            onClick={onExit}
-                            className="mt-12 text-slate-500 hover:text-white transition-colors font-medium flex items-center gap-2"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onExit();
+                            }}
+                            className="mt-8 text-slate-500 hover:text-white transition-colors font-medium flex items-center gap-2 mx-auto lg:mx-0"
                         >
                             <span>&larr; Back to Menu</span>
                         </button>

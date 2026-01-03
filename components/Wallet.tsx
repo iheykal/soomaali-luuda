@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import type { User, FinancialRequest } from '../types';
 import { API_URL } from '../lib/apiConfig';
 
@@ -202,15 +203,16 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 overflow-hidden">
-                <div className="bg-slate-900 p-4 flex justify-between items-center border-b border-slate-700">
-                    <h3 className="text-xl font-bold text-white">My Wallet</h3>
+        <div className="fixed inset-0 bg-black/80 flex items-start sm:items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+            <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 overflow-hidden flex flex-col my-auto">
+                <div className="bg-slate-900 py-3 px-4 sm:px-6 flex justify-between items-center border-b border-slate-700 shrink-0">
+                    <h3 className="text-base sm:text-xl font-bold text-white">My Wallet</h3>
                     <button
                         onClick={onClose}
-                        className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-700 hover:bg-red-600 text-white text-2xl font-bold transition-colors"
+                        className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 hover:bg-red-700 text-white transition-all shadow-lg"
+                        title="Close"
                     >
-                        ×
+                        <X className="w-5 h-5" />
                     </button>
                 </div>
 
@@ -225,7 +227,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                     )}
                 </div>
 
-                <div className="flex border-b border-slate-700">
+                <div className="flex border-b border-slate-700 shrink-0">
                     <button
                         onClick={() => setTab('action')}
                         className={`flex-1 py-3 font-bold text-sm transition-colors ${tab === 'action' ? 'bg-slate-700 text-cyan-400' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
@@ -240,7 +242,7 @@ const Wallet: React.FC<WalletProps> = ({ user, onClose, onUpdateUser }) => {
                     </button>
                 </div>
 
-                <div className="p-6 min-h-[250px]">
+                <div className="p-4 sm:p-6 overflow-y-auto max-h-[70vh] sm:max-h-auto scrollbar-thin scrollbar-thumb-slate-700">
                     {bannerMessage && <BannerMessage message={bannerMessage} />}
                     {showSuccessMessage && <SuccessMessage />}
                     {tab === 'action' ? (

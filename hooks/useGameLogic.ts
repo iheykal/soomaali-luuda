@@ -685,9 +685,11 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
         };
     }, [isMultiplayer, multiplayerConfig]);
 
-    // --- Auto-Resync for Active Player (Anti-Stuck Loop) ---
+    // --- Auto-Resync for Active Player & Spectators (Anti-Stuck Loop) ---
     useEffect(() => {
-        if (!isMultiplayer || !isMyTurn || !state.gameStarted || !multiplayerConfig?.gameId) return;
+        // Run for active players OR spectators to ensure they never stay stuck
+        const isSpectator = multiplayerConfig?.isSpectator;
+        if (!isMultiplayer || (!isMyTurn && !isSpectator) || !state.gameStarted || !multiplayerConfig?.gameId) return;
 
         // If it is my turn, we want to ensure we are perfectly synced.
         // We poll 'resync_game' every 5 seconds to catch any missed state updates (e.g. ghost timers).

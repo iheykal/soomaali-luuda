@@ -517,5 +517,21 @@ export const adminAPI = {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Transaction failed';
       throw new Error(errorMessage);
     }
+  },
+
+  async getProfitablePlayers(timeRange: string = '30d'): Promise<{ success: boolean; data: any[] }> {
+    const url = `${getApiUrl()}/admin/analytics/profitable-players?timeRange=${timeRange}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch profitable players';
+      throw new Error(errorMessage);
+    }
   }
 };

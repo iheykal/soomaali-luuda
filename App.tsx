@@ -17,6 +17,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import type { Player, PlayerColor, MultiplayerGame } from './types';
 import { debugService } from './services/debugService';
 import DebugConsole from './components/DebugConsole';
+import LiveMatchesModal from './components/LiveMatchesModal';
 import { audioService } from './services/audioService';
 import { notificationService, WinNotificationData } from './services/notificationService';
 
@@ -34,6 +35,7 @@ interface MultiplayerConfig {
   sessionId: string;
   playerId: string;
   stake?: number;
+  isSpectator?: boolean;
 }
 
 
@@ -48,6 +50,7 @@ const AppContent: React.FC = () => {
   const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
   const [showWallet, setShowWallet] = useState(false);
   const [showReferrals, setShowReferrals] = useState(false);
+  const [showLiveMatches, setShowLiveMatches] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any | null>(null);
   const [winNotification, setWinNotification] = useState<WinNotificationData | null>(null);
 
@@ -250,6 +253,27 @@ const AppContent: React.FC = () => {
     setShowReferrals(false);
   };
 
+  const handleEnterLiveMatches = () => {
+    setShowLiveMatches(true);
+  };
+
+  const handleWatchGame = (gameId: string) => {
+    console.log(`👀 Watching game ${gameId}`);
+    setShowLiveMatches(false);
+
+    // Create a spectator config
+    const mpConfig: MultiplayerConfig = {
+      gameId,
+      localPlayerColor: 'red', // Dummy color for spectator
+      sessionId: Math.random().toString(36).substring(2, 10),
+      playerId: user?.id || user?._id || 'spectator',
+      isSpectator: true
+    };
+
+    setMultiplayerConfig(mpConfig);
+    setView('game');
+  };
+
   // Auto-navigate to setup view if user is already authenticated
   useEffect(() => {
     if (isAuthenticated && !authLoading && view === 'login') {
@@ -325,11 +349,22 @@ const AppContent: React.FC = () => {
     // startGame(placeholderPlayers) is removed as it's no longer needed;
     // the UI will display a loading state until the real game state arrives.
 
-    console.log(`🖼️ Switching to game view...`);
-    setView('game');
-
     console.log('✅ Rejoin complete, game view set, view is now:', 'game');
   }, [user, setIsRejoining]);
+
+  const handleRematchAccepted = useCallback((newGameId: string) => {
+    console.log(`🔄 Rematch starting: ${newGameId}`);
+    if (multiplayerConfig) {
+      setMultiplayerConfig({
+        ...multiplayerConfig,
+        gameId: newGameId
+      });
+      // View is already 'game', useGameLogic will handle reconnection automatically
+    } else {
+      // Fallback if config is lost
+      window.location.reload();
+    }
+  }, [multiplayerConfig]);
 
   const handleInstallClick = () => {
     if (!installPrompt) {
@@ -398,6 +433,7 @@ const AppContent: React.FC = () => {
           onEnterSuperAdmin={handleEnterSuperAdmin}
           onEnterWallet={handleEnterWallet}
           onEnterReferrals={handleEnterReferrals}
+          onEnterLiveMatches={handleEnterLiveMatches}
           onInstall={handleInstallClick}
           showInstallButton={!!installPrompt}
         />
@@ -406,7 +442,7 @@ const AppContent: React.FC = () => {
       {view === 'multiplayer-lobby' && (
         <MultiplayerLobby
           onStartGame={handleStartGame}
-          onBack={() => setView('setup')}
+          onExit={() => setView('setup')}
         />
       )}
 
@@ -458,12 +494,12 @@ const AppContent: React.FC = () => {
           )}
 
 
-          <div className="absolute top-4 right-4">
+          <div className="absolute top-4 right-4 z-20">
             <button
               onClick={handleRestart}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition shadow-lg"
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition shadow-lg font-bold"
             >
-              Exit Game
+              {multiplayerConfig?.isSpectator ? 'Exit Spectator Mode' : 'Exit Game'}
             </button>
           </div>
 
@@ -511,6 +547,7 @@ const AppContent: React.FC = () => {
               gameId={multiplayerConfig?.gameId || null}
               stakeAmount={state.stake || multiplayerConfig?.stake}
               localPlayerColor={multiplayerConfig?.localPlayerColor}
+              onRematchAccepted={handleRematchAccepted}
             />
           )}
 
@@ -528,6 +565,13 @@ const AppContent: React.FC = () => {
 
       {view === 'superadmin' && (
         <SuperAdminDashboard onExit={() => setView('setup')} />
+      )}
+
+      {showLiveMatches && (
+        <LiveMatchesModal
+          onClose={() => setShowLiveMatches(false)}
+          onWatch={handleWatchGame}
+        />
       )}
     </>
   );

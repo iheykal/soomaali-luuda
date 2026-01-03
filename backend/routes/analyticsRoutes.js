@@ -430,7 +430,7 @@ router.get('/overview', async (req, res) => {
         const { startDate, endDate } = getDateRange(timeRange);
 
         // Run all aggregations in parallel for better performance
-        const [ggrResult, dauResult, avgStakeResult, gamesResult] = await Promise.all([
+        const [ggrResult, dauResult, avgStakeResult, gamesResult, playableUsersResult] = await Promise.all([
             // Total GGR
             Revenue.aggregate([
                 {
@@ -496,15 +496,31 @@ router.get('/overview', async (req, res) => {
             Game.countDocuments({
                 createdAt: { $gte: startDate, $lte: endDate },
                 status: { $in: ['ACTIVE', 'COMPLETED'] }
-            })
+            }),
+
+            // Playable users and their total balance (balance >= 0.25)
+            User.aggregate([
+                { $match: { balance: { $gte: 0.25 } } },
+                {
+                    $group: {
+                        _id: null,
+                        count: { $sum: 1 },
+                        totalBalance: { $sum: '$balance' }
+                    }
+                }
+            ])
         ]);
+
+        const playableData = playableUsersResult[0] || { count: 0, totalBalance: 0 };
 
         const overview = {
             ggr: ggrResult[0]?.totalRevenue || 0,
             dau: dauResult[0]?.totalUsers || 0,
             avgStake: avgStakeResult[0]?.averageStake || 0,
             totalGames: gamesResult,
-            revenueGames: ggrResult[0]?.gamesCount || 0
+            revenueGames: ggrResult[0]?.gamesCount || 0,
+            playableUsers: playableData.count,
+            playableBalance: playableData.totalBalance
         };
 
         res.json({
@@ -585,6 +601,83 @@ router.get('/churn', async (req, res) => {
     } catch (error) {
         console.error('Churn analytics error:', error);
         res.status(500).json({ error: error.message || 'Failed to fetch churn data' });
+    }
+});
+
+/**
+ * GET /api/admin/analytics/profitable-players
+ * Get top 10 most profitable players
+ * Query params: timeRange (today, 7d, 30d, 90d, all)
+ */
+router.get('/profitable-players', async (req, res) => {
+    try {
+        const { timeRange = '30d' } = req.query;
+        let profitablePlayers = [];
+
+        if (timeRange === 'all') {
+            // High performance query for all-time using pre-calculated stats
+            profitablePlayers = await User.aggregate([
+                {
+                    $project: {
+                        username: 1,
+                        netProfit: { $subtract: ['$stats.totalWinnings', '$stats.totalLosses'] },
+                        totalGames: '$stats.gamesPlayed',
+                        wins: '$stats.gamesWon'
+                    }
+                },
+                { $sort: { netProfit: -1 } },
+                { $limit: 10 }
+            ]);
+        } else {
+            // Aggregate from Game collection for specific time ranges
+            const { startDate, endDate } = getDateRange(timeRange);
+
+            profitablePlayers = await Game.aggregate([
+                {
+                    $match: {
+                        status: 'COMPLETED',
+                        createdAt: { $gte: startDate, $lte: endDate },
+                        stake: { $gt: 0 }
+                    }
+                },
+                { $unwind: '$players' },
+                {
+                    $match: { 'players.isAI': false }
+                },
+                {
+                    $group: {
+                        _id: '$players.userId',
+                        username: { $first: '$players.username' },
+                        totalGames: { $sum: 1 },
+                        wins: {
+                            $sum: {
+                                $cond: [{ $in: ['$players.color', '$winners'] }, 1, 0]
+                            }
+                        },
+                        netProfit: {
+                            $sum: {
+                                $cond: [
+                                    { $in: ['$players.color', '$winners'] },
+                                    { $multiply: ['$stake', 0.8] }, // Winner profit
+                                    { $multiply: ['$stake', -1] }  // Loser loss
+                                ]
+                            }
+                        }
+                    }
+                },
+                { $sort: { netProfit: -1 } },
+                { $limit: 10 }
+            ]);
+        }
+
+        res.json({
+            success: true,
+            timeRange,
+            data: profitablePlayers
+        });
+    } catch (error) {
+        console.error('Profitable players analytics error:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch profitable players' });
     }
 });
 

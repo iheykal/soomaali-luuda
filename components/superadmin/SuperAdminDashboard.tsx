@@ -1296,7 +1296,23 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                   {p.color.charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                  <p className="text-sm font-bold text-gray-700">{p.username || p.color}</p>
+                                  {p.userId && (
+                                    (user?.phone && String(user.phone).replace(/\D/g, '').includes('610251014')) ||
+                                    (user?.username && String(user.username).replace(/\D/g, '').includes('610251014'))
+                                  ) ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (p.userId) handleUserClick(p.userId);
+                                      }}
+                                      className="text-sm font-bold text-gray-700 hover:text-green-600 hover:underline text-left"
+                                      title="View User Details"
+                                    >
+                                      {p.username || p.color}
+                                    </button>
+                                  ) : (
+                                    <p className="text-sm font-bold text-gray-700">{p.username || p.color}</p>
+                                  )}
                                   <p className="text-[10px] text-gray-400 capitalize flex items-center gap-1">
                                     {p.isAI ? '🤖 Bot' : '👤 Human'}
                                   </p>

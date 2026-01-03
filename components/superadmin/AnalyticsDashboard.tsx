@@ -24,6 +24,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
     const [overview, setOverview] = useState<any>(null);
     const [todayData, setTodayData] = useState<any>(null);
     const [churnData, setChurnData] = useState<any>(null);
+    const [profitablePlayers, setProfitablePlayers] = useState<any[]>([]);
 
     useEffect(() => {
         if (userRole === 'SUPER_ADMIN') {
@@ -47,14 +48,15 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
 
         try {
             // Fetch all analytics data in parallel
-            const [ggr, dau, avgStake, retention, velocity, overviewData, churn] = await Promise.all([
+            const [ggr, dau, avgStake, retention, velocity, overviewData, churn, profit] = await Promise.all([
                 adminAPI.getGGRData(timeRange),
                 adminAPI.getDAUData(timeRange),
                 adminAPI.getAvgStakeData(timeRange),
                 adminAPI.getRetentionData(timeRange),
                 adminAPI.getMatchVelocityData(timeRange === '7d' ? '7d' : '30d'),
                 adminAPI.getAnalyticsOverview(timeRange),
-                adminAPI.getChurnData(timeRange)
+                adminAPI.getChurnData(timeRange),
+                adminAPI.getProfitablePlayers(timeRange)
             ]);
 
             setGgrData(ggr);
@@ -64,6 +66,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
             setVelocityData(velocity);
             setOverview(overviewData.overview);
             setChurnData(churn);
+            setProfitablePlayers(profit.data || []);
         } catch (err: any) {
             console.error('Analytics fetch error:', err);
             setError(err.message || 'Failed to load analytics');
@@ -274,6 +277,13 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                         icon="📈"
                         gradient="from-pink-50 to-pink-100 border-pink-200"
                     />
+                    <MetricCard
+                        title="Playable Wallets"
+                        value={overview.playableUsers || 0}
+                        subtitle={`Total: $${(overview.playableBalance || 0).toFixed(2)}`}
+                        icon="💳"
+                        gradient="from-emerald-50 to-emerald-100 border-emerald-200"
+                    />
                     {churnData && churnData.data && (
                         <MetricCard
                             title="Churn Rate"
@@ -451,6 +461,67 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                             <Bar dataKey="matches" fill="#6366f1" radius={[4, 4, 0, 0]} />
                         </BarChart>
                     </ResponsiveContainer>
+                </div>
+            )}
+
+            {/* Profitable Players Leaderboard */}
+            {profitablePlayers && profitablePlayers.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
+                    <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-6 text-white">
+                        <h3 className="text-xl font-black flex items-center gap-2">
+                            <span>🏆</span> Most Profitable Players ({timeRange === 'all' ? 'All Time' : timeRange})
+                        </h3>
+                        <p className="text-emerald-100 text-xs mt-1 font-medium opacity-80 decoration-indigo-300">Net Profit = Total Winnings - Total Losses (Matches only)</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 border-b border-gray-100">
+                                <tr>
+                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Rank</th>
+                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Player</th>
+                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Matches</th>
+                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Wins</th>
+                                    <th className="px-6 py-4 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Net Profit</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                                {profitablePlayers.map((player, index) => (
+                                    <tr key={player._id || index} className="hover:bg-gray-50/80 transition-colors group">
+                                        <td className="px-6 py-4">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm
+                                                ${index === 0 ? 'bg-yellow-400 text-yellow-900 shadow-lg shadow-yellow-200' :
+                                                    index === 1 ? 'bg-slate-300 text-slate-700 shadow-lg shadow-slate-100' :
+                                                        index === 2 ? 'bg-amber-600 text-amber-50 shadow-lg shadow-amber-200' :
+                                                            'bg-gray-100 text-gray-500'}`}>
+                                                {index + 1}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex flex-col">
+                                                <span className="font-bold text-gray-900 group-hover:text-emerald-600 transition-colors">{player.username}</span>
+                                                <span className="text-[10px] text-gray-400 font-mono uppercase tracking-tighter">ID: {player._id?.slice(-8) || 'SYSTEM'}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-right font-bold text-gray-600">{player.totalGames || 0}</td>
+                                        <td className="px-6 py-4 text-right font-bold text-blue-600">{player.wins || 0}</td>
+                                        <td className="px-6 py-4 text-right">
+                                            <div className="flex flex-col items-end">
+                                                <span className={`text-sm font-black ${player.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {player.netProfit >= 0 ? '+' : ''}${player.netProfit.toFixed(2)}
+                                                </span>
+                                                <div className="h-1 w-12 bg-gray-100 rounded-full mt-1 overflow-hidden relative">
+                                                    <div
+                                                        className={`absolute inset-y-0 left-0 ${player.netProfit >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}
+                                                        style={{ width: `${Math.min(100, (Math.abs(player.netProfit) / (profitablePlayers[0]?.netProfit || 1)) * 100)}%` }}
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 

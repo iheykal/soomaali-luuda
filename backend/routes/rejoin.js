@@ -1,5 +1,32 @@
 const express = require('express');
 const router = express.Router();
+const { smartUserSync } = require('../utils/userSync');
+
+/**
+ * PUBLIC WATCH MODE - Live Matches List
+ * Returns a filtered list of active games for any user to spectate.
+ */
+router.get('/live', async (req, res) => {
+    try {
+        const Game = require('../models/Game');
+        const activeGames = await Game.find(
+            { status: 'ACTIVE' },
+            {
+                gameId: 1,
+                stake: 1,
+                'players.username': 1,
+                'players.color': 1,
+                'players.isAI': 1,
+                createdAt: 1
+            }
+        ).sort({ createdAt: -1 });
+
+        res.json({ success: true, games: activeGames });
+    } catch (e) {
+        console.error("Live Games Error:", e);
+        res.status(500).json({ success: false, error: 'Failed to fetch live matches' });
+    }
+});
 
 // Check if user has an active game (for rejoin functionality)
 router.get('/check-active/:userId', async (req, res) => {
@@ -89,16 +116,37 @@ router.post('/rejoin', async (req, res) => {
         const player = game.players.find(p => p.userId?.toString() === userId);
 
         if (!player) {
-            return res.status(403).json({ success: false, message: 'You are not in this game' });
+            return res.status(403).json({ success: false, message: 'You are not in this game. You may need to login again.' });
         }
 
-        // Check if player already finished
+        // Smart user sync: Create or update user in database to prevent duplicates
+        // This ensures users are properly matched to existing accounts
+        const syncResult = await smartUserSync(userId, userName, 'game-rejoin');
+        if (!syncResult.success) {
+            console.warn(`⚠️ User sync failed for ${userId}, continuing with rejoin anyway`);
+        }
+
+        // Check if all their pawns are home
         const allPawnsHome = game.tokens
             .filter(t => t.color === player.color)
             .every(t => t.position.type === 'HOME');
 
-        // Check if player is in winners
-        const hasWon = game.winners && game.winners.includes(player.color);
+        // Check if player is in winners (or should be)
+        let hasWon = game.winners && game.winners.includes(player.color);
+
+        if (allPawnsHome && !hasWon) {
+            // Mark as winner if not already (rejoin check)
+            game.winners.push(player.color);
+            // If it's a 2-player game, or last player home, end it
+            if (game.winners.length >= game.players.length - 1) {
+                game.status = 'COMPLETED';
+                game.turnState = 'GAMEOVER';
+                game.message = `${player.color} wins! All pawns reached home.`;
+            }
+            await game.save();
+            hasWon = true;
+            console.log(`🏆 Player ${userId} rejoined with all pawns home, marking as winner`);
+        }
 
         res.json({
             success: true,

@@ -274,129 +274,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-const apiRouter = express.Router();
-
-// --- GAME REJOIN ROUTES ---
-
-// GET: Check if user has an active game
-apiRouter.get('/game/check-active/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
-    }
-
-    const Game = require('./models/Game');
-
-    // Find active games where user is a player
-    const activeGame = await Game.findOne({
-      status: 'ACTIVE',
-      'players.userId': userId
-    }).sort({ updatedAt: -1 }); // Get most recent game
-
-    if (!activeGame) {
-      return res.json({ hasActiveGame: false, game: null });
-    }
-
-    // Check if user's player in this game
-    const player = activeGame.players.find(p => p.userId === userId);
-
-    if (!player) {
-      return res.json({ hasActiveGame: false, game: null });
-    }
-
-    // Check if all user's pawns are home (game effectively over for them)
-    const userTokens = activeGame.tokens.filter(t => t.color === player.color);
-    const allTokensHome = userTokens.length > 0 ? userTokens.every(t => t.position.type === 'HOME') : false;
-
-    if (allTokensHome && !activeGame.winners.includes(player.color)) {
-      // All pawns home but not marked as winner yet - need to complete the game
-      console.log(`🏁 User ${userId} has all pawns home in game ${activeGame.gameId}, game should end`);
-    }
-
-    return res.json({
-      hasActiveGame: true,
-      game: {
-        gameId: activeGame.gameId,
-        playerColor: player.color,
-        isDisconnected: player.isDisconnected || false,
-        status: activeGame.status,
-        stake: activeGame.stake || 0,
-        allPawnsHome: allTokensHome,
-        winners: activeGame.winners || []
-      }
-    });
-  } catch (error) {
-    console.error('Error checking active game:', error);
-    res.status(500).json({ error: error.message || 'Failed to check for active game' });
-  }
-});
-
-// POST: Rejoin active game
-app.post('/api/game/rejoin', async (req, res) => {
-  try {
-    const { gameId, userId, userName } = req.body;
-
-    if (!gameId || !userId) {
-      return res.status(400).json({ error: 'Game ID and User ID are required' });
-    }
-
-    const Game = require('./models/Game');
-    const game = await Game.findOne({ gameId });
-
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
-
-    if (game.status === 'COMPLETED') {
-      return res.status(400).json({ error: 'Game has already ended' });
-    }
-
-    // Find the player
-    const player = game.players.find(p => p.userId === userId);
-
-    if (!player) {
-      return res.status(404).json({ error: 'Player not found in this game. You may need to login again.' });
-    }
-
-    // Smart user sync: Create or update user in database to prevent duplicates
-    // This ensures users are properly matched to existing accounts
-    const syncResult = await smartUserSync(userId, userName, 'game-rejoin');
-    if (!syncResult.success) {
-      console.warn(`⚠️ User sync failed for ${userId}, continuing with rejoin anyway`);
-    }
-
-    // Check if all their pawns are home
-    const userTokens = game.tokens.filter(t => t.color === player.color);
-    const allPawnsHome = userTokens.length > 0 ? userTokens.every(t => t.position.type === 'HOME') : false;
-
-    if (allPawnsHome) {
-      // Mark as winner if not already
-      if (!game.winners.includes(player.color)) {
-        game.winners.push(player.color);
-        game.turnState = 'GAMEOVER';
-        game.status = 'COMPLETED';
-        game.message = `${player.color} wins! All pawns reached home.`;
-        await game.save();
-
-        console.log(`🏆 Player ${userId} rejoined with all pawns home, marking as winner`);
-      }
-    }
-
-    return res.json({
-      success: true,
-      gameId: game.gameId,
-      playerColor: player.color,
-      allPawnsHome: allPawnsHome,
-      canRejoin: true
-    });
-  } catch (error) {
-    console.error('Error rejoining game:', error);
-    res.status(500).json({ error: error.message || 'Failed to rejoin game' });
-  }
-});
-
 // --- AUTHENTICATION ROUTES ---
 
 // Helper function to normalize phone numbers
@@ -3103,9 +2980,12 @@ const createMatch = async (player1, player2, stake) => {
         }
       }, 200); // Increased delay to allow both players to be ready
     }
+
+    return gameId; // Return the created gameId
   } catch (error) {
     if (socket1) socket1.emit('ERROR', { message: 'Failed to create game' });
     if (socket2) socket2.emit('ERROR', { message: 'Failed to create game' });
+    throw error;
   } finally {
     // Release locks
     usersStartingGame.delete(player1.userId);
@@ -3527,6 +3407,7 @@ io.on('connection', (socket) => {
 
   socket.on('watch_game', async ({ gameId }) => {
     socket.join(gameId);
+    socket.gameId = gameId; // Set gameId for better session tracking
 
     try {
       const game = await Game.findOne({ gameId });
@@ -3924,7 +3805,13 @@ io.on('connection', (socket) => {
         return socket.emit('ERROR', { message: 'Invalid acceptor' });
       }
 
-      // Check both players have sufficient balance
+      // DUPLICATE MATCH PREVENTION: Check if acceptor is already in an active game
+      const acceptorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': acceptor.userId });
+      if (acceptorActiveGame) {
+        return socket.emit('ERROR', { message: 'You are already in an active game.' });
+      }
+
+      // Check both players have sufficient balance for the rematch
       const requesterUser = await User.findById(request.requesterId);
       const acceptorUser = await User.findById(acceptor.userId);
 
@@ -3962,11 +3849,13 @@ io.on('connection', (socket) => {
 
       console.log(`🎮 Creating rematch game between ${player1.userName} and ${player2.userName} for $${stake}`);
 
-      // Use existing createMatch function
-      await createMatch(player1, player2, stake);
+      // Use existing createMatch function and get the new ID
+      const newGameId = await createMatch(player1, player2, stake);
 
       // Emit rematch accepted so frontend can handle transition
+      // CRITICAL: Include the newGameId so both players know where to go
       io.to(gameId).emit('rematch_accepted', {
+        newGameId: newGameId,
         stakeAmount: stake,
         message: 'Rematch starting...'
       });

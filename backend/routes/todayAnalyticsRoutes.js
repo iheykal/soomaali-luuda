@@ -84,7 +84,7 @@ router.get('/today', async (req, res) => {
                 $group: {
                     _id: null,
                     totalGames: { $sum: 1 },
-                    totalStake: { $sum: '$stake' }
+                    totalStake: { $sum: { $multiply: ['$stake', 2] } }
                 }
             }
         ]);

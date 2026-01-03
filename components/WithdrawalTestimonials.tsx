@@ -2,11 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { instrumentedFetch } from '../services/apiService';
 import { API_URL } from '../lib/apiConfig';
 
+const MALE_NAMES = ['Abdi', 'Mohamed', 'Ahmed', 'Hassan', 'Hussein', 'Farah', 'Ali', 'Omar', 'Ibrahim', 'Yusuf', 'Khalid', 'Mustafa', 'Jama', 'Guled', 'Liban'];
+const FEMALE_NAMES = ['Asha', 'Fadumo', 'Maryam', 'Khadija', 'Hibo', 'Sahra', 'Hodan', 'Nasra', 'Safia', 'Leyla', 'Nimo', 'Ubah', 'Idil', 'Sagal', 'Hani'];
+
 interface WithdrawalTestimonial {
     userName: string;
     phone: string;
     amount: number;
     date: string;
+    gender?: 'male' | 'female';
 }
 
 const WithdrawalTestimonials: React.FC = () => {
@@ -17,24 +21,29 @@ const WithdrawalTestimonials: React.FC = () => {
         fetchTestimonials();
     }, []);
 
-    const generateFakeTestimonials = () => {
-        const maleNames = ['Abdi', 'Mohamed', 'Ahmed', 'Hassan', 'Hussein', 'Farah', 'Ali', 'Omar', 'Ibrahim', 'Yusuf', 'Khalid', 'Mustafa', 'Jama', 'Guled', 'Liban'];
-        const femaleNames = ['Asha', 'Fadumo', 'Maryam', 'Khadija', 'Hibo', 'Sahra', 'Hodan', 'Nasra', 'Safia', 'Leyla', 'Nimo', 'Ubah', 'Idil', 'Sagal', 'Hani'];
-        const allNames = [...maleNames, ...femaleNames];
+    const getGenderPhrase = (name: string, gender?: 'male' | 'female') => {
+        if (gender === 'female' || FEMALE_NAMES.includes(name)) {
+            return 'waxay labaxday';
+        }
+        return 'wuxuu labaxay';
+    };
 
+    const generateFakeTestimonials = () => {
         const fakes: WithdrawalTestimonial[] = [];
         for (let i = 0; i < 50; i++) {
-            const name = allNames[Math.floor(Math.random() * allNames.length)];
-            const randomAmount = Math.floor(Math.random() * 110) + 1; // 1 to 110
-            const randomPhoneSuffix = Math.floor(Math.random() * 900) + 100; // 3 digits
-            // Format: 61*******123 or similar, user wants ** to appear
+            const isMale = Math.random() > 0.4;
+            const nameList = isMale ? MALE_NAMES : FEMALE_NAMES;
+            const name = nameList[Math.floor(Math.random() * nameList.length)];
+            const randomAmount = Math.floor(Math.random() * 110) + 1;
+            const randomPhoneSuffix = Math.floor(Math.random() * 900) + 100;
             const phone = `61*****${randomPhoneSuffix}`;
 
             fakes.push({
                 userName: name,
                 phone: phone,
                 amount: randomAmount,
-                date: new Date().toISOString()
+                date: new Date().toISOString(),
+                gender: isMale ? 'male' : 'female'
             });
         }
         return fakes;
@@ -42,8 +51,6 @@ const WithdrawalTestimonials: React.FC = () => {
 
     const fetchTestimonials = async () => {
         let allData: WithdrawalTestimonial[] = [];
-
-        // Add fake data first to ensure we always have activity
         allData = generateFakeTestimonials();
 
         try {
@@ -53,11 +60,8 @@ const WithdrawalTestimonials: React.FC = () => {
             });
 
             if (responseData.success && responseData.testimonials && responseData.testimonials.length > 0) {
-                // If we have real data, mix it in or put it first
-                // Ensure real data phones are also masked with ** style if not already
                 const realData = responseData.testimonials.map((t: WithdrawalTestimonial) => ({
                     ...t,
-                    // If phone comes as "252615552432", mask it to "61*****432"
                     phone: t.phone.replace(/^(?:252|0)?(6\d)(?:\d+)(\d{3})$/, '$1*****$2')
                 }));
 
@@ -66,7 +70,6 @@ const WithdrawalTestimonials: React.FC = () => {
         } catch (error) {
             console.error('Failed to fetch testimonials, using generated data only:', error);
         } finally {
-            // Duplicate array multiple times to ensure smooth marquee with enough content
             setTestimonials([...allData, ...allData, ...allData]);
             setLoading(false);
         }
@@ -77,16 +80,16 @@ const WithdrawalTestimonials: React.FC = () => {
     }
 
     return (
-        <div className="w-full bg-green-900/10 border-y border-green-500/20 py-3 overflow-hidden backdrop-blur-sm mb-4 mt-20">
+        <div className="w-full bg-green-900/10 border-y border-green-500/20 py-2 overflow-hidden backdrop-blur-sm mb-3">
             <div className="relative flex overflow-x-hidden">
                 <div className="animate-marquee whitespace-nowrap flex items-center gap-12">
                     {testimonials.map((t, i) => (
-                        <div key={i} className="flex items-center gap-2 text-green-800 font-medium">
+                        <div key={i} className="flex items-center gap-2 text-emerald-400 font-bold">
                             <span className="text-lg">💰</span>
-                            <span className="font-bold text-green-900">{t.userName}</span>
-                            <span className="text-sm opacity-70">({t.phone})</span>
-                            <span className="text-sm">wuxuu labaxay lacag dhan</span>
-                            <span className="font-black text-green-700 bg-green-100 px-2 py-0.5 rounded-full border border-green-200">
+                            <span className="text-emerald-300">{t.userName}</span>
+                            <span className="text-xs text-emerald-500/80">({t.phone})</span>
+                            <span className="text-xs font-medium text-emerald-400/90">{getGenderPhrase(t.userName, t.gender)}</span>
+                            <span className="font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
                                 ${t.amount.toFixed(2)}
                             </span>
                         </div>
@@ -99,7 +102,6 @@ const WithdrawalTestimonials: React.FC = () => {
                     animation: marquee 180s linear infinite;
                 }
                 
-                /* Pause on hover for readability */
                 .animate-marquee:hover {
                     animation-play-state: paused;
                 }

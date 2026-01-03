@@ -8,6 +8,7 @@ import WithdrawalTestimonials from './WithdrawalTestimonials';
 import { Copy } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import AdminQuickActions from './AdminQuickActions';
+import SlidingNotification from './SlidingNotification';
 
 interface GameSetupProps {
   onStartGame: (players: Player[]) => void;
@@ -16,11 +17,12 @@ interface GameSetupProps {
   onEnterSuperAdmin?: () => void;
   onEnterWallet?: () => void;
   onEnterReferrals?: () => void;
+  onEnterLiveMatches?: () => void;
   onInstall?: () => void;
   showInstallButton?: boolean;
 }
 
-const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterSuperAdmin, onEnterWallet, onEnterReferrals, onInstall, showInstallButton }) => {
+const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterSuperAdmin, onEnterWallet, onEnterReferrals, onEnterLiveMatches, onInstall, showInstallButton }) => {
   const { user, logout } = useAuth();
   const [activeGameInfo, setActiveGameInfo] = useState<any>(null);
   const [showRejoinBanner, setShowRejoinBanner] = useState(false);
@@ -28,7 +30,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
   const [checkingActiveGame, setCheckingActiveGame] = useState(true);
 
-  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/GmsXqKRVOGWGrJhSXUScIe';
+  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/HGDPdIKPkKw7X1pt58t0VY';
 
 
 
@@ -360,7 +362,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         />
       )}
 
-      <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm z-10 shadow-sm">
+      <div className="absolute top-0 left-0 w-full p-2 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm z-10 shadow-sm">
         <div className="flex items-center gap-2">
           {/* Super Admin Button */}
           {(() => {
@@ -463,20 +465,30 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
       </div>
 
-      {/* Withdrawal Testimonials Slider */}
-      {/* Withdrawal Testimonials Slider */}
-      <WithdrawalTestimonials />
+
 
       {/* Admin Quick Actions (Only visible to Admin/SuperAdmin/Cali) */}
       {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.phone === '+2520614171577' || user?.phone === '2520614171577' || user?.phone === '0614171577') && (
         <AdminQuickActions />
       )}
 
-      <img src="/icons/laddea.png" alt="Ludo Master Logo" className="w-32 h-auto mb-4 mt-4" />
+      <img src="/icons/laddea.png" alt="Ludo Master Logo" className="w-20 h-auto mb-1 mt-2" />
 
-      <div className="bg-slate-700 p-5 rounded-xl shadow-2xl w-full max-w-md text-center border border-slate-600">
-        <p className="text-slate-300 mb-4 text-sm">Choose how you want to play.</p>
-        <div className="space-y-2.5">
+      {/* WhatsApp Support Sliding Notification */}
+      <div className="w-full max-w-md mb-4 px-2">
+        <SlidingNotification
+          text="Markii aad lacagta dhiganayso ama labaxayso whatsappka imoow, soo qor 1. magacaga 2. cadadka lacagta soo dirtay ama labaxaysid, 3. numberka gameka aad ku samaysatay"
+          speed={35}
+          bgColor="bg-green-500/10"
+          textColor="text-green-50"
+          className="rounded-xl border border-green-500/20 shadow-[0_0_15px_rgba(34,197,94,0.1)]"
+        />
+      </div>
+
+      <div className="bg-slate-700 p-4 rounded-xl shadow-2xl w-full max-w-md text-center border border-slate-600">
+        <WithdrawalTestimonials />
+        <p className="text-slate-300 mb-2 text-xs">Choose how you want to play.</p>
+        <div className="space-y-2">
           {/* Removed manual rejoin button - auto-check happens in background */}
 
           <button
@@ -487,27 +499,34 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
               : 'bg-gray-600 cursor-not-allowed opacity-70 text-gray-300'
               }`}
           >
-            <span className="text-3xl">🧑‍🤝‍🧑</span>
-            <span>{user?.balance !== undefined && user.balance > 0 ? 'Multiplayer (Online)' : 'Insufficient Balance'}</span>
+            <video
+              src="/icons/dice.webm"
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="w-14 h-14 rounded-lg object-contain shadow-sm mix-blend-screen"
+            />
+            <span>{user?.balance !== undefined && user.balance > 0 ? 'Online' : 'Insufficient Balance'}</span>
           </button>
 
 
           {/* Wallet Button */}
           <button
             onClick={onEnterWallet}
-            className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold text-xl py-4 rounded-lg shadow-xl transition-all transform hover:scale-105 border-2 border-green-400/50"
+            className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-white font-bold text-xl py-4 rounded-lg shadow-xl transition-all transform hover:scale-105 border-2 border-yellow-400/50"
           >
             <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex flex-col items-start">
-              <span className="text-xs text-green-100 font-medium">Wallet Balance</span>
+              <span className="text-xs text-yellow-100 font-medium">Wallet Balance</span>
               <span className="text-sm font-bold text-white">${user?.balance?.toFixed(2) || '0.00'}</span>
             </div>
           </button>
 
-          {/* Referrals Button */}
-          {onEnterReferrals && (
+          {/* Referrals Button - Temporarily Hidden */}
+          {/* {onEnterReferrals && (
             <button
               onClick={onEnterReferrals}
               className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-700 hover:to-purple-700 text-white font-bold text-lg py-3 rounded-lg shadow-xl transition-all transform hover:scale-105 border-2 border-cyan-400/50"
@@ -518,7 +537,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
                 <span className="text-xs text-cyan-200/80">Earn from friends</span>
               </div>
             </button>
-          )}
+          )} */}
 
           {/* WhatsApp Community Button */}
           <button
@@ -533,6 +552,20 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
               <span className="text-xs text-green-100/80">Join Community</span>
             </div>
           </button>
+
+          {/* Live Matches Button */}
+          {onEnterLiveMatches && (
+            <button
+              onClick={onEnterLiveMatches}
+              className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 hover:from-blue-500/30 hover:to-indigo-500/30 text-white font-bold text-lg py-3 rounded-lg shadow-xl transition-all transform hover:scale-105 border-2 border-blue-400/20 group"
+            >
+              <span className="text-2xl group-hover:animate-pulse">📡</span>
+              <div className="flex flex-col items-start text-left">
+                <span className="text-sm text-white font-bold">Ciyaaraha Socda</span>
+                <span className="text-[10px] text-blue-200/60 uppercase tracking-widest">Live Watch Mode</span>
+              </div>
+            </button>
+          )}
 
           {showInstallButton && onInstall && (
             <button
