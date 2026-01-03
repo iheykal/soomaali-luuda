@@ -25,9 +25,15 @@ class DebugService {
       type,
       message,
     };
-    this.listeners.forEach(listener => listener(logEntry));
-    
+
+    // Notify listeners asynchronously to avoid React's "Cannot update a component while rendering a different component" warning.
+    // This is necessary because debug logs may be triggered from within reducers during the render phase.
+    queueMicrotask(() => {
+      this.listeners.forEach(listener => listener(logEntry));
+    });
+
     // Also log to the browser console for good measure.
+    // ...
     // Use the original/native console methods captured at module load
     // to avoid recursion when the app overrides console.* (e.g. to forward logs to this service).
     const nativeConsole = DebugService.nativeConsole;
@@ -51,7 +57,7 @@ class DebugService {
   public error(message: any) {
     this.log('error', message);
   }
-  
+
   public warn(message: any) {
     this.log('warn', message);
   }

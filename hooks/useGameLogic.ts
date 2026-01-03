@@ -298,9 +298,16 @@ const _reducer = (state: GameState, action: Action): GameState => {
 };
 
 const reducer = (state: GameState, action: Action): GameState => {
-    debugService.game({ action: action.type, payload: action });
+    // Only log significant actions to reduce noise (skip TIMER_TICK)
+    if (action.type !== 'TIMER_TICK') {
+        debugService.game({ action: action.type, payload: action });
+    }
+
     const newState = _reducer(state, action);
-    debugService.game({ new_state: newState });
+
+    if (action.type !== 'TIMER_TICK') {
+        debugService.game({ new_state: newState });
+    }
     return newState;
 };
 
@@ -331,28 +338,38 @@ interface MultiplayerConfig {
 }
 
 export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
-    console.log('🎯 useGameLogic initialized with config:', multiplayerConfig);
     const [state, dispatch] = useReducer(reducer, initialState);
     const isMultiplayer = !!multiplayerConfig;
+
+    // Log initialization only once or when config changes significantly
+    useEffect(() => {
+        console.log('🎯 useGameLogic initialized with config:', multiplayerConfig);
+    }, [multiplayerConfig?.gameId, multiplayerConfig?.localPlayerColor]);
 
     // The timer is now separated from the main state object to prevent re-rendering the entire board on each tick.
     const timer = state.timer;
 
-    console.log('🎲 Game logic state:', {
-        isMultiplayer,
-        gameStarted: state.gameStarted,
-        players: state.players?.length,
-        currentPlayerIndex: state.currentPlayerIndex
-    });
+    // Log state changes only when relevant parts of the state change
+    useEffect(() => {
+        console.log('🎲 Game logic state change:', {
+            isMultiplayer,
+            gameStarted: state.gameStarted,
+            players: state.players?.length,
+            currentPlayerIndex: state.currentPlayerIndex,
+            turnState: state.turnState
+        });
+    }, [state.gameStarted, state.players?.length, state.currentPlayerIndex, state.turnState]);
 
     // In multiplayer, 'isMyTurn' strictly depends on the server state matching our color
     const isMyTurn = isMultiplayer
         ? (multiplayerConfig?.isSpectator ? false : state.players?.[state.currentPlayerIndex]?.color === multiplayerConfig?.localPlayerColor)
         : true;
 
-    // Debug logging for turn state
-    const currentPlayerColor = state.players?.[state.currentPlayerIndex]?.color;
-    console.log(`🎮 Turn state check: isMultiplayer=${isMultiplayer}, currentPlayerIndex=${state.currentPlayerIndex}, currentPlayerColor=${currentPlayerColor}, localPlayerColor=${multiplayerConfig?.localPlayerColor}, isMyTurn=${isMyTurn}, turnState=${state.turnState}, gameStarted=${state.gameStarted}`);
+    // Log turn state changes
+    useEffect(() => {
+        const currentPlayerColor = state.players?.[state.currentPlayerIndex]?.color;
+        console.log(`🎮 Turn state check: isMultiplayer=${isMultiplayer}, currentPlayerIndex=${state.currentPlayerIndex}, currentPlayerColor=${currentPlayerColor}, localPlayerColor=${multiplayerConfig?.localPlayerColor}, isMyTurn=${isMyTurn}, turnState=${state.turnState}, gameStarted=${state.gameStarted}`);
+    }, [state.currentPlayerIndex, state.turnState, state.gameStarted, isMyTurn]);
 
     const localDispatchRef = useRef(dispatch);
     localDispatchRef.current = dispatch;

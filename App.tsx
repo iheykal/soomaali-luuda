@@ -332,6 +332,8 @@ const AppContent: React.FC = () => {
 
     // Set the multiplayer config and switch to game view
     setMultiplayerConfig(mpConfig);
+    setView('game');
+
     // Persist rejoin info for dashboard fallback (in case of refresh/disconnect)
     try {
       localStorage.setItem('ludo_rejoin', JSON.stringify({
@@ -350,7 +352,7 @@ const AppContent: React.FC = () => {
     // the UI will display a loading state until the real game state arrives.
 
     console.log('✅ Rejoin complete, game view set, view is now:', 'game');
-  }, [user, setIsRejoining]);
+  }, [user, setIsRejoining, setView]);
 
   const handleRematchAccepted = useCallback((newGameId: string) => {
     console.log(`🔄 Rematch starting: ${newGameId}`);
