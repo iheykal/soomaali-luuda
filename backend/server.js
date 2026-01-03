@@ -1376,7 +1376,7 @@ app.post('/api/game/rejoin', async (req, res) => {
     }
 
     // Find the player in the game
-    const playerIndex = game.players.findIndex(p => p.userId === userId);
+    const playerIndex = game.players.findIndex(p => String(p.userId) === String(userId));
 
     if (playerIndex === -1) {
       return res.status(404).json({
@@ -3694,9 +3694,9 @@ io.on('connection', (socket) => {
         if (game) {
           const player = game.players.find(p => p.socketId === socket.id);
           if (player && player.userId) {
-            const userId = player.userId;
+            const userIdString = String(player.userId); // STANDARD: Use string for map keys
             const disconnectTimeout = setTimeout(async () => {
-              pendingDisconnects.delete(userId);
+              pendingDisconnects.delete(userIdString);
               if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
               const result = await gameEngine.handleDisconnect(gameId, socket.id);
               if (result) {
@@ -3704,8 +3704,9 @@ io.on('connection', (socket) => {
                 if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
               }
 
-            }, 5000);
-            pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+            }, 15000); // 15s to match standard
+            pendingDisconnects.set(userIdString, { timeoutId: disconnectTimeout, gameId });
+            console.log(`⏱️ Player ${player.color} (${userIdString}) disconnected during resync error. Timeout set (15s)`);
             return;
           }
         }
@@ -3947,6 +3948,57 @@ io.on('connection', (socket) => {
     if (request) {
       rematchRequests.delete(gameId);
       io.to(gameId).emit('rematch_declined', { reason: 'timeout' });
+    }
+  });
+
+  socket.on('disconnect', async () => {
+    // Keep removing from matchmaking queue logic
+    removeFromQueue(socket.id);
+
+    if (socket.gameId) {
+      const gameId = socket.gameId;
+      console.log(`📡 Socket ${socket.id} disconnected from game ${gameId}`);
+
+      try {
+        const game = await Game.findOne({ gameId });
+        if (game && game.status === 'ACTIVE') {
+          const player = game.players.find(p => p.socketId === socket.id);
+          if (player && player.userId) {
+            const userIdString = String(player.userId); // STANDARD: Use string for map keys
+
+            // Clear any existing timeout for this user (prevent duplicate timers)
+            if (pendingDisconnects.has(userIdString)) {
+              clearTimeout(pendingDisconnects.get(userIdString).timeoutId);
+            }
+
+            const disconnectTimeout = setTimeout(async () => {
+              pendingDisconnects.delete(userIdString);
+              if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+
+              const result = await gameEngine.handleDisconnect(gameId, socket.id);
+              if (result) {
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+                if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+              }
+              console.log(`🤖 Disconnect timeout reached for ${player.color} in ${gameId}. Bot taking over.`);
+            }, 15000);
+
+            pendingDisconnects.set(userIdString, { timeoutId: disconnectTimeout, gameId });
+            console.log(`⏱️ Player ${player.color} (${userIdString}) disconnected. Timeout set (15s) for game ${gameId}`);
+            return;
+          }
+        }
+
+        // Handle immediate disconnect if game not active or player not found
+        if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+        const result = await gameEngine.handleDisconnect(gameId, socket.id);
+        if (result) {
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+          if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+        }
+      } catch (err) {
+        console.error('Error handling disconnect:', err);
+      }
     }
   });
 });
