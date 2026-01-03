@@ -3422,11 +3422,16 @@ io.on('connection', (socket) => {
   socket.on('join_game', async ({ gameId, userId, playerColor }) => {
     socket.join(gameId);
     socket.gameId = gameId;
-    if (pendingDisconnects.has(userId)) {
-      const pending = pendingDisconnects.get(userId);
+
+    // FIX: Ensure userId is a string for map lookup (DB uses ObjectId)
+    const userIdString = String(userId);
+
+    if (pendingDisconnects.has(userIdString)) {
+      const pending = pendingDisconnects.get(userIdString);
       if (pending && pending.gameId === gameId) {
+        console.log(`🔌 Cleared pending disconnect for user ${userIdString} rejoining game ${gameId}`);
         clearTimeout(pending.timeoutId);
-        pendingDisconnects.delete(userId);
+        pendingDisconnects.delete(userIdString);
       }
     }
     const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
@@ -3438,7 +3443,7 @@ io.on('connection', (socket) => {
         const currentPlayer = result.state.players[result.state.currentPlayerIndex];
 
         // RESUME LOGIC: Check whose turn it is
-        if (currentPlayer && currentPlayer.userId === userId && !currentPlayer.isAI) {
+        if (currentPlayer && String(currentPlayer.userId) === String(userId) && !currentPlayer.isAI) {
           // It's MY turn - Restart my timer
           console.log(`▶️ Resuming game ${gameId} - Player ${currentPlayer.color} (Rejoined) turn`);
           if (result.state.turnState === 'ROLLING') scheduleHumanPlayerAutoRoll(gameId);
