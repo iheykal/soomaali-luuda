@@ -415,8 +415,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
               alt={user.username}
               className="w-10 h-10 rounded-full border-2 border-slate-600 shadow-md bg-slate-700"
             />
-            <div className="text-left">
-              <p className="text-sm font-bold text-white leading-tight">{user.username}</p>
+            <div className="text-left min-w-0">
+              <p className="text-sm font-bold text-white leading-tight truncate max-w-[100px] sm:max-w-[150px]" title={user.username}>{user.username}</p>
               <button
                 onClick={() => {
                   const textToCopy = user.phone;

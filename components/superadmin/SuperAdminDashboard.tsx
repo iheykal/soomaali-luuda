@@ -183,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'settings';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -218,6 +218,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     hourlyActivity: Array<{ hour: number; visitors: number }>;
   } | null>(null);
   const [referralLeaderboard, setReferralLeaderboard] = useState<ReferralLeaderboardEntry[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
 
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: 'wins' | 'balance' | 'joined' | 'username'; direction: 'asc' | 'desc' }>({ key: 'joined', direction: 'desc' });
@@ -382,6 +383,19 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       setReferralLeaderboard(result.leaderboard || []);
     } catch (err: any) {
       console.error('Error fetching referral leaderboard:', err);
+    }
+  }, []);
+
+  const fetchRecentTransactions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await adminAPI.getRecentQuickTransactions();
+      setRecentTransactions(data || []);
+    } catch (err: any) {
+      console.error('Error fetching recent transactions:', err);
+      showNotificationMessage('Failed to fetch recent transactions', 'error');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -649,7 +663,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       fetchVisitorAnalytics();
       fetchReferralLeaderboard();
     }
-  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, user]);
+    if (activeTab === 'recent') {
+      fetchRecentTransactions();
+    }
+  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, user]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -1975,14 +1992,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                                 <p className="text-xs text-gray-400 font-mono mt-1">ID: {req.userId}</p>
                               </div>
 
-                              {/* Payment Method */}
-                              {req.paymentMethod && (
-                                <div className="mb-4 pb-4 border-b border-gray-200">
-                                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Payment Method</p>
-                                  <p className="text-sm font-semibold text-gray-900">{req.paymentMethod}</p>
-                                </div>
-                              )}
-
                               {/* Details */}
                               {req.details && (
                                 <div className="mb-4">
@@ -2026,6 +2035,102 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 )}
               </div>
             )}
+          </div>
+        );
+      case 'recent':
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Recent Quick Admin Actions</h2>
+                <p className="text-sm text-gray-500 mt-1">Last 10 manual deposits and withdrawals</p>
+              </div>
+              <button
+                onClick={fetchRecentTransactions}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-bold shadow-md flex items-center gap-2"
+              >
+                <span>🔄</span> Refresh
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Time</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">User</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Amount</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Receipt</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {recentTransactions.length > 0 ? (
+                    recentTransactions.map((tx) => (
+                      <tr key={tx.id || tx._id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {new Date(tx.timestamp).toLocaleDateString()}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(tx.timestamp).toLocaleTimeString()}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <button
+                            onClick={() => handleUserClick(tx.userId)}
+                            className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                          >
+                            {tx.userName}
+                          </button>
+                          <div className="text-xs text-gray-400 font-mono">{tx.userId}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 w-fit ${tx.type === 'DEPOSIT'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                            }`}>
+                            <span>{tx.type === 'DEPOSIT' ? '↓' : '↑'}</span>
+                            {tx.type}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className={`text-sm font-black ${tx.type === 'DEPOSIT' ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                            {tx.type === 'DEPOSIT' ? '+' : '-'}${tx.amount.toFixed(2)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-[10px] font-bold uppercase">
+                            {tx.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <button
+                            onClick={() => downloadReceipt(tx)}
+                            className="text-blue-600 hover:text-blue-800 text-lg"
+                            title="Download Receipt"
+                          >
+                            🧾
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                        <div className="flex flex-col items-center">
+                          <span className="text-4xl mb-2">📋</span>
+                          <p className="font-medium text-lg">No recent quick actions found</p>
+                          <p className="text-sm">Quick actions performed via the Admin bar will appear here.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       default:
@@ -2108,6 +2213,17 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
           >
             <span className="text-lg sm:text-xl">💰</span>
             <span>Wallet Requests</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('recent')}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'recent'
+              ? 'bg-green-600 text-white shadow-md font-semibold'
+              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+              }`}
+          >
+            <span className="text-lg sm:text-xl">⏳</span>
+            <span>Recent Quick Actions</span>
           </button>
 
           {/* Revenue - Super Admin Only */}

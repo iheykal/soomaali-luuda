@@ -102,6 +102,12 @@ router.get('/user/:userId', async (req, res) => {
 // Perform direct deposit or withdrawal and create a receipt record
 router.post('/transaction', async (req, res) => {
     try {
+        // Redundant Security Check (Defense in Depth)
+        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN') {
+            console.warn(`[SECURITY] Unauthorized balance manipulation attempt by user ${req.user.username}`);
+            return res.status(403).json({ success: false, error: 'Access denied. Unauthorized activity logged.' });
+        }
+
         const { userId, type, amount, adminId } = req.body;
 
         if (!userId || !type || !amount) {
@@ -197,6 +203,45 @@ router.post('/transaction', async (req, res) => {
     } catch (error) {
         console.error('Quick Action - Transaction Error:', error);
         res.status(500).json({ success: false, error: 'Transaction failed' });
+    }
+});
+
+// GET /api/admin/quick/recent
+// Fetch 10 most recent quick admin transactions
+router.get('/recent', async (req, res) => {
+    try {
+        // Redundant Security Check
+        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ success: false, error: 'Access denied.' });
+        }
+
+        const recentRequests = await FinancialRequest.find({
+            paymentMethod: 'Quick Admin Action'
+        })
+            .sort({ timestamp: -1 })
+            .limit(10);
+
+        // Fetch user data for each request to ensure we have latest balance/role/avatar if needed
+        // but for now we just need the request data which already has userName.
+        // If we want to allow clicking to select user, we need their userId (which is in the request).
+
+        res.json({
+            success: true,
+            transactions: recentRequests.map(r => ({
+                id: r._id,
+                userId: r.userId,
+                userName: r.userName,
+                type: r.type,
+                amount: r.amount,
+                timestamp: r.timestamp,
+                shortId: r.shortId,
+                status: r.status,
+                approverName: r.approverName
+            }))
+        });
+    } catch (error) {
+        console.error('Quick Action - Recent Transactions Error:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch recent transactions' });
     }
 });
 

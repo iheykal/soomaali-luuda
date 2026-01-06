@@ -274,6 +274,20 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Authorization Middleware (Admin only)
+const authorizeAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+    console.warn(`[SECURITY] Unauthorized admin access attempt by ${req.user.username} (${req.user.userId}) with role ${req.user.role}`);
+    return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+  }
+
+  next();
+};
+
 // --- AUTHENTICATION ROUTES ---
 
 // Helper function to normalize phone numbers
@@ -847,7 +861,7 @@ app.post('/api/auth/create-user', authenticateToken, async (req, res) => {
 // --- ADMIN ROUTES ---
 
 // POST: Update user role (for making users super admin)
-app.post('/api/admin/update-role', async (req, res) => {
+app.post('/api/admin/update-role', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { usernameOrPhone, newRole } = req.body;
 
@@ -895,7 +909,7 @@ app.post('/api/admin/update-role', async (req, res) => {
 // --- ADMIN ROUTES (Continued) ---
 
 // DELETE: Admin - Delete specific user
-app.delete('/api/admin/user/:userId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/user/:userId', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-user');
     const adminUser = lookupResult.success ? lookupResult.user : null;
@@ -936,7 +950,7 @@ app.delete('/api/admin/user/:userId', authenticateToken, async (req, res) => {
 });
 
 // DELETE: Admin - Delete specific financial request
-app.delete('/api/admin/financial-request/:requestId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/financial-request/:requestId', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-financial-request');
     const adminUser = lookupResult.success ? lookupResult.user : null;
@@ -966,7 +980,7 @@ app.delete('/api/admin/financial-request/:requestId', authenticateToken, async (
 });
 
 // DELETE: Admin - Delete specific revenue entry
-app.delete('/api/admin/revenue/:revenueId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/revenue/:revenueId', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-revenue');
     const adminUser = lookupResult.success ? lookupResult.user : null;
@@ -996,7 +1010,7 @@ app.delete('/api/admin/revenue/:revenueId', authenticateToken, async (req, res) 
 });
 
 // DELETE: Admin - Delete specific revenue withdrawal entry
-app.delete('/api/admin/withdrawal/:withdrawalId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/withdrawal/:withdrawalId', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-withdrawal');
     const adminUser = lookupResult.success ? lookupResult.user : null;
@@ -1026,7 +1040,7 @@ app.delete('/api/admin/withdrawal/:withdrawalId', authenticateToken, async (req,
 });
 
 // GET: Get all users (for Super Admin)
-app.get('/api/admin/users', authenticateToken, async (req, res) => {
+app.get('/api/admin/users', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     // Smart user lookup with duplicate handling
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-users');
@@ -1089,7 +1103,7 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 });
 
 // POST: Admin - Update user balance (DEPOSIT or WITHDRAWAL)
-app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => {
+app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-update-balance');
     const adminUser = lookupResult.success ? lookupResult.user : null;
@@ -1159,7 +1173,7 @@ app.post('/api/admin/users/:id/balance', authenticateToken, async (req, res) => 
 });
 
 // GET: Visitor Analytics for SuperAdmin Dashboard
-app.get('/api/admin/visitor-analytics', authenticateToken, async (req, res) => {
+app.get('/api/admin/visitor-analytics', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-visitor-analytics');
     const adminUser = lookupResult.success ? lookupResult.user : null;
@@ -1805,16 +1819,8 @@ app.post('/api/admin/games/force-rejoin/:gameId', authenticateToken, async (req,
 });
 
 // POST: Admin - Cancel and Refund an Active Game
-app.post('/api/admin/games/:gameId/refund', authenticateToken, async (req, res) => {
+app.post('/api/admin/games/:gameId/refund', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    // 1. Authorization Check (Super Admin only)
-    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-refund-game');
-    const adminUser = lookupResult.success ? lookupResult.user : null;
-
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
-    }
-
     const { gameId } = req.params;
     if (!gameId) {
       return res.status(400).json({ error: 'Game ID is required' });
@@ -1874,13 +1880,10 @@ app.post('/api/admin/games/:gameId/refund', authenticateToken, async (req, res) 
 });
 
 // DELETE: Admin - Remove specific game
-app.delete('/api/admin/matches/:gameId', authenticateToken, async (req, res) => {
+app.delete('/api/admin/matches/:gameId', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    if (req.user.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
     const { gameId } = req.params;
-    console.log(`🗑️ Super Admin deleting game ${gameId}`);
+    console.log(`🗑️ Admin ${req.user.username} (Super Admin) deleting game ${gameId}`);
 
     const Game = require('./models/Game');
     const game = await Game.findOne({ gameId });
@@ -1915,16 +1918,9 @@ app.delete('/api/admin/matches/:gameId', authenticateToken, async (req, res) => 
 });
 
 // POST: Admin - DELETE ALL ACTIVE GAMES ONLY
-app.post('/api/admin/games/delete-active', authenticateToken, async (req, res) => {
+app.post('/api/admin/games/delete-active', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-delete-active-games');
-    let adminUser = lookupResult.success ? lookupResult.user : null;
-
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
-    console.log(`🗑️ Admin ${adminUser.username} deleting all active games...`);
+    console.log(`🗑️ Admin ${req.user.username} deleting all active games...`);
     const activeResult = await Game.deleteMany({ status: 'ACTIVE' });
 
     // Also clear matchmaking queue in memory
@@ -1946,16 +1942,9 @@ app.post('/api/admin/games/delete-active', authenticateToken, async (req, res) =
 });
 
 // POST: Admin - DELETE ALL GAMES (Cleanup)
-app.post('/api/admin/games/cleanup', authenticateToken, async (req, res) => {
+app.post('/api/admin/games/cleanup', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-cleanup-games');
-    let adminUser = lookupResult.success ? lookupResult.user : null;
-
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
-    console.log(`🗑️ Admin ${adminUser.username} initiating global game cleanup...`);
+    console.log(`🗑️ Admin ${req.user.username} initiating global game cleanup...`);
     const activeResult = await Game.deleteMany({ status: 'ACTIVE' });
     const waitingResult = await Game.deleteMany({ status: 'WAITING' });
 
@@ -1979,15 +1968,8 @@ app.post('/api/admin/games/cleanup', authenticateToken, async (req, res) => {
 });
 
 // GET: Admin - Get User Details with History
-app.get('/api/admin/user/:userId/details', authenticateToken, async (req, res) => {
+app.get('/api/admin/user/:userId/details', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
-    const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-user-details');
-    let adminUser = lookupResult.success ? lookupResult.user : null;
-
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
     const { userId } = req.params;
     const targetUser = await User.findById(userId);
     if (!targetUser) {
@@ -3229,8 +3211,11 @@ io.on('connection', (socket) => {
 
 
 
-  socket.on('create_match_request', async ({ stake, userId, userName }) => {
+  socket.on('create_match_request', async ({ stake, userName }) => {
     try {
+      const userId = socket.data.userId;
+      if (!userId) return socket.emit('ERROR', { message: 'Authentication required' });
+
       const numericStake = parseFloat(stake);
       if (!numericStake || numericStake <= 0 || isNaN(numericStake)) {
         return socket.emit('ERROR', { message: 'Invalid stake amount' });
@@ -3281,8 +3266,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('accept_match_request', async ({ requestId, userId, userName }) => {
+  socket.on('accept_match_request', async ({ requestId, userName }) => {
     // CRITICAL: Fetch request FIRST before any validation
+    const userId = socket.data.userId;
+    if (!userId) return socket.emit('ERROR', { message: 'Authentication required' });
+
     const request = activeMatchRequests.get(requestId);
     if (!request) {
       return socket.emit('ERROR', { message: 'Match request no longer available' });
@@ -3357,9 +3345,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('cancel_match_request', async ({ requestId, userId }) => {
+  socket.on('cancel_match_request', async ({ requestId }) => {
+    const userId = socket.data.userId;
     const request = activeMatchRequests.get(requestId);
-    if (request && request.userId === userId) {
+    if (request && String(request.userId) === String(userId)) {
       activeMatchRequests.delete(requestId);
       const timer = requestTimers.get(requestId);
       if (timer) {
@@ -3372,8 +3361,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('request_refund', async ({ gameId, reason }) => {
-    console.log(`🔄 REFUND REQUEST from ${socket.id} for game ${gameId}`);
+    console.log(`🔄 REFUND REQUEST attempt from ${socket.id} for game ${gameId}`);
     try {
+      // 🔒 SECURITY CHECK: Only Admins can manually request refunds via this socket event
+      // Map userId from socket data if available, or verify via other means
+      const userId = socket.data.userId;
+      if (!userId) return socket.emit('ERROR', { message: 'Authentication required' });
+
+      const user = await User.findById(userId);
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+        console.warn(`🚨 Unauthorized refund attempt by user ${user?.username || userId}`);
+        return socket.emit('ERROR', { message: 'Access denied. Unauthorized activity logged.' });
+      }
+
       const result = await gameEngine.processGameRefund(gameId);
       if (result.success) {
         // Clear all timers
@@ -3625,8 +3625,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('admin_force_roll', async ({ gameId, targetColor, diceValue }) => {
-    console.log(`👮 SOCKET: admin_force_roll received for game ${gameId}. Target: ${targetColor}, Value: ${diceValue}`);
+    console.log(`👮 SOCKET: admin_force_roll attempt for game ${gameId}. Target: ${targetColor}, Value: ${diceValue}`);
     try {
+      // 🔒 SECURITY CHECK: Only Admins can force rolls
+      const userId = socket.data.userId;
+      if (!userId) return socket.emit('ERROR', { message: 'Authentication required' });
+
+      const user = await User.findById(userId);
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+        console.warn(`🚨 Unauthorized force_roll attempt by user ${user?.username || userId}`);
+        return socket.emit('ERROR', { message: 'Access denied.' });
+      }
+
       const game = await Game.findOne({ gameId });
       if (game) {
         if (!game.forcedRolls) {
@@ -4233,14 +4243,17 @@ setInterval(async () => {
 
   // Admin Quick Actions routes
   const adminQuickActionsRoutes = require('./routes/adminQuickActions');
-  app.use('/api/admin/quick', authenticateToken, adminQuickActionsRoutes);
+  app.use('/api/admin/quick', authenticateToken, authorizeAdmin, adminQuickActionsRoutes);
 
   // Analytics Routes
   const analyticsRoutes = require('./routes/analyticsRoutes');
-  app.use('/api/admin/analytics', authenticateToken, analyticsRoutes);
+  app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, analyticsRoutes);
 
   const todayAnalyticsRoutes = require('./routes/todayAnalyticsRoutes');
-  app.use('/api/admin/analytics', authenticateToken, todayAnalyticsRoutes);
+  // Note: todayAnalyticsRoutes uses the same base path, and authorizeAdmin is now applied
+  // to everything under /api/admin/analytics via the above mounting.
+  // But for clarity and explicit protection:
+  app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, todayAnalyticsRoutes);
   server.listen(PORT, HOST, () => {
     console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);

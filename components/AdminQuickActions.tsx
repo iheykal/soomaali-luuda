@@ -23,6 +23,8 @@ const AdminQuickActions: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [amount, setAmount] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
+    const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+    const [lastTransaction, setLastTransaction] = useState<{ type: string, amount: number } | null>(null);
 
     // Confirmation Modal State
     const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -32,6 +34,22 @@ const AdminQuickActions: React.FC = () => {
     const receiptRef = useRef<HTMLDivElement>(null);
     const [receiptData, setReceiptData] = useState<{ req: FinancialRequest, user: { username: string, phone?: string } } | null>(null);
 
+    // Initial load
+    React.useEffect(() => {
+        fetchRecentTransactions();
+    }, []);
+
+    const fetchRecentTransactions = async () => {
+        try {
+            const response = await adminAPI.getRecentQuickTransactions();
+            if (response.success) {
+                setRecentTransactions(response.transactions);
+            }
+        } catch (error) {
+            console.error('Error fetching recent transactions:', error);
+        }
+    };
+
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!searchId.trim()) return;
@@ -39,6 +57,7 @@ const AdminQuickActions: React.FC = () => {
         setLoading(true);
         setUser(null);
         setCandidates([]);
+        setLastTransaction(null); // Clear previous transaction receipt on new search
 
         try {
             const response = await adminAPI.getQuickUserInfo(searchId.trim());
@@ -69,7 +88,31 @@ const AdminQuickActions: React.FC = () => {
     const selectCandidate = (selectedUser: QuickUser) => {
         setUser(selectedUser);
         setCandidates([]);
+        setSearchId('');
+        setLastTransaction(null);
         toast.success(`Selected ${selectedUser.username}`);
+    };
+
+    const selectFromRecent = async (transaction: any) => {
+        setLoading(true);
+        setUser(null);
+        setCandidates([]);
+        setSearchId(transaction.userId);
+        setLastTransaction(null);
+
+        try {
+            const response = await adminAPI.getQuickUserInfo(transaction.userId);
+            if (response.success && response.user) {
+                setUser(response.user);
+                toast.success(`Selected ${response.user.username}`);
+            } else {
+                toast.error('Could not load user details');
+            }
+        } catch (error) {
+            toast.error('Error loading user');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const downloadReceipt = async (req: FinancialRequest, userName: string, userPhone?: string) => {
@@ -109,14 +152,16 @@ const AdminQuickActions: React.FC = () => {
         }, 100);
     };
 
-    const handleTransaction = async (type: 'DEPOSIT' | 'WITHDRAWAL') => {
-        if (!user || !amount || parseFloat(amount) <= 0) {
+
+    const handleTransaction = async (type: 'DEPOSIT' | 'WITHDRAWAL', amountOverride?: number) => {
+        const val = amountOverride !== undefined ? amountOverride : parseFloat(amount);
+        if (!user || !val || val <= 0) {
             toast.error('Invalid amount');
             return;
         }
 
         // Show confirmation modal instead of window.confirm
-        setConfirmAction({ type, amount: parseFloat(amount) });
+        setConfirmAction({ type, amount: val });
         setShowConfirmModal(true);
     };
 
@@ -137,6 +182,10 @@ const AdminQuickActions: React.FC = () => {
                 setUser({ ...user, balance: response.newBalance });
                 setAmount('');
                 setConfirmAction(null);
+                setLastTransaction({ type, amount: transactionAmount });
+
+                // Refresh recent transactions
+                fetchRecentTransactions();
 
                 // Auto-generate receipt if request data is returned
                 if (response.request) {
@@ -168,7 +217,7 @@ const AdminQuickActions: React.FC = () => {
 
     return (
         <>
-            <div className="w-full max-w-4xl mx-auto mb-6 p-4 bg-slate-800/90 backdrop-blur border border-purple-500/30 rounded-xl shadow-xl">
+            <div className="w-full max-w-4xl mx-auto mt-16 md:mt-20 mb-6 p-4 bg-slate-800 border border-purple-500/30 rounded-xl shadow-xl relative z-20">
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
                     {/* Header */}
                     <div className="flex items-center gap-2">
@@ -224,6 +273,34 @@ const AdminQuickActions: React.FC = () => {
                     </div>
                 )}
 
+                {/* Recent Transactions Section */}
+                {!user && candidates.length === 0 && recentTransactions.length > 0 && (
+                    <div className="mt-4 p-4 bg-slate-900/40 rounded-lg border border-slate-700/50">
+                        <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-slate-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                                <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></span>
+                                Recent Quick Actions
+                            </h4>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {recentTransactions.map((tx) => (
+                                <button
+                                    key={tx.id}
+                                    onClick={() => selectFromRecent(tx)}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/50 hover:bg-purple-900/30 border border-slate-700 hover:border-purple-500/50 transition-all group"
+                                    title={`${tx.type} by ${tx.approverName}`}
+                                >
+                                    <span className={tx.type === 'DEPOSIT' ? 'text-green-500 text-xs' : 'text-red-500 text-xs'}>
+                                        {tx.type === 'DEPOSIT' ? '↓' : '↑'}
+                                    </span>
+                                    <span className="text-slate-300 text-xs font-medium group-hover:text-purple-200">{tx.userName}</span>
+                                    <span className="text-slate-500 text-[10px] items-baseline font-mono">${tx.amount}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Selected User Result Area */}
                 {user && (
                     <div className="mt-4 p-4 bg-slate-900/50 rounded-lg border border-slate-700 animate-fadeIn">
@@ -246,37 +323,57 @@ const AdminQuickActions: React.FC = () => {
                                 </div>
                             </div>
 
+
                             {/* Action Area */}
-                            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto p-3 bg-slate-800 rounded-lg border border-slate-700">
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
-                                    <input
-                                        type="number"
-                                        placeholder="0.00"
-                                        value={amount}
-                                        onChange={(e) => setAmount(e.target.value)}
-                                        className="w-32 bg-slate-900 border border-slate-600 rounded-lg pl-6 pr-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                                    />
+                            <div className="flex flex-col gap-3 w-full md:w-auto p-3 bg-slate-800 rounded-lg border border-slate-700">
+                                {/* Preset Amounts */}
+                                <div className="flex gap-2 justify-center">
+                                    {[0.25, 0.50, 1.00, 5.00].map((val) => (
+                                        <button
+                                            key={val}
+                                            onClick={() => {
+                                                setAmount(val.toString());
+                                                handleTransaction('DEPOSIT', val);
+                                            }}
+                                            className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded border border-slate-600 transition-colors"
+                                        >
+                                            ${val.toFixed(2)}
+                                        </button>
+                                    ))}
                                 </div>
 
-                                <button
-                                    onClick={() => handleTransaction('DEPOSIT')}
-                                    disabled={actionLoading}
-                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg hover:shadow-green-500/20 transition-all disabled:opacity-50"
-                                >
-                                    + Deposit
-                                </button>
+                                <div className="flex flex-col sm:flex-row items-center gap-3">
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                                        <input
+                                            type="number"
+                                            placeholder="0.00"
+                                            value={amount}
+                                            onChange={(e) => setAmount(e.target.value)}
+                                            className="w-32 bg-slate-900 border border-slate-600 rounded-lg pl-6 pr-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                                        />
+                                    </div>
 
-                                <button
-                                    onClick={() => handleTransaction('WITHDRAWAL')}
-                                    disabled={actionLoading}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg hover:shadow-red-500/20 transition-all disabled:opacity-50"
-                                >
-                                    - Withdraw
-                                </button>
+                                    <button
+                                        onClick={() => handleTransaction('DEPOSIT')}
+                                        disabled={actionLoading}
+                                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-lg hover:shadow-green-500/20 transition-all disabled:opacity-50"
+                                    >
+                                        + Deposit
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleTransaction('WITHDRAWAL')}
+                                        disabled={actionLoading}
+                                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg hover:shadow-red-500/20 transition-all disabled:opacity-50"
+                                    >
+                                        - Withdraw
+                                    </button>
+                                </div>
                             </div>
-
                         </div>
+
+
                     </div>
                 )}
             </div>
