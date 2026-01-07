@@ -202,7 +202,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     filter?: string;
     pagination?: { currentPage: number; totalPages: number; totalItems: number; limit: number }
   } | null>(null);
-  const [revenueFilter, setRevenueFilter] = useState<string>('all');
+  const [revenueFilter, setRevenueFilter] = useState<string>('today');
   const [revenuePage, setRevenuePage] = useState<number>(1);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -654,7 +654,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       fetchRequests();
     }
     if ((activeTab === 'revenue' || activeTab === 'dashboard') && user?.role === 'SUPER_ADMIN') {
-      fetchRevenue();
+      fetchRevenue(revenueFilter);
     }
     if ((activeTab === 'games' || activeTab === 'dashboard') && (user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN')) {
       fetchActiveGames();
@@ -1356,7 +1356,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
           { value: 'all', label: 'All Time' },
           { value: 'today', label: 'Today' },
           { value: 'yesterday', label: 'Yesterday' },
-          { value: 'thisWeek', label: 'This Week' },
+          { value: 'last7Days', label: 'Last 7 Days' },
           { value: 'last15Days', label: 'Last 15 Days' },
           { value: 'last30Days', label: 'Last 30 Days' }
         ];
