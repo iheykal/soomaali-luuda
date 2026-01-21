@@ -39,6 +39,7 @@ const initialState: GameState = {
     legalMoves: [],
     timer: ROLL_TIME_LIMIT,
     stake: 0,
+    rerollsUsed: {},
 };
 
 const _reducer = (state: GameState, action: Action): GameState => {

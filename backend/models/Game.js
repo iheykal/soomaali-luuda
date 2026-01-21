@@ -35,6 +35,7 @@ const GameSchema = new mongoose.Schema({
   lastEvent: String, // 'CAPTURE', etc.
   timer: { type: Number, default: 7 },
   forcedRolls: { type: Map, of: Number, default: {} }, // Admin Control: { color: diceValue }
+  rerollsUsed: { type: Map, of: Number, default: {} }, // Track gem re-rolls per player: { userId: count }
 
   // Legal moves calculated by server
   legalMoves: [{
@@ -50,7 +51,11 @@ const GameSchema = new mongoose.Schema({
   settlementProcessed: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
-}, { optimisticConcurrency: false });
+}, {
+  optimisticConcurrency: false,
+  toJSON: { flattenMaps: true },
+  toObject: { flattenMaps: true }
+});
 
 // ===== INDEX OPTIMIZATION =====
 // Compound index for finding active/completed games sorted by date

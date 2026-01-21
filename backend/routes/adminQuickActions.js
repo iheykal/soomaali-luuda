@@ -16,7 +16,7 @@ router.get('/user/:userId', async (req, res) => {
                 { _id: userId },
                 { phone: userId }
             ]
-        }).select('username phone balance avatar role');
+        }).select('username phone balance gems avatar role');
 
         if (exactMatch) {
             return res.json({
@@ -26,6 +26,7 @@ router.get('/user/:userId', async (req, res) => {
                     username: exactMatch.username,
                     phone: exactMatch.phone,
                     balance: exactMatch.balance,
+                    gems: exactMatch.gems || 0,
                     avatar: exactMatch.avatar,
                     role: exactMatch.role
                 }
@@ -54,7 +55,7 @@ router.get('/user/:userId', async (req, res) => {
             const candidates = await User.find({
                 phone: { $regex: searchRegex }
             })
-                .select('username phone balance avatar role')
+                .select('username phone balance gems avatar role')
                 .limit(10); // increased limit slightly to safeguard against 'last 5 digits' collisions
 
             if (candidates.length > 0) {
@@ -68,6 +69,7 @@ router.get('/user/:userId', async (req, res) => {
                             username: match.username,
                             phone: match.phone,
                             balance: match.balance,
+                            gems: match.gems || 0,
                             avatar: match.avatar,
                             role: match.role
                         }
@@ -82,6 +84,7 @@ router.get('/user/:userId', async (req, res) => {
                         username: u.username,
                         phone: u.phone,
                         balance: u.balance,
+                        gems: u.gems || 0,
                         avatar: u.avatar,
                         role: u.role
                     }))
@@ -176,7 +179,7 @@ router.post('/transaction', async (req, res) => {
         const io = req.app.get('io');
         if (io) {
             io.to(userId).emit('balance_updated', {
-                newBalance: user.balance,
+                newBalance: updatedUser.balance,
                 type,
                 amount: numAmount,
                 message: type === 'DEPOSIT' ? 'Your account has been credited' : 'Withdrawal processed'

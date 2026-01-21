@@ -243,10 +243,35 @@ const processGameSettlement = async (gameObj) => {
         // ============================================================================
         let platformNetRevenue = commission; // Default: platform keeps 100% of commission
 
+        // ===== CALCULATE GEM RE-ROLL REVENUE =====
+        // Count total gem re-rolls used in this game
+        let totalRerolls = 0;
+        if (game.rerollsUsed) {
+            if (game.rerollsUsed instanceof Map) {
+                for (const count of game.rerollsUsed.values()) {
+                    totalRerolls += count;
+                }
+            } else {
+                for (const userId in game.rerollsUsed) {
+                    totalRerolls += game.rerollsUsed[userId];
+                }
+            }
+        }
+
+        const GEM_COST = 0.01; // 1 gem = $0.01
+        const gemRevenue = totalRerolls * GEM_COST;
+
+        console.log(`\n💎 GEM RE-ROLL REVENUE CALCULATION:`);
+        console.log(`   Total re-rolls used in game: ${totalRerolls}`);
+        console.log(`   Gem revenue (re-rolls × $${GEM_COST}): $${gemRevenue.toFixed(2)}`);
+        console.log(`   Rake (10% commission): $${commission.toFixed(2)}`);
+        console.log(`   TOTAL REVENUE (rake + gems): $${(commission + gemRevenue).toFixed(2)}`);
+
         try {
             const revenue = new Revenue({
                 gameId: game.gameId,
                 amount: commission,
+                gemRevenue: gemRevenue,  // Track gem re-roll earnings
                 totalPot: totalPot,
                 winnerId: winner._id,
                 timestamp: new Date(),
@@ -267,9 +292,9 @@ const processGameSettlement = async (gameObj) => {
                 }
             });
             await revenue.save();
-            console.log(`   💵 Revenue recorded: $${commission.toFixed(2)} with game details`);
+            console.log(`   💵 Revenue recorded: Rake=$${commission.toFixed(2)}, Gems=$${gemRevenue.toFixed(2)}, Total=$${(commission + gemRevenue).toFixed(2)}`);
         } catch (revError) {
-            console.error(`   ❌ Error recording revenue  for game ${game.gameId}:`, revError);
+            console.error(`   ❌ Error recording revenue for game ${game.gameId}:`, revError);
         }
 
         // ============================================================================
@@ -546,13 +571,16 @@ const processGameRefund = async (gameId) => {
                     const user = await User.findOneAndUpdate(
                         { _id: player.userId },
                         {
-                            $inc: { balance: stake },
+                            $inc: {
+                                balance: stake,              // ✅ Return stake to available balance
+                                reservedBalance: -stake      // ✅ CRITICAL FIX: Clear reserved balance
+                            },
                             $push: {
                                 transactions: {
                                     type: 'refund',
                                     amount: stake,
                                     matchId: gameId,
-                                    description: `Refund for postponed/cancelled game ${gameId}`,
+                                    description: `Full refund for cancelled game ${gameId} (balance + reserved cleared)`,
                                     timestamp: new Date()
                                 }
                             }
@@ -561,7 +589,7 @@ const processGameRefund = async (gameId) => {
                     );
 
                     if (user) {
-                        console.log(`   ✅ Atomic Refund: $${stake.toFixed(2)} to ${user.username || player.color} (New Balance: $${user.balance.toFixed(2)})`);
+                        console.log(`   ✅ Atomic Refund: $${stake.toFixed(2)} to ${user.username || player.color} (New Balance: $${user.balance.toFixed(2)}, Reserved: $${user.reservedBalance.toFixed(2)})`);
                     } else {
                         console.error(`   🚨 User not found or update failed for refund: ${player.userId}`);
                     }
@@ -1137,12 +1165,17 @@ function executeRollDice(game) {
         game.message = `No legal moves for ${player.username || player.color} with a roll of ${roll}.`;
     }
 
-    // Set timer for human players if there are moves
-    if (moves.length > 0 && player && !player.isAI && !player.isDisconnected) {
-        console.log(`⏱️ Setting in-memory timer to 14s for ${player.color} (Move Phase)`);
-        game.timer = 14; // Set 14-second timer for human to make a move (Synced with server.js)
+    // Set timer for human players
+    if (player && !player.isAI && !player.isDisconnected) {
+        if (moves.length > 0) {
+            console.log(`⏱️ Setting in-memory timer to 14s for ${player.color} (Move Phase)`);
+            game.timer = 14;
+        } else {
+            console.log(`⏱️ Setting in-memory timer to 4s for ${player.color} (No Moves Phase - allowing reroll time)`);
+            game.timer = 4; // Give 4 seconds even if no moves to allow gem reroll
+        }
     } else {
-        game.timer = null; // No timer for AI or if no moves
+        game.timer = null; // No timer for AI
     }
 
     // The game object is modified in place, no return needed, but we return it for clarity.

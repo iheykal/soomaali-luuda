@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { gameAPI } from '../services/gameAPI';
 import RejoinGameBanner from './RejoinGameBanner';
 import WithdrawalTestimonials from './WithdrawalTestimonials';
-import { Copy } from 'lucide-react';
+import { Copy, Gem } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import AdminQuickActions from './AdminQuickActions';
 import SlidingNotification from './SlidingNotification';
@@ -406,6 +406,18 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
             <div className="flex flex-col items-start">
               <span className="text-xs text-green-100 font-medium">Balance</span>
               <span className="text-sm font-bold text-white">${user?.balance?.toFixed(2) || '0.00'}</span>
+            </div>
+          </div>
+
+          {/* Gems Balance Display */}
+          <div
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 rounded-lg cursor-pointer transition-all duration-300 shadow-lg border border-purple-400/30"
+            title="Gems for re-rolls (1 gem = $0.01)"
+          >
+            <Gem className="w-5 h-5 text-white" />
+            <div className="flex flex-col items-start">
+              <span className="text-xs text-purple-100 font-medium">Gems</span>
+              <span className="text-sm font-bold text-white">{user?.gems || 0}</span>
             </div>
           </div>
 

@@ -31,49 +31,6 @@ const roundCurrency = (value) => {
   return Math.round(value * 100) / 100;
 };
 
-/**
- * Prepares the game state for emitting via Socket.IO.
- * Handles Map-to-Object conversion for properties like rerollsUsed and forcedRolls.
- * @param {Object} game - The game document or object to process.
- * @returns {Object} - A plain JavaScript object safe for JSON serialization.
- */
-const prepareGameStateForEmit = (game) => {
-  if (!game) return null;
-
-  // Convert Mongoose document to plain object if needed
-  let state = game.toObject ? game.toObject() : game;
-
-  // 1. Flatten rerollsUsed Map
-  if (state.rerollsUsed) {
-    if (state.rerollsUsed instanceof Map) {
-      state.rerollsUsed = Object.fromEntries(state.rerollsUsed);
-    } else if (typeof state.rerollsUsed === 'object' && !Array.isArray(state.rerollsUsed)) {
-      // Already an object, ensure it's not a Mongoose Map wrapper by chance
-      if (state.rerollsUsed.constructor && state.rerollsUsed.constructor.name === 'MongooseMap') {
-        state.rerollsUsed = Object.fromEntries(game.rerollsUsed);
-      }
-    }
-  } else {
-    state.rerollsUsed = {};
-  }
-
-  // 2. Flatten forcedRolls Map
-  if (state.forcedRolls && state.forcedRolls instanceof Map) {
-    state.forcedRolls = Object.fromEntries(state.forcedRolls);
-  } else if (state.forcedRolls && typeof state.forcedRolls === 'object' && !Array.isArray(state.forcedRolls)) {
-    if (state.forcedRolls.constructor && state.forcedRolls.constructor.name === 'MongooseMap') {
-      state.forcedRolls = Object.fromEntries(game.forcedRolls);
-    }
-  }
-
-  // 3. Ensure diceValue is a number (sometimes stored as string in older logic)
-  if (state.diceValue !== undefined && state.diceValue !== null) {
-    state.diceValue = Number(state.diceValue);
-  }
-
-  return state;
-};
-
 // Simple request logger middleware
 app.use((req, res, next) => {
   console.log(`[INCOMING REQUEST] Method: ${req.method}, URL: ${req.originalUrl}, IP: ${req.ip}`);
@@ -454,8 +411,7 @@ app.post('/api/auth/register', async (req, res) => {
       username: userData.username,
       phone: userData.phone,
       email: userData.email,
-      balance: userData.balance !== undefined ? userData.balance : 0,
-      gems: userData.gems !== undefined ? userData.gems : 0,
+      balance: userData.balance || 0,
       role: userData.role,
       avatar: userData.avatar, // Use database value, don't override with hardcoded URL
       status: userData.status,
@@ -572,8 +528,7 @@ app.post('/api/auth/login', async (req, res) => {
       username: userData.username,
       phone: userData.phone,
       email: userData.email,
-      balance: userData.balance !== undefined ? userData.balance : 0,
-      gems: userData.gems !== undefined ? userData.gems : 0,
+      balance: userData.balance || 0,
       role: userData.role,
       avatar: userData.avatar, // Use database value, don't override with hardcoded URL
       status: userData.status,
@@ -612,8 +567,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       username: userData.username,
       phone: userData.phone,
       email: userData.email,
-      balance: userData.balance !== undefined ? userData.balance : 0,
-      gems: userData.gems !== undefined ? userData.gems : 0,
+      balance: userData.balance || 0,
       role: userData.role,
       avatar: userData.avatar, // Use database value, don't override with hardcoded URL
       status: userData.status,
@@ -882,8 +836,7 @@ app.post('/api/auth/create-user', authenticateToken, async (req, res) => {
       username: userData.username,
       phone: userData.phone,
       email: userData.email,
-      balance: userData.balance !== undefined ? userData.balance : 0,
-      gems: userData.gems !== undefined ? userData.gems : 0,
+      balance: userData.balance || 0,
       role: userData.role,
       avatar: userData.avatar,
       status: userData.status,
@@ -2114,87 +2067,6 @@ app.get('/api/admin/user/:userId/details', authenticateToken, authorizeAdmin, as
   }
 });
 
-
-// ===== GEMS API ROUTES =====
-app.post('/api/admin/deposit-gems', authenticateToken, authorizeAdmin, async (req, res) => {
-  console.log(`💎 API HIT: /api/admin/deposit-gems [POST]`); // DEBUG LOG
-
-  try {
-    const { userId, gemAmount, comment } = req.body;
-    const adminUser = req.user;
-
-    if (!userId || !gemAmount || gemAmount <= 0) {
-      return res.status(400).json({ error: 'User ID and valid gem amount required' });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const gemsToAdd = parseInt(gemAmount);
-    // SAFELY handle undefined gems for legacy users
-    // Ensure gems is initialized to 0 if undefined to prevent NaN issues
-    if (user.gems === undefined || user.gems === null || isNaN(user.gems)) {
-      user.gems = 0;
-    }
-
-    // Safety check for balance too
-    if (user.balance === undefined || user.balance === null || isNaN(user.balance)) {
-      user.balance = 0;
-    }
-
-    user.gems += gemsToAdd;
-
-    user.transactions.push({
-      type: 'gem_purchase',
-      amount: gemsToAdd,
-      description: comment || `Admin ${adminUser.username} deposited ${gemsToAdd} gems`,
-      createdAt: new Date()
-    });
-
-    await user.save();
-
-    console.log(`✅ Admin ${adminUser.username} deposited ${gemsToAdd} gems to ${user.username}`);
-
-    res.json({
-      success: true,
-      message: `Successfully deposited ${gemsToAdd} gems to ${user.username}`,
-      newGemBalance: user.gems
-    });
-
-  } catch (error) {
-    console.error('Gem deposit error:', error);
-    res.status(500).json({ error: 'Failed to deposit gems' });
-  }
-});
-
-app.get('/api/admin/gems/:userId', authenticateToken, authorizeAdmin, async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const gemTransactions = user.transactions.filter(t =>
-      t.type === 'gem_purchase' || t.type === 'gem_usage'
-    ).slice(-20);
-
-    res.json({
-      username: user.username,
-      gems: user.gems,
-      transactions: gemTransactions
-    });
-
-  } catch (error) {
-    console.error('Get gem balance error:', error);
-    res.status(500).json({ error: 'Failed to fetch gem data' });
-  }
-});
-
-
 // --- WALLET & PAYMENT ROUTES ---
 
 // GET: User - Get My Requests
@@ -2888,49 +2760,17 @@ const createMatch = async (player1, player2, stake) => {
 
       // Try to refund the stakes since match failed
       try {
-        // ✅ FIX: Use atomic updates instead of save() to guarantee consistency
-        await User.updateOne(
-          { _id: user1._id },
-          {
-            $inc: {
-              balance: stake,
-              reservedBalance: -stake
-            },
-            $push: {
-              transactions: {
-                type: 'refund',
-                amount: stake,
-                matchId: gameId,
-                description: `Match creation failed - full refund for game ${gameId}`,
-                timestamp: new Date()
-              }
-            }
-          }
-        );
+        user1.balance = roundCurrency(user1.balance + stake);
+        user1.reservedBalance = roundCurrency(Math.max(0, (user1.reservedBalance || 0) - stake));
+        await user1.save();
 
-        await User.updateOne(
-          { _id: user2._id },
-          {
-            $inc: {
-              balance: stake,
-              reservedBalance: -stake
-            },
-            $push: {
-              transactions: {
-                type: 'refund',
-                amount: stake,
-                matchId: gameId,
-                description: `Match creation failed - full refund for game ${gameId}`,
-                timestamp: new Date()
-              }
-            }
-          }
-        );
+        user2.balance = roundCurrency(user2.balance + stake);
+        user2.reservedBalance = roundCurrency(Math.max(0, (user2.reservedBalance || 0) - stake));
+        await user2.save();
 
-        console.log(`💰 Full atomic refunds completed for both players due to match creation failure`);
+        console.log(`💰 Refunded stakes to both players due to match creation failure`);
       } catch (refundError) {
-        console.error('❌ CRITICAL: Atomic refund failed:', refundError);
-        // TODO: Log to database for manual resolution
+        console.error('❌ Error refunding stakes:', refundError);
       }
 
       return;
@@ -3082,7 +2922,9 @@ const createMatch = async (player1, player2, stake) => {
           console.log(`📤 Initial game state: currentPlayerIndex=${finalState.currentPlayerIndex}, turnState=${finalState.turnState}, diceValue=${finalState.diceValue}, gameStarted=${finalState.gameStarted}`);
 
           // Ensure state is a plain object
-          io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(finalState) });
+          const plainState = finalState.toObject ? finalState.toObject() : finalState;
+          console.log(`📤 [CRITICAL] Emitting GAME_STATE_UPDATE to ${gameId} with state:`, JSON.stringify(plainState, null, 2));
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
 
           // Start timer for first player if human and connected
           const firstPlayer = game.players[game.currentPlayerIndex];
@@ -3221,21 +3063,21 @@ const scheduleHumanPlayerAutoRoll = (gameId) => {
       const result = await gameEngine.handleAutoRoll(gameId, true);
       if (result && result.success) {
         const gameState = result.state;
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(gameState) });
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
         if (gameState.legalMoves.length === 0) {
           setTimeout(async () => {
             const passTurnResult = await gameEngine.handlePassTurn(gameId); // Assume exists or handle via engine
             // Fallback if handlePassTurn not handy: manually update
             // Actually, gameEngine.handleAutoMove usually handles 'no moves' logic via calling getNextPlayer
             // But let's trust the engine for now.
-            io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(passTurnResult?.state || gameState) });
+            io.to(gameId).emit('GAME_STATE_UPDATE', { state: passTurnResult?.state || gameState });
             if (passTurnResult?.state) {
               const nextPlayer = passTurnResult.state.players[passTurnResult.state.currentPlayerIndex];
               if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
                 scheduleHumanPlayerAutoRoll(gameId);
               }
             }
-          }, 4000); // Increased auto-pass delay to 4000ms
+          }, 1200);
         } else {
           // Whether it's 1 move, 2 moves, or 10 moves, ALWAYS wait for the human to choose.
           // Consent is key. Do not auto-move.
@@ -3266,7 +3108,7 @@ const scheduleHumanPlayerAutoMove = (gameId) => {
       const result = await gameEngine.handleAutoMove(gameId);
       if (result && result.success) {
         const plainState = result.state;
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(plainState) });
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
         const nextPlayer = plainState.players[plainState.currentPlayerIndex];
         if (plainState.turnState === 'ROLLING') {
           if (nextPlayer && !nextPlayer.isAI && !nextPlayer.isDisconnected) {
@@ -3317,7 +3159,7 @@ const runAutoTurn = async (gameId) => {
   if (result.success) {
     const plainState = result.state.toObject ? result.state.toObject() : result.state;
     if (plainState.diceValue !== null && plainState.diceValue !== undefined) plainState.diceValue = Number(plainState.diceValue);
-    io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(plainState) });
+    io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
 
     if (plainState.legalMoves && plainState.legalMoves.length === 0 && plainState.diceValue !== null && plainState.turnState === 'MOVING') {
       setTimeout(async () => {
@@ -3331,7 +3173,7 @@ const runAutoTurn = async (gameId) => {
           game.legalMoves = [];
           await game.save();
           const updatedState = game.toObject ? game.toObject() : game;
-          io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(updatedState) });
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
           const nextPlayer = game.players[nextPlayerIndex];
           if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
         }
@@ -3369,20 +3211,16 @@ io.on('connection', (socket) => {
 
 
 
-  socket.on('create_match_request', async ({ stake, userName, userId }) => {
+  socket.on('create_match_request', async ({ stake, userName }) => {
     try {
-      // ✅ FIX: Accept userId from payload, fallback to socket.data
-      const effectiveUserId = userId || socket.data.userId;
-      if (!effectiveUserId) {
-        console.error('❌ create_match_request: No userId provided or stored');
-        return socket.emit('ERROR', { message: 'Authentication required' });
-      }
+      const userId = socket.data.userId;
+      if (!userId) return socket.emit('ERROR', { message: 'Authentication required' });
 
       const numericStake = parseFloat(stake);
       if (!numericStake || numericStake <= 0 || isNaN(numericStake)) {
         return socket.emit('ERROR', { message: 'Invalid stake amount' });
       }
-      const user = await User.findById(effectiveUserId);
+      const user = await User.findById(userId);
       if (!user) {
         return socket.emit('ERROR', { message: 'User not found' });
       }
@@ -3390,11 +3228,11 @@ io.on('connection', (socket) => {
         return socket.emit('ERROR', { message: 'Super Admin cannot create match requests' });
       }
       for (const [id, req] of activeMatchRequests.entries()) {
-        if (req.userId === effectiveUserId) {
+        if (req.userId === userId) {
           return socket.emit('ERROR', { message: 'You already have an active match request' });
         }
       }
-      const activeGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': effectiveUserId });
+      const activeGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': userId });
       if (activeGame) {
         return socket.emit('ERROR', { message: 'You are already in an active game. Please finish it first.' });
       }
@@ -3406,7 +3244,7 @@ io.on('connection', (socket) => {
       const requestId = crypto.randomBytes(8).toString('hex');
       const expiresAt = Date.now() + 120000;
 
-      const request = { requestId, userId: effectiveUserId, userName: userName || user.username, stake: numericStake, socketId: socket.id, expiresAt, createdAt: Date.now() };
+      const request = { requestId, userId, userName: userName || user.username, stake: numericStake, socketId: socket.id, expiresAt, createdAt: Date.now() };
       activeMatchRequests.set(requestId, request);
 
       const timer = setTimeout(() => {
@@ -3421,67 +3259,63 @@ io.on('connection', (socket) => {
       requestTimers.set(requestId, timer);
 
       socket.emit('match_request_created', { requestId });
-      const broadcastRequest = { requestId, userId: effectiveUserId, userName: userName || user.username, stake: numericStake, timeRemaining: 120 };
+      const broadcastRequest = { requestId, userId, userName: userName || user.username, stake: numericStake, timeRemaining: 120 };
       socket.broadcast.emit('new_match_request', { request: broadcastRequest });
     } catch (error) {
       socket.emit('ERROR', { message: 'Failed to create match request: ' + error.message });
     }
   });
 
-  socket.on('accept_match_request', async ({ requestId, userName, userId }) => {
+  socket.on('accept_match_request', async ({ requestId, userName }) => {
     // CRITICAL: Fetch request FIRST before any validation
-    // ✅ FIX: Accept userId from payload, fallback to socket.data
-    const effectiveUserId = userId || socket.data.userId;
-    if (!effectiveUserId) {
-      console.error('❌ accept_match_request: No userId provided or stored');
-      return socket.emit('ERROR', { message: 'Authentication required' });
-    }
+    const userId = socket.data.userId;
+    if (!userId) return socket.emit('ERROR', { message: 'Authentication required' });
 
     const request = activeMatchRequests.get(requestId);
     if (!request) {
       return socket.emit('ERROR', { message: 'Match request no longer available' });
     }
-    if (request.userId === effectiveUserId) {
+    if (request.userId === userId) {
       return socket.emit('ERROR', { message: 'Cannot accept your own match request' });
     }
 
     try {
       // Validate MongoDB ObjectId format before querying
-      if (!effectiveUserId || typeof effectiveUserId !== 'string') {
-        console.error(`[MATCHMAKING] Invalid userId format: ${effectiveUserId}`);
+      if (!userId || typeof userId !== 'string') {
+        console.error(`[MATCHMAKING] Invalid userId format: ${userId}`);
         return socket.emit('ERROR', { message: 'Invalid user ID' });
       }
 
       // CRITICAL FIX: Fetch the acceptor user from database with error handling
       let acceptor;
       try {
-        acceptor = await User.findById(effectiveUserId);
+        acceptor = await User.findById(userId);
       } catch (dbError) {
-        console.error(`[MATCHMAKING] Database error finding user ${effectiveUserId}:`, dbError);
+        console.error(`[MATCHMAKING] Database error finding user ${userId}:`, dbError);
         return socket.emit('ERROR', { message: 'Failed to verify user' });
       }
 
       if (!acceptor) {
-        console.error(`[MATCHMAKING] User not found: ${effectiveUserId}`);
+        console.error(`[MATCHMAKING] User not found: ${userId}`);
         return socket.emit('ERROR', { message: 'User not found' });
       }
 
       // FIX: Use rounding to prevent floating point errors
       if (Math.round(acceptor.balance * 100) < Math.round(request.stake * 100)) {
-        console.log(`[MATCHMAKING] User ${effectiveUserId} has insufficient balance: ${acceptor.balance} < ${request.stake}`);
+        console.log(`[MATCHMAKING] User ${userId} has insufficient balance: ${acceptor.balance} < ${request.stake}`);
         return socket.emit('ERROR', { message: 'Insufficient funds' });
       }
 
       // DUPLICATE MATCH PREVENTION
       // 1. Check if acceptor is already in an active game
-      const acceptorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': effectiveUserId });
+      const acceptorActiveGame = await Game.findOne({ status: 'ACTIVE', 'players.userId': userId });
       if (acceptorActiveGame) {
         return socket.emit('ERROR', { message: 'You are already in an active game.' });
       }
 
       // 2. Check if acceptor has an active match request (cleanup)
       for (const [id, req] of activeMatchRequests.entries()) {
-        if (req.userId === effectiveUserId) {
+        if (req.userId === userId) {
           // Remove their request automatically or block?
           // Let's block to avoid confusion, or auto-remove. Blocking is safer.
           return socket.emit('ERROR', { message: 'You have an active match request. Cancel it first.' });
@@ -3504,18 +3338,17 @@ io.on('connection', (socket) => {
         requestTimers.delete(requestId);
       }
       io.emit('match_request_accepted', { requestId, acceptorName: userName || acceptor.username });
-      await createMatch({ socketId: request.socketId, userId: request.userId, userName: request.userName }, { socketId: socket.id, userId: effectiveUserId, userName: userName || acceptor.username }, request.stake);
+      await createMatch({ socketId: request.socketId, userId: request.userId, userName: request.userName }, { socketId: socket.id, userId, userName: userName || acceptor.username }, request.stake);
     } catch (error) {
       console.error(`[MATCHMAKING CRITICAL] Unexpected error in accept_match_request:`, error);
       return socket.emit('ERROR', { message: 'Failed to process match request' });
     }
   });
 
-  socket.on('cancel_match_request', async ({ requestId, userId }) => {
-    // ✅ FIX: Accept userId from payload, fallback to socket.data
-    const effectiveUserId = userId || socket.data.userId;
+  socket.on('cancel_match_request', async ({ requestId }) => {
+    const userId = socket.data.userId;
     const request = activeMatchRequests.get(requestId);
-    if (request && String(request.userId) === String(effectiveUserId)) {
+    if (request && String(request.userId) === String(userId)) {
       activeMatchRequests.delete(requestId);
       const timer = requestTimers.get(requestId);
       if (timer) {
@@ -3579,7 +3412,7 @@ io.on('connection', (socket) => {
     try {
       const game = await Game.findOne({ gameId });
       if (game) {
-        socket.emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(game) });
+        socket.emit('GAME_STATE_UPDATE', { state: game.toObject ? game.toObject() : game });
       } else {
         socket.emit('ERROR', { message: 'Game not found' });
       }
@@ -3604,7 +3437,7 @@ io.on('connection', (socket) => {
     const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
     if (result.success && result.state) {
       const plainState = result.state.toObject ? result.state.toObject() : result.state;
-      io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(plainState) });
+      io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
 
       if (result.state.status === 'ACTIVE') {
         const currentPlayer = result.state.players[result.state.currentPlayerIndex];
@@ -3656,7 +3489,9 @@ io.on('connection', (socket) => {
     }
 
     if (result.success) {
-      const gameState = prepareGameStateForEmit(result.state);
+      const gameState = result.state.toObject ? result.state.toObject() : result.state;
+      if (gameState.diceValue !== null && gameState.diceValue !== undefined) gameState.diceValue = Number(gameState.diceValue);
+
       io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
 
       if (gameState.legalMoves && gameState.legalMoves.length > 0) {
@@ -3665,7 +3500,7 @@ io.on('connection', (socket) => {
           scheduleHumanPlayerAutoMove(gameId);
         }
       } else if (gameState.legalMoves && gameState.legalMoves.length === 0 && gameState.diceValue !== null) {
-        console.log(`🎲 No legal moves for game ${gameId}. Scheduling auto-pass in 4.0s...`);
+        console.log(`🎲 No legal moves for game ${gameId}. Scheduling auto-pass in 1.2s...`);
         if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
         setTimeout(async () => {
           console.log(`🎲 Executing auto-pass for game ${gameId}...`);
@@ -3680,14 +3515,15 @@ io.on('connection', (socket) => {
             // FIX: Ensure lastEvent is cleared
             // game.lastEvent = null; 
             await game.save();
-            io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(game) });
+            const updatedState = game.toObject ? game.toObject() : game;
+            io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
             const nextPlayer = game.players[nextPlayerIndex];
             if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, 1500);
             else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
           } else {
             console.log(`⚠️ Auto-pass aborted for game ${gameId}. State mismatch: Turn=${game?.turnState}, Moves=${game?.legalMoves?.length}`);
           }
-        }, 4000); // 4.0s delay for auto-pass (gave player time to reroll)
+        }, 1200);
       }
 
       const gameRecord = await Game.findOne({ gameId });
@@ -3722,7 +3558,7 @@ io.on('connection', (socket) => {
         // If we have gameCheck already, use it
         if (gameCheck) {
           console.log(`[SOCKET] Emitting GAME_STATE_UPDATE due to specific error for game ${gameId}`);
-          socket.emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(gameCheck) });
+          socket.emit('GAME_STATE_UPDATE', { state: gameCheck.toObject ? gameCheck.toObject() : gameCheck });
         }
       }
     }
@@ -3739,7 +3575,7 @@ io.on('connection', (socket) => {
       if (result.killedTokenId) io.to(gameId).emit('TOKEN_KILLED', { killedTokenId: result.killedTokenId });
 
       if (plainState.turnState !== 'ROLLING' && plainState.diceValue === null) plainState.turnState = 'ROLLING';
-      io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(plainState) });
+      io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
       if (result.settlementData) {
         const winnerPlayer = plainState.players.find(p => p.userId === result.settlementData.winnerId);
         if (winnerPlayer && winnerPlayer.socketId) io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
@@ -3819,142 +3655,23 @@ io.on('connection', (socket) => {
         await game.save();
         console.log(`✅ Forced roll saved. Next roll for ${targetColor} will be ${diceValue}`);
         socket.emit('admin_ack', { message: `Force roll set: ${diceValue} for ${targetColor}` });
+      } else {
+        socket.emit('ERROR', { message: 'Game not found' });
       }
     } catch (e) {
       console.error('Error setting forced roll:', e);
     }
   });
 
-  // ===== GEM RE-ROLL SYSTEM =====
-  socket.on('use_gem_reroll', async ({ gameId, userId }) => {
-    console.log(`💎 GEM RE-ROLL REQUEST from ${socket.id} for game ${gameId}`);
-    try {
-      // ✅ FIX: Accept userId from payload, fallback to socket.data
-      const effectiveUserId = userId || socket.data.userId;
-      if (!effectiveUserId) {
-        console.warn(`⚠️ [GEM] Unauthorized re-roll attempt from socket ${socket.id}`);
-        return socket.emit('ERROR', { message: 'Authentication required' });
-      }
-
-      const user = await User.findById(effectiveUserId);
-      if (!user) {
-        console.error(`❌ [GEM] User ${effectiveUserId} not found for re-roll`);
-        return socket.emit('ERROR', { message: 'User not found' });
-      }
-
-      // Ensure fields are never NaN
-      if (isNaN(user.gems)) user.gems = 0;
-      if (isNaN(user.balance)) user.balance = 0;
-
-      // Check gem balance (1 gem = $0.01)
-      const GEM_COST = 1;
-      if ((user.gems || 0) < GEM_COST) {
-        console.log(`❌ [GEM] User ${effectiveUserId} insufficient gems: ${user.gems}`);
-        return socket.emit('ERROR', { message: 'Insufficient gems. Purchase gems to use re-roll.' });
-      }
-
-      const game = await Game.findOne({ gameId });
-      if (!game || game.status !== 'ACTIVE') {
-        console.warn(`⚠️ [GEM] Game ${gameId} not found or not active for re-roll`);
-        return socket.emit('ERROR', { message: 'Game not found or not active' });
-      }
-
-      // Verify it's this player's turn
-      const currentPlayer = game.players[game.currentPlayerIndex];
-      if (!currentPlayer || String(currentPlayer.userId) !== String(effectiveUserId)) {
-        console.warn(`⚠️ [GEM] User ${effectiveUserId} tried to re-roll on someone else's turn`);
-        return socket.emit('ERROR', { message: 'Not your turn' });
-      }
-
-      // turnState must be MOVING (after roll) or ROLLING (if no moves possible)
-      // but usually after a roll they are in MOVING or the backend might have passed turn if no moves.
-      if (game.turnState === 'ROLLING' && game.diceValue === null) {
-        return socket.emit('ERROR', { message: 'Roll the dice first before re-rolling!' });
-      }
-
-      // Check re-roll limit (max 4 per game per player)
-      const MAX_REROLLS = 4;
-      let rerollCount = 0;
-      if (game.rerollsUsed) {
-        if (game.rerollsUsed instanceof Map) {
-          rerollCount = game.rerollsUsed.get(effectiveUserId) || 0;
-        } else {
-          rerollCount = game.rerollsUsed[effectiveUserId] || 0;
-        }
-      }
-
-      if (rerollCount >= MAX_REROLLS) {
-        return socket.emit('ERROR', { message: '4 tii jeer ee lagugu tala galay way kaa dhamaatay xadkii lagugu tala galay' });
-      }
-
-      // Deduct gem from user
-      user.gems = (user.gems || 0) - GEM_COST;
-      user.transactions.push({
-        type: 'gem_usage',
-        amount: -GEM_COST,
-        matchId: gameId,
-        description: `Used gem for re-roll in game ${gameId}`,
-        createdAt: new Date()
-      });
-      await user.save();
-
-      // Update re-roll count
-      if (!game.rerollsUsed) {
-        game.rerollsUsed = new Map();
-      }
-      if (game.rerollsUsed instanceof Map) {
-        game.rerollsUsed.set(effectiveUserId, rerollCount + 1);
-      } else {
-        game.rerollsUsed[effectiveUserId] = rerollCount + 1;
-      }
-
-      // Grant re-roll: Reset turn state to ROLLING
-      game.turnState = 'ROLLING';
-      game.diceValue = null;
-      game.legalMoves = [];
-      game.message = `${currentPlayer.username || currentPlayer.color} used a gem to Undo! 💎`;
-      game.timer = 7; // Reset timer for roll
-
-      game.markModified('rerollsUsed');
-      await game.save();
-
-      console.log(`✅ Gem Undo granted to ${effectiveUserId}. Gems remaining: ${user.gems}, Undos used: ${rerollCount + 1}/${MAX_REROLLS}`);
-
-      // Emit updated game state using helper for proper serialization
-      io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(game) });
-
-      // Emit gem update to player
-      socket.emit('gem_reroll_success', {
-        gemsRemaining: user.gems,
-        rerollsUsed: rerollCount + 1,
-        rerollsRemaining: MAX_REROLLS - (rerollCount + 1)
-      });
-
-      // Restart turn timer
-      if (!currentPlayer.isAI && !currentPlayer.isDisconnected) {
-        scheduleHumanPlayerAutoRoll(gameId);
-      }
-
-    } catch (error) {
-      console.error('❌ [GEM] Gem re-roll error:', error);
-      socket.emit('ERROR', { message: 'Failed to process gem re-roll' });
-    }
-  });
-
   socket.on('send_chat_message', async ({ gameId, userId, message }) => {
-    try {
-      if (!gameId || !userId) return;
 
-      const game = await Game.findOne({ gameId });
-      if (game) {
-        const player = game.players.find(p => p.userId === userId);
-        if (player) {
-          const chatData = { userId, playerColor: player.color, playerName: player.username || player.userId, message, timestamp: Date.now() };
-          io.to(gameId).emit('chat_message', chatData);
-        }
+    const game = await Game.findOne({ gameId });
+    if (game) {
+      const player = game.players.find(p => p.userId === userId);
+      if (player) {
+        const chatData = { userId, playerColor: player.color, playerName: player.username || player.userId, message, timestamp: Date.now() };
+        io.to(gameId).emit('chat_message', chatData);
       }
-    } catch (error) {
-      console.error('Chat error:', error);
     }
   });
 
@@ -3964,7 +3681,7 @@ io.on('connection', (socket) => {
     try {
       const game = await Game.findOne({ gameId });
       if (game) {
-        socket.emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(game) });
+        socket.emit('GAME_STATE_UPDATE', { state: game.toObject ? game.toObject() : game });
 
         // Check if we need to restart a dead timer
         const currentPlayer = game.players[game.currentPlayerIndex];
@@ -3993,7 +3710,7 @@ io.on('connection', (socket) => {
               if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
               const result = await gameEngine.handleDisconnect(gameId, socket.id);
               if (result) {
-                io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(result.state) });
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
                 if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
               }
 
@@ -4006,7 +3723,7 @@ io.on('connection', (socket) => {
         if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
         const result = await gameEngine.handleDisconnect(gameId, socket.id);
         if (result) {
-          io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(result.state) });
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
 
           const hasConnectedHuman = result.state.players.some(p => p.userId && !p.isAI && !p.isDisconnected && p.socketId);
 
@@ -4270,7 +3987,7 @@ io.on('connection', (socket) => {
 
               const result = await gameEngine.handleDisconnect(gameId, socket.id);
               if (result) {
-                io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(result.state) });
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
                 if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
               }
               console.log(`🤖 Disconnect timeout reached for ${player.color} in ${gameId}. Bot taking over.`);
@@ -4286,7 +4003,7 @@ io.on('connection', (socket) => {
         if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
         const result = await gameEngine.handleDisconnect(gameId, socket.id);
         if (result) {
-          io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(result.state) });
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
           if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
         }
       } catch (err) {
@@ -4474,7 +4191,7 @@ setInterval(async () => {
 
             // Broadast
             const updatedGame = await Game.findOne({ gameId: game.gameId });
-            if (updatedGame) io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(updatedGame) });
+            if (updatedGame) io.to(game.gameId).emit('GAME_STATE_UPDATE', { state: updatedGame.toObject() });
           }
         }
       }

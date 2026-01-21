@@ -26,6 +26,7 @@ import SuperAdminDashboard from './components/superadmin/SuperAdminDashboard';
 import Wallet from './components/Wallet';
 import ReferralDashboard from './components/ReferralDashboard';
 import AdminDiceControl from './components/AdminDiceControl';
+import CompactGemReroll from './components/CompactGemReroll';
 
 type View = 'setup' | 'game' | 'multiplayer-lobby' | 'login' | 'register' | 'reset-password' | 'superadmin' | 'wallet';
 
@@ -479,8 +480,8 @@ const AppContent: React.FC = () => {
             </button>
           </div> */}
 
-          {/* Prize Display - Always visible during gameplay */}
-          {multiplayerConfig && state.stake && state.stake > 0 && (
+          {/* Prize Display - Only visible to players, not spectators */}
+          {multiplayerConfig && state.stake && state.stake > 0 && !multiplayerConfig.isSpectator && (
             <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-10">
               <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-4 py-2 rounded-full shadow-xl border border-yellow-300">
                 <div className="flex items-center gap-2">
@@ -517,7 +518,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex-shrink-0 p-2 flex justify-center">
+          <div className="flex-shrink-0 p-2 flex flex-col items-center gap-4">
             <Dice
               value={state.diceValue}
               onRoll={handleRollDice}
@@ -528,6 +529,26 @@ const AppContent: React.FC = () => {
               potAmount={state.stake}
             />
           </div>
+
+          {/* Compact Gem Reroll - Positioned above chat button */}
+          {multiplayerConfig && isMyTurn && !multiplayerConfig.isSpectator && (
+            <div className="fixed bottom-24 right-6 z-50">
+              <CompactGemReroll
+                gameId={multiplayerConfig.gameId}
+                userId={user?.id || user?._id || ''}
+                socket={socket}
+                userGems={user?.gems || 0}
+                rerollsUsed={state.rerollsUsed?.[user?.id || user?._id || ''] || 0}
+                maxRerolls={4}
+                currentPlayerTurn={isMyTurn}
+                turnState={state.turnState}
+                onRerollSuccess={async () => {
+                  // Refresh user gems in background
+                  if (refreshUser) await refreshUser();
+                }}
+              />
+            </div>
+          )}
 
           {/* Quick Chat - Only for multiplayer games */}
           {multiplayerConfig && socket && (

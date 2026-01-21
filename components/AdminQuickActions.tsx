@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { API_URL } from '../lib/apiConfig';
 import { adminAPI } from '../services/adminAPI';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +12,7 @@ interface QuickUser {
     username: string;
     phone: string;
     balance: number;
+    gems?: number;
     avatar?: string;
     role: string;
 }
@@ -28,7 +30,7 @@ const AdminQuickActions: React.FC = () => {
 
     // Confirmation Modal State
     const [showConfirmModal, setShowConfirmModal] = useState(false);
-    const [confirmAction, setConfirmAction] = useState<{ type: 'DEPOSIT' | 'WITHDRAWAL', amount: number } | null>(null);
+    const [confirmAction, setConfirmAction] = useState<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'GEM_DEPOSIT', amount: number } | null>(null);
 
     // Receipt state
     const receiptRef = useRef<HTMLDivElement>(null);
@@ -172,22 +174,42 @@ const AdminQuickActions: React.FC = () => {
         setShowConfirmModal(false);
         setActionLoading(true);
         try {
-            // Pass the authenticated admin's ID for proper tracking
+            if (type === 'GEM_DEPOSIT') {
+                const response = await fetch(`${API_URL}/admin/deposit-gems`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('ludo_token')}`
+                    },
+                    body: JSON.stringify({
+                        userId: user.userId,
+                        gemAmount: transactionAmount,
+                        comment: `Quick Action: ${transactionAmount} gems`
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    toast.success(`💎 ${transactionAmount} gems deposited! ($${(transactionAmount * 0.01).toFixed(2)})`);
+                    setUser(prev => prev ? ({ ...prev, gems: data.newGemBalance }) : null);
+                    setConfirmAction(null);
+                } else {
+                    toast.error(data.error || 'Failed to deposit gems');
+                }
+                return; // Exit here for gem deposits
+            }
+
+            // Original logic for DEPOSIT/WITHDRAWAL
             const adminId = authUser?.id || authUser?._id || 'admin_quick_action';
-            const response = await adminAPI.performQuickTransaction(user.userId, type, transactionAmount, adminId);
+            const response = await adminAPI.performQuickTransaction(user.userId, type as 'DEPOSIT' | 'WITHDRAWAL', transactionAmount, adminId);
 
             if (response.success) {
                 toast.success(`${type} Successful! New Balance: $${response.newBalance.toFixed(2)}`);
-                // Update local state
                 setUser({ ...user, balance: response.newBalance });
                 setAmount('');
                 setConfirmAction(null);
                 setLastTransaction({ type, amount: transactionAmount });
-
-                // Refresh recent transactions
                 fetchRecentTransactions();
 
-                // Auto-generate receipt if request data is returned
                 if (response.request) {
                     const receiptRequest: FinancialRequest = {
                         id: response.request.id,
@@ -201,7 +223,6 @@ const AdminQuickActions: React.FC = () => {
                         timestamp: response.request.timestamp,
                         approverName: response.request.approverName
                     };
-
                     downloadReceipt(receiptRequest, user.username, user.phone);
                 }
             } else {
@@ -316,9 +337,16 @@ const AdminQuickActions: React.FC = () => {
                                 <div>
                                     <h4 className="text-xl font-bold text-white">{user.username} <span className="text-xs px-2 py-0.5 bg-slate-700 rounded-full text-slate-300">{user.role}</span></h4>
                                     <p className="text-slate-400 text-sm font-mono">{user.phone}</p>
-                                    <div className="mt-1 flex items-center gap-2">
-                                        <span className="text-green-400 font-bold text-lg">${user.balance.toFixed(2)}</span>
-                                        <span className="text-xs text-slate-500">Current Balance</span>
+                                    <div className="mt-1 flex items-center gap-4">
+                                        <div className="flex flex-col">
+                                            <span className="text-green-400 font-bold text-lg">${user.balance.toFixed(2)}</span>
+                                            <span className="text-xs text-slate-500">Balance</span>
+                                        </div>
+                                        <div className="bg-slate-700 w-px h-8"></div>
+                                        <div className="flex flex-col">
+                                            <span className="text-purple-400 font-bold text-lg">{user.gems || 0}</span>
+                                            <span className="text-xs text-slate-500">Gems</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -370,6 +398,29 @@ const AdminQuickActions: React.FC = () => {
                                         - Withdraw
                                     </button>
                                 </div>
+
+                                {/* Gems Deposit Section */}
+                                <div className="mt-3 pt-3 border-t border-slate-700">
+                                    <p className="text-xs text-purple-300 font-bold mb-2 flex items-center gap-1">
+                                        <span>💎</span> Deposit Gems (1 gem = $0.01)
+                                    </p>
+                                    <div className="flex gap-2 justify-center flex-wrap">
+                                        {[10, 25, 50, 100].map((gems) => (
+                                            <button
+                                                key={gems}
+                                                onClick={() => {
+                                                    if (!user || actionLoading) return;
+                                                    setConfirmAction({ type: 'GEM_DEPOSIT', amount: gems });
+                                                    setShowConfirmModal(true);
+                                                }}
+                                                disabled={actionLoading}
+                                                className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-xs text-white rounded-lg border border-purple-400/30 transition-all hover:scale-105 disabled:opacity-50"
+                                            >
+                                                💎 {gems}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -388,33 +439,35 @@ const AdminQuickActions: React.FC = () => {
                     }}
                 >
                     <div
-                        className={`bg-gradient-to-br ${confirmAction.type === 'DEPOSIT' ? 'from-green-500 via-green-600 to-emerald-600' : 'from-red-500 via-red-600 to-rose-600'} rounded-3xl max-w-md w-full p-8 shadow-2xl animate-in zoom-in duration-300`}
+                        className={`bg-gradient-to-br ${confirmAction.type === 'GEM_DEPOSIT' ? 'from-purple-600 via-fuchsia-600 to-pink-600' : (confirmAction.type === 'DEPOSIT' ? 'from-green-500 via-green-600 to-emerald-600' : 'from-red-500 via-red-600 to-rose-600')} rounded-3xl max-w-md w-full p-8 shadow-2xl animate-in zoom-in duration-300`}
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="text-center">
                             {/* Icon */}
                             <div className="bg-white/20 backdrop-blur-sm rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
                                 <span className="text-6xl">
-                                    {confirmAction.type === 'DEPOSIT' ? '💵' : '💸'}
+                                    {confirmAction.type === 'GEM_DEPOSIT' ? '💎' : (confirmAction.type === 'DEPOSIT' ? '💵' : '💸')}
                                 </span>
                             </div>
 
                             {/* Title */}
                             <h2 className="text-3xl font-bold text-white mb-4">
-                                {confirmAction.type === 'DEPOSIT' ? 'Dhigasho' : 'Bixiso'}
+                                {confirmAction.type === 'GEM_DEPOSIT' ? 'Dhigasho Gems' : (confirmAction.type === 'DEPOSIT' ? 'Dhigasho' : 'Bixiso')}
                             </h2>
 
                             {/* Message in Somali */}
                             <p className="text-xl text-white/95 mb-2 leading-relaxed">
-                                {confirmAction.type === 'DEPOSIT'
-                                    ? `Mahubtaa inaad lacag u dhigto`
-                                    : `Mahubtaa inaad lacag u bixiso`}
+                                {confirmAction.type === 'GEM_DEPOSIT'
+                                    ? `Mahubtaa inaad gems u dhigto`
+                                    : (confirmAction.type === 'DEPOSIT'
+                                        ? `Mahubtaa inaad lacag u dhigto`
+                                        : `Mahubtaa inaad lacag u bixiso`)}
                             </p>
 
                             {/* Amount and User */}
                             <div className="bg-white/10 rounded-xl p-4 mb-6 backdrop-blur-sm">
                                 <p className="text-4xl font-black text-white mb-2">
-                                    ${confirmAction.amount.toFixed(2)}
+                                    {confirmAction.type === 'GEM_DEPOSIT' ? `${confirmAction.amount} Gems` : `$${confirmAction.amount.toFixed(2)}`}
                                 </p>
                                 <p className="text-lg text-white/90">
                                     {user.username}

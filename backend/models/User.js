@@ -9,6 +9,7 @@ const UserSchema = new mongoose.Schema({
   email: { type: String },
   balance: { type: Number, default: 100.00 },
   reservedBalance: { type: Number, default: 0 }, // For holding bets during matches
+  gems: { type: Number, default: 0 }, // Virtual currency for re-rolls ($0.01 per gem)
   avatar: { type: String },
   role: { type: String, enum: ['USER', 'ADMIN', 'SUPER_ADMIN'], default: 'USER' },
   status: { type: String, enum: ['Active', 'Suspended'], default: 'Active' },
@@ -35,14 +36,20 @@ const UserSchema = new mongoose.Schema({
   transactions: [{
     type: {
       type: String,
-      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake', 'referral_earning']
+      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake', 'referral_earning', 'gem_purchase', 'gem_usage']
     },
     amount: Number,
     matchId: String,
     description: String,
     createdAt: { type: Date, default: Date.now }
   }]
-}, { _id: false }); // Important: Disable auto-generated ObjectId to use our String _id
+}, {
+  _id: false,
+  timestamps: true,
+  toObject: { getters: true },
+  toJSON: { getters: true },
+  versionKey: false
+});
 
 // ===== INDEX OPTIMIZATION =====
 // Compound index for admin dashboard (filter by role and status)

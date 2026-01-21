@@ -45,6 +45,7 @@ export interface GameState {
   status?: string;
   createdAt?: string;
   lastEvent?: string | null; // Track last game event (e.g., 'CAPTURE')
+  rerollsUsed?: Record<string, number>; // Tracking gem re-rolls per player
 }
 
 // New type for simulating a multiplayer game session
@@ -74,6 +75,7 @@ export interface User {
   email?: string;
   password?: string; // Simple password for demo
   balance: number;
+  gems?: number; // Virtual currency for re-rolls
   role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
   avatar: string;
   status: 'Active' | 'Suspended';
