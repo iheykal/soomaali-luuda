@@ -1610,6 +1610,7 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
         _id: rev._id,
         gameId: rev.gameId,
         amount: rev.amount,
+        gemRevenue: rev.gemRevenue || 0,
         totalPot: rev.totalPot,
         winnerId: rev.winnerId,
         timestamp: rev.timestamp,
@@ -1628,7 +1629,7 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
 
     const totalRevenue = await Revenue.aggregate([
       { $match: query },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
+      { $group: { _id: null, total: { $sum: { $add: ["$amount", { $ifNull: ["$gemRevenue", 0] }] } } } }
     ]);
     const totalRevenueAmount = totalRevenue.length > 0 ? totalRevenue[0].total : 0;
 

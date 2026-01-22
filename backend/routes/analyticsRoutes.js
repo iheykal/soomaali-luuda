@@ -61,7 +61,7 @@ router.get('/ggr', async (req, res) => {
                         month: { $month: '$timestamp' },
                         day: { $dayOfMonth: '$timestamp' }
                     },
-                    totalRevenue: { $sum: '$amount' },
+                    totalRevenue: { $sum: { $add: ['$amount', { $ifNull: ['$gemRevenue', 0] }] } },
                     gamesCount: { $sum: 1 }
                 }
             },
@@ -441,7 +441,7 @@ router.get('/overview', async (req, res) => {
                 {
                     $group: {
                         _id: null,
-                        totalRevenue: { $sum: '$amount' },
+                        totalRevenue: { $sum: { $add: ['$amount', { $ifNull: ['$gemRevenue', 0] }] } },
                         gamesCount: { $sum: 1 }
                     }
                 }
@@ -678,6 +678,50 @@ router.get('/profitable-players', async (req, res) => {
     } catch (error) {
         console.error('Profitable players analytics error:', error);
         res.status(500).json({ error: error.message || 'Failed to fetch profitable players' });
+    }
+});
+
+/**
+ * GET /api/admin/analytics/gem-revenue
+ * Get gem reroll revenue stats for different time ranges
+ */
+router.get('/gem-revenue', async (req, res) => {
+    try {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const last30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        const [today, week, month, allTime] = await Promise.all([
+            Revenue.aggregate([
+                { $match: { timestamp: { $gte: startOfToday } } },
+                { $group: { _id: null, total: { $sum: '$gemRevenue' }, count: { $sum: { $cond: [{ $gt: ['$gemRevenue', 0] }, 1, 0] } } } }
+            ]),
+            Revenue.aggregate([
+                { $match: { timestamp: { $gte: last7d } } },
+                { $group: { _id: null, total: { $sum: '$gemRevenue' }, count: { $sum: { $cond: [{ $gt: ['$gemRevenue', 0] }, 1, 0] } } } }
+            ]),
+            Revenue.aggregate([
+                { $match: { timestamp: { $gte: last30d } } },
+                { $group: { _id: null, total: { $sum: '$gemRevenue' }, count: { $sum: { $cond: [{ $gt: ['$gemRevenue', 0] }, 1, 0] } } } }
+            ]),
+            Revenue.aggregate([
+                { $group: { _id: null, total: { $sum: '$gemRevenue' }, count: { $sum: { $cond: [{ $gt: ['$gemRevenue', 0] }, 1, 0] } } } }
+            ])
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                today: today[0] || { total: 0, count: 0 },
+                last7d: week[0] || { total: 0, count: 0 },
+                last30d: month[0] || { total: 0, count: 0 },
+                allTime: allTime[0] || { total: 0, count: 0 }
+            }
+        });
+    } catch (error) {
+        console.error('Gem revenue analytics error:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch gem revenue data' });
     }
 });
 

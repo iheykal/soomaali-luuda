@@ -549,5 +549,29 @@ export const adminAPI = {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch profitable players';
       throw new Error(errorMessage);
     }
+  },
+
+  async getGemRevenueAnalytics(): Promise<{
+    success: boolean;
+    data: {
+      today: { total: number; count: number };
+      last7d: { total: number; count: number };
+      last30d: { total: number; count: number };
+      allTime: { total: number; count: number };
+    }
+  }> {
+    const url = `${getApiUrl()}/admin/analytics/gem-revenue`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch gem revenue analytics';
+      throw new Error(errorMessage);
+    }
   }
 };

@@ -65,7 +65,7 @@ router.get('/today', async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    totalRake: { $sum: '$amount' },
+                    totalRake: { $sum: { $add: ['$amount', { $ifNull: ['$gemRevenue', 0] }] } },
                     totalPot: { $sum: '$totalPot' },
                     gamesCount: { $sum: 1 }
                 }

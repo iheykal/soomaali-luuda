@@ -25,6 +25,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
     const [todayData, setTodayData] = useState<any>(null);
     const [churnData, setChurnData] = useState<any>(null);
     const [profitablePlayers, setProfitablePlayers] = useState<any[]>([]);
+    const [gemRevenueData, setGemRevenueData] = useState<any>(null);
 
     useEffect(() => {
         if (userRole === 'SUPER_ADMIN') {
@@ -48,7 +49,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
 
         try {
             // Fetch all analytics data in parallel
-            const [ggr, dau, avgStake, retention, velocity, overviewData, churn, profit] = await Promise.all([
+            const [ggr, dau, avgStake, retention, velocity, overviewData, churn, profit, gemRev] = await Promise.all([
                 adminAPI.getGGRData(timeRange),
                 adminAPI.getDAUData(timeRange),
                 adminAPI.getAvgStakeData(timeRange),
@@ -56,7 +57,8 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                 adminAPI.getMatchVelocityData(timeRange === '7d' ? '7d' : '30d'),
                 adminAPI.getAnalyticsOverview(timeRange),
                 adminAPI.getChurnData(timeRange),
-                adminAPI.getProfitablePlayers(timeRange)
+                adminAPI.getProfitablePlayers(timeRange),
+                adminAPI.getGemRevenueAnalytics()
             ]);
 
             setGgrData(ggr);
@@ -67,6 +69,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
             setOverview(overviewData.overview);
             setChurnData(churn);
             setProfitablePlayers(profit.data || []);
+            setGemRevenueData(gemRev.data);
         } catch (err: any) {
             console.error('Analytics fetch error:', err);
             setError(err.message || 'Failed to load analytics');
@@ -234,6 +237,43 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                         <div className="flex justify-between items-center">
                             <span className="text-xs font-bold text-gray-600">💸 Withdrawals: ${todayData.moneyFlow.withdrawals.amount.toFixed(2)}</span>
                             <span className="text-xs font-bold text-gray-600">{todayData.moneyFlow.withdrawals.count} requests</span>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Gem Revenue Section (New) */}
+            {gemRevenueData && (
+                <div className="bg-white rounded-xl border-2 border-emerald-100 p-6 shadow-md">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h3 className="text-xl font-black text-emerald-900 flex items-center gap-2">
+                                <span className="text-2xl">💎</span> Gem Undo Revenue
+                            </h3>
+                            <p className="text-sm text-emerald-600 mt-1">Total earnings from Undo (Gem re-roll) usage</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
+                            <p className="text-[10px] uppercase font-black text-emerald-700 tracking-wider">Today</p>
+                            <p className="text-2xl font-black text-emerald-900 mt-1">${gemRevenueData.today.total.toFixed(2)}</p>
+                            <p className="text-[10px] text-emerald-600 font-bold mt-1">{gemRevenueData.today.count} undos used</p>
+                        </div>
+                        <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
+                            <p className="text-[10px] uppercase font-black text-emerald-700 tracking-wider">Last 7 Days</p>
+                            <p className="text-2xl font-black text-emerald-900 mt-1">${gemRevenueData.last7d.total.toFixed(2)}</p>
+                            <p className="text-[10px] text-emerald-600 font-bold mt-1">{gemRevenueData.last7d.count} undos used</p>
+                        </div>
+                        <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
+                            <p className="text-[10px] uppercase font-black text-emerald-700 tracking-wider">Last 30 Days</p>
+                            <p className="text-2xl font-black text-emerald-900 mt-1">${gemRevenueData.last30d.total.toFixed(2)}</p>
+                            <p className="text-[10px] text-emerald-600 font-bold mt-1">{gemRevenueData.last30d.count} undos used</p>
+                        </div>
+                        <div className="bg-emerald-900 rounded-lg p-4 border border-emerald-700 text-white shadow-lg">
+                            <p className="text-[10px] uppercase font-black text-emerald-300 tracking-wider">All Time</p>
+                            <p className="text-2xl font-black text-white mt-1">${gemRevenueData.allTime.total.toFixed(2)}</p>
+                            <p className="text-[10px] text-emerald-200 font-bold mt-1">{gemRevenueData.allTime.count} total undos</p>
                         </div>
                     </div>
                 </div>

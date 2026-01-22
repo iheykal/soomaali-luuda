@@ -108,6 +108,7 @@ export interface Revenue {
   _id?: string;
   gameId: string;
   amount: number;
+  gemRevenue?: number;
   totalPot: number;
   winnerId: string;
   timestamp: string;
