@@ -739,7 +739,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                     <span className="text-purple-600 text-sm font-semibold">View All →</span>
                   </div>
                   <h2 className="text-lg sm:text-xl font-bold mb-2 text-purple-700">Total Revenue</h2>
-                  <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
+                  <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${(revenueStats?.totalRevenue || 0).toFixed(2)}</p>
                   <p className="text-xs sm:text-sm text-gray-600">Platform earnings (Rake + Gems)</p>
                 </div>
               )}
@@ -767,23 +767,23 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                   <div className="bg-emerald-50 p-3 sm:p-4 rounded-xl border border-emerald-100">
                     <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider">Today</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${gemRevenueData.today.total.toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.today.count} used</p>
+                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${(gemRevenueData.today?.total || 0).toFixed(2)}</p>
+                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.today?.count || 0} used</p>
                   </div>
                   <div className="bg-emerald-50 p-3 sm:p-4 rounded-xl border border-emerald-100">
                     <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider">7 Days</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${gemRevenueData.last7d.total.toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.last7d.count} used</p>
+                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${(gemRevenueData.last7d?.total || 0).toFixed(2)}</p>
+                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.last7d?.count || 0} used</p>
                   </div>
                   <div className="bg-emerald-50 p-3 sm:p-4 rounded-xl border border-emerald-100">
                     <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider">30 Days</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${gemRevenueData.last30d.total.toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.last30d.count} used</p>
+                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${(gemRevenueData.last30d?.total || 0).toFixed(2)}</p>
+                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.last30d?.count || 0} used</p>
                   </div>
                   <div className="bg-emerald-900 p-3 sm:p-4 rounded-xl border border-emerald-700 text-white shadow-lg">
                     <p className="text-[10px] uppercase font-black text-emerald-300 tracking-wider">All Time</p>
-                    <p className="text-xl sm:text-2xl font-black text-white mt-1">${gemRevenueData.allTime.total.toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-200 font-bold mt-1">{gemRevenueData.allTime.count} total</p>
+                    <p className="text-xl sm:text-2xl font-black text-white mt-1">${(gemRevenueData.allTime?.total || 0).toFixed(2)}</p>
+                    <p className="text--[10px] text-emerald-200 font-bold mt-1">{gemRevenueData.allTime?.count || 0} total</p>
                   </div>
                 </div>
               </div>
@@ -1443,15 +1443,15 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-br from-purple-50 to-purple-100">
               <div className="bg-white/50 p-4 rounded-xl border border-purple-100">
                 <p className="text-xs text-purple-600 uppercase font-bold mb-1">Total Revenue</p>
-                <p className="text-2xl sm:text-3xl font-black text-purple-900">${revenueStats?.totalRevenue.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl sm:text-3xl font-black text-purple-900">${(revenueStats?.totalRevenue || 0).toFixed(2)}</p>
               </div>
               <div className="bg-white/50 p-4 rounded-xl border border-red-100">
                 <p className="text-xs text-red-600 uppercase font-bold mb-1">Total Withdrawn</p>
-                <p className="text-2xl sm:text-3xl font-black text-red-900">${revenueStats?.totalWithdrawn?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl sm:text-3xl font-black text-red-900">${(revenueStats?.totalWithdrawn || 0).toFixed(2)}</p>
               </div>
               <div className="bg-white/50 p-4 rounded-xl border border-green-100">
                 <p className="text-xs text-green-600 uppercase font-bold mb-1">Net Available</p>
-                <p className="text-2xl sm:text-3xl font-black text-green-900">${revenueStats?.netRevenue?.toFixed(2) || '0.00'}</p>
+                <p className="text-2xl sm:text-3xl font-black text-green-900">${(revenueStats?.netRevenue || 0).toFixed(2)}</p>
               </div>
             </div>
 
@@ -2344,7 +2344,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         <header className="mb-4 sm:mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 capitalize">{activeTab}</h2>
           <div className="text-xs sm:text-sm text-gray-500">
-            Logged in as Super Admin
+            Logged in as: <span className="font-bold text-gray-700">{user?.role || 'GUEST'}</span> ({user?.username || user?.phone || 'Unknown'})
           </div>
         </header>
 

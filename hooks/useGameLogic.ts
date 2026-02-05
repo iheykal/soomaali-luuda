@@ -688,6 +688,19 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
             }
         });
 
+        // XP Update Listener
+        socket.on('xp_updated', (data: { amount: number, reason: string, message: string }) => {
+            console.log(`⭐ XP UPDATE RECEIVED: +${data.amount} XP (${data.reason})`);
+            // Trigger refreshUser to update UI immediately
+            // We need access to refreshUser here. 
+            // Since this useEffect depends on 'multiplayerConfig', but 'refreshUser' comes from context,
+            // we should ideally pass 'refreshUser' into useGameLogic or dispatch a global event.
+            // However, to avoid refactoring props, we can dispatch a custom window event that App.tsx or AuthProvider listens to.
+            // OR simpler: assume AuthProvider exposes a global way to refresh? No.
+            // Let's dispatch a custom event 'LUDO_REFRESH_USER' that we can listen for in AuthContext or Dashboard.
+            window.dispatchEvent(new CustomEvent('LUDO_REFRESH_USER'));
+        });
+
         socket.on('TIMER_TICK', (data: { timer: number }) => {
             // console.log('⏳ TIMER_TICK:', data.timer);
             localDispatchRef.current({ type: 'TIMER_TICK', timer: data.timer });

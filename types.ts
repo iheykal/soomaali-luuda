@@ -65,6 +65,43 @@ export type MultiplayerMessage =
   | { type: 'GAME_TERMINATED'; payload: { reason: string } }
   | { type: 'GAME_STARTING'; payload: { players: Player[] } };
 
+// --- Tic-Tac-Toe Types ---
+
+export type GameType = 'LUDO' | 'TIC_TAC_TOE';
+
+export type TicTacToeSymbol = 'X' | 'O';
+
+export type TicTacToeTurnState = 'MOVING' | 'GAMEOVER';
+
+export interface TicTacToePlayer {
+  userId: string;
+  username: string;
+  socketId: string | null;
+  symbol: TicTacToeSymbol;
+  isDisconnected: boolean;
+}
+
+export interface TicTacToeState {
+  players: TicTacToePlayer[];
+  board: string[][]; // 3x3 grid
+  currentPlayerIndex: number;
+  turnState: TicTacToeTurnState;
+  gameStarted: boolean;
+  winner: string | null; // userId or 'DRAW'
+  winningLine: number[][] | null; // Winning cells for animation
+  message: string;
+  stake: number;
+  gameId: string;
+  status: string;
+  gameType: 'TIC_TAC_TOE';
+  createdAt?: string;
+  updatedAt?: string;
+  // Three Men's Morris fields
+  gamePhase: 'PLACEMENT' | 'MOVEMENT';
+  piecesPlaced: { X: number; O: number };
+  selectedPiece: [number, number] | null;
+}
+
 // --- Account & Finance Types ---
 
 export interface User {
@@ -81,9 +118,27 @@ export interface User {
   status: 'Active' | 'Suspended';
   joined?: string;
   createdAt?: string;
+  xp?: number;
+  level?: number;
   stats?: {
     gamesPlayed: number;
     wins: number;
+    gamesWon?: number; // Backend might send gamesWon
+    gamesLost?: number;
+    totalWinnings?: number;
+    totalLosses?: number;
+    // Per-game stats
+    ludo?: {
+      gamesPlayed: number;
+      wins: number;
+      losses?: number;
+    };
+    ticTacToe?: {
+      gamesPlayed: number;
+      wins: number;
+      losses?: number;
+      draws?: number;
+    };
   };
 }
 

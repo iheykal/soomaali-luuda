@@ -14,8 +14,14 @@ const gameEngine = require('./logic/gameEngine');
 const User = require('./models/User');
 const FinancialRequest = require('./models/FinancialRequest');
 const Revenue = require('./models/Revenue');
-const RevenueWithdrawal = require('./models/RevenueWithdrawal');
 const Game = require('./models/Game');
+
+// Global TTT Queue - Must// Global queue for tic-tac-toe matchmaking
+const ticTacToeQueue = [];
+
+// Rematch requests tracking: gameId -> Set<userId>
+const rematchRequests = new Map();
+
 const VisitorAnalytics = require('./models/VisitorAnalytics');
 const { smartUserSync, smartUserLookup } = require('./utils/userSync');
 const NodeCache = require('node-cache'); // For caching performance optimization
@@ -462,7 +468,9 @@ app.post('/api/auth/register', async (req, res) => {
       joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
       createdAt: userData.createdAt,
       stats: userData.stats || { gamesPlayed: 0, wins: 0 },
-      referralCode: userData.referralCode // Include referral code in response
+      referralCode: userData.referralCode, // Include referral code in response
+      xp: userData.xp || 0,
+      level: userData.level || 1
     };
 
     res.json({
@@ -579,7 +587,9 @@ app.post('/api/auth/login', async (req, res) => {
       status: userData.status,
       joined: userData.createdAt ? new Date(userData.createdAt).toISOString() : new Date().toISOString(),
       createdAt: userData.createdAt,
-      stats: userData.stats || { gamesPlayed: 0, wins: 0 }
+      stats: userData.stats || { gamesPlayed: 0, wins: 0 },
+      xp: userData.xp || 0,
+      level: userData.level || 1
     };
 
     res.json({
@@ -4245,9 +4255,67 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('get_active_requests', ({ userId }) => {
+    // Send Ludo requests
+    const requests = Array.from(activeMatchRequests.values()).map(req => ({
+      requestId: req.requestId,
+      userId: req.userId,
+      userName: req.userName,
+      stake: req.stake,
+      timeRemaining: Math.max(0, Math.ceil((req.expiresAt - Date.now()) / 1000)),
+      canAccept: true // Simplified, frontend does balance check
+    }));
+    socket.emit('active_requests', { requests });
+
+    // Send TTT requests
+    if (typeof ticTacToeQueue !== 'undefined') {
+      socket.emit('active_ttt_requests', ticTacToeQueue.map(p => ({
+        userId: p.userId,
+        username: p.username,
+        stake: p.stake,
+        requestId: p.socketId,
+        isTTT: true
+      })));
+    }
+  });
+
   socket.on('disconnect', async () => {
     // Keep removing from matchmaking queue logic
     removeFromQueue(socket.id);
+
+    // TTT Queue Removal
+    if (typeof ticTacToeQueue !== 'undefined') {
+      const tttIndex = ticTacToeQueue.findIndex(p => p.socketId === socket.id);
+      if (tttIndex !== -1) {
+        console.log(`🔌 Removing disconnected player from TTT queue: ${socket.id}`);
+        ticTacToeQueue.splice(tttIndex, 1);
+        io.emit('active_ttt_requests', ticTacToeQueue.map(p => ({
+          userId: p.userId,
+          username: p.username,
+          stake: p.stake,
+          requestId: p.socketId,
+          isTTT: true
+        })));
+      }
+    }
+
+    if (socket.gameType === 'TIC_TAC_TOE' && socket.gameId) {
+      console.log(`🔌 TTT Socket ${socket.id} disconnected from game ${socket.gameId}`);
+      try {
+        const result = await ticTacToeEngine.handleDisconnect(socket.gameId, socket.id);
+        if (result && result.success) {
+          io.to(socket.gameId).emit('ttt_game_update', result.state);
+          // Check if game ended due to disconnect (forfeit)
+          if (result.settlementData) {
+            // Notify winner if possible
+            // io.to(...).emit('win_notification'...) logic handles this via game update state checks usually
+          }
+        }
+      } catch (e) {
+        console.error('Error handling TTT disconnect:', e);
+      }
+      return; // Exit main flow logic for TTT
+    }
 
     if (socket.gameId) {
       const gameId = socket.gameId;
@@ -4538,6 +4606,435 @@ setInterval(async () => {
   // to everything under /api/admin/analytics via the above mounting.
   // But for clarity and explicit protection:
   app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, todayAnalyticsRoutes);
+  // --- SOCKET.IO HANDLERS (RESTORED) ---
+  io.on('connection', (socket) => {
+    console.log(`🔌 New client connected: ${socket.id}`);
+
+    socket.on('watch_game', async ({ gameId }) => {
+      socket.join(gameId);
+      const Game = require('./models/Game');
+      try {
+        const game = await Game.findOne({ gameId });
+        if (game) {
+          socket.emit('GAME_STATE_UPDATE', { state: game.toObject ? game.toObject() : game });
+        } else {
+          socket.emit('ERROR', { message: 'Game not found' });
+        }
+      } catch (error) { console.error(error); }
+    });
+
+    socket.on('join_game', async ({ gameId, userId, playerColor }) => {
+      socket.join(gameId);
+      socket.gameId = gameId;
+      if (pendingDisconnects.has(userId)) {
+        const pending = pendingDisconnects.get(userId);
+        if (pending && pending.gameId === gameId) {
+          clearTimeout(pending.timeoutId);
+          pendingDisconnects.delete(userId);
+        }
+      }
+      const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
+      if (result.success && result.state) {
+        const plainState = result.state.toObject ? result.state.toObject() : result.state;
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+        if (result.state.status === 'ACTIVE' && result.state.turnState === 'ROLLING') {
+          const currentPlayer = result.state.players[result.state.currentPlayerIndex];
+          if (currentPlayer && currentPlayer.userId === userId && !currentPlayer.isAI) {
+            scheduleHumanPlayerAutoRoll(gameId);
+          }
+        }
+      } else {
+        socket.emit('ERROR', { message: result.message || 'Failed to join game.' });
+      }
+    });
+
+    socket.on('roll_dice', async ({ gameId }) => {
+      if (humanPlayerTimers.has(gameId)) {
+        clearTimeout(humanPlayerTimers.get(gameId));
+        humanPlayerTimers.delete(gameId);
+      }
+      const Game = require('./models/Game');
+      const gameBeforeRoll = await Game.findOne({ gameId });
+      if (gameBeforeRoll) {
+        const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
+        if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
+          await Game.updateOne({ gameId, 'players.socketId': socket.id }, { $set: { 'players.$.isDisconnected': false } });
+        }
+      }
+
+      const result = await gameEngine.handleRollDice(gameId, socket.id);
+      if (!result) return socket.emit('ERROR', { message: 'Failed to roll dice' });
+
+      if (result.success) {
+        const gameState = result.state.toObject ? result.state.toObject() : result.state;
+        if (gameState.diceValue !== null && gameState.diceValue !== undefined) gameState.diceValue = Number(gameState.diceValue);
+
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
+
+        if (gameState.legalMoves && gameState.legalMoves.length > 0) {
+          const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+          if (currentPlayer && !currentPlayer.isAI && !currentPlayer.isDisconnected) {
+            scheduleHumanPlayerAutoMove(gameId);
+          }
+        } else if (gameState.legalMoves && gameState.legalMoves.length === 0 && gameState.diceValue !== null) {
+          if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
+          setTimeout(async () => {
+            const game = await Game.findOne({ gameId });
+            if (game && game.turnState === 'MOVING' && game.legalMoves.length === 0) {
+              const nextPlayerIndex = gameEngine.getNextPlayerIndex(game, game.currentPlayerIndex, false);
+              game.currentPlayerIndex = nextPlayerIndex;
+              game.diceValue = null;
+              game.turnState = 'ROLLING';
+              game.legalMoves = [];
+              await game.save();
+              const updatedState = game.toObject ? game.toObject() : game;
+              io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
+              const nextPlayer = game.players[nextPlayerIndex];
+              if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, 1500);
+              else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
+            }
+          }, 1200);
+        }
+
+        const gameRecord = await Game.findOne({ gameId });
+        if (gameRecord && result.state.turnState === 'ROLLING') {
+          const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
+          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId);
+          else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
+        }
+
+      } else {
+        socket.emit('ERROR', { message: result.message || 'Failed to roll dice' });
+        if (result.message === 'Wait for animation' || result.message === 'Not rolling state') {
+          const Game = require('./models/Game');
+          const currentGame = await Game.findOne({ gameId });
+          if (currentGame) socket.emit('GAME_STATE_UPDATE', { state: currentGame.toObject ? currentGame.toObject() : currentGame });
+        }
+      }
+    });
+
+    socket.on('move_token', async ({ gameId, tokenId }) => {
+      if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
+
+      const Game = require('./models/Game');
+      const result = await gameEngine.handleMoveToken(gameId, socket.id, tokenId);
+
+      if (result.success) {
+        const plainState = result.state.toObject ? result.state.toObject() : result.state;
+        if (result.killedTokenId) io.to(gameId).emit('TOKEN_KILLED', { killedTokenId: result.killedTokenId });
+
+        // --- REAL-TIME XP UPDATE ---
+        if (result.xpAwarded) {
+          io.to(socket.id).emit('xp_updated', {
+            amount: result.xpAwarded,
+            reason: 'kill',
+            message: `You earned ${result.xpAwarded} XP for capturing a pawn!`
+          });
+        }
+        // --------------------------
+
+        if (plainState.turnState !== 'ROLLING' && plainState.diceValue === null) plainState.turnState = 'ROLLING';
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
+        if (result.settlementData) {
+          const winnerPlayer = plainState.players.find(p => p.userId === result.settlementData.winnerId);
+          if (winnerPlayer && winnerPlayer.socketId) io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
+          else io.to(gameId).emit('win_notification', result.settlementData);
+        }
+
+        const gameRecord = await Game.findOne({ gameId });
+        if (gameRecord && plainState.turnState === 'ROLLING') {
+          const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
+          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId);
+          else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
+        }
+      } else {
+        socket.emit('ERROR', { message: result.message });
+      }
+    });
+
+    socket.on('send_chat_message', async ({ gameId, userId, message }) => {
+      const Game = require('./models/Game');
+      const game = await Game.findOne({ gameId });
+      if (game) {
+        const player = game.players.find(p => p.userId === userId);
+        if (player) {
+          const chatData = { userId, playerColor: player.color, playerName: player.username || player.userId, message, timestamp: Date.now() };
+          io.to(gameId).emit('chat_message', chatData);
+        }
+      }
+    });
+
+    // ========== TIC-TAC-TOE SOCKET HANDLERS ==========
+    const ticTacToeEngine = require('./logic/ticTacToeEngine');
+    const TicTacToeGame = require('./models/TicTacToeGame');
+
+    socket.on('ttt_join_game', async ({ gameId, userId, sessionId }) => {
+      try {
+        console.log(`🎮 Player ${userId} joining tic-tac-toe game ${gameId}`);
+        const result = await ticTacToeEngine.handleJoinGame(gameId, userId, socket.id);
+
+        if (result.success) {
+          socket.join(gameId);
+          socket.gameId = gameId; // Track for disconnect
+          socket.gameType = 'TIC_TAC_TOE'; // Track game type
+
+          const plainState = result.state.toObject ? result.state.toObject() : result.state;
+          io.to(gameId).emit('ttt_game_update', plainState);
+          console.log(`✅ Player ${userId} joined tic-tac-toe game ${gameId}`);
+
+          // If both players have joined, start the game
+          const game = await TicTacToeGame.findOne({ gameId });
+          if (game && game.players.length === 2 && game.status === 'WAITING') {
+            game.status = 'ACTIVE';
+            game.gameStarted = true;
+            game.message = `Game started! ${game.players[0].username}'s turn`;
+            await game.save();
+
+            const updatedState = game.toObject ? game.toObject() : game;
+            io.to(gameId).emit('ttt_game_update', updatedState);
+            console.log(`🎲 Tic-tac-toe game ${gameId} started`);
+          }
+        } else {
+          socket.emit('ttt_error', { message: result.message });
+        }
+      } catch (error) {
+        console.error('Error joining tic-tac-toe game:', error);
+        socket.emit('ttt_error', { message: 'Failed to join game' });
+      }
+    });
+
+    socket.on('ttt_make_move', async ({ gameId, row, col }) => {
+      try {
+        console.log(`📤 Tic-tac-toe move in game ${gameId}: row=${row}, col=${col}`);
+        const result = await ticTacToeEngine.handleMakeMove(gameId, socket.id, row, col);
+
+        if (result.success) {
+          const plainState = result.state.toObject ? result.state.toObject() : result.state;
+          io.to(gameId).emit('ttt_game_update', plainState);
+
+          // Send win notification if game completed with winner
+          if (result.settlementData) {
+            const winnerPlayer = plainState.players.find(
+              p => p.userId === result.settlementData.winnerId
+            );
+
+            if (winnerPlayer && winnerPlayer.socketId) {
+              io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
+              console.log(`🎉 Win notification sent to ${winnerPlayer.username}`);
+            }
+          }
+
+          // If game ended in draw, notify players
+          if (plainState.winner === 'DRAW') {
+            io.to(gameId).emit('game_draw', {
+              message: 'Game ended in a draw! Stakes refunded.'
+            });
+          }
+        } else {
+          socket.emit('ttt_error', { message: result.message });
+        }
+      } catch (error) {
+        console.error('Error making tic-tac-toe move:', error);
+        socket.emit('ttt_error', { message: 'Failed to make move' });
+      }
+    });
+    // ========== END TIC-TAC-TOE HANDLERS ==========
+
+    // ========== TIC-TAC-TOE MATCHMAKING ==========
+    // Global queue for separate TTT matchmaking
+    // MOVED TO GLOBAL SCOPE
+    // const ticTacToeQueue = [];
+
+    socket.on('ttt_find_match', async ({ userId, username, stake }) => {
+      try {
+        console.log(`🔎 Player ${username} looking for TTT match with stake ${stake}`);
+
+        // Remove existing if any
+        const existingIndex = ticTacToeQueue.findIndex(p => p.userId === userId);
+        if (existingIndex !== -1) {
+          ticTacToeQueue.splice(existingIndex, 1);
+        }
+
+        // Add to queue
+        const player = { userId, username, socketId: socket.id, stake };
+        ticTacToeQueue.push(player);
+        console.log(`TTT Queue length: ${ticTacToeQueue.length}`);
+
+        // Matchmaking
+        if (ticTacToeQueue.length >= 2) {
+          // Get first two players
+          const p1 = ticTacToeQueue.shift();
+          const p2 = ticTacToeQueue.shift();
+
+          // Generate ID
+          const gameId = 'ttt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+          console.log(`🤝 Matching ${p1.username} vs ${p2.username} in game ${gameId}`);
+
+          // Creates game in DB
+          const result = await ticTacToeEngine.createGame(gameId, [
+            { userId: p1.userId, username: p1.username },
+            { userId: p2.userId, username: p2.username }
+          ], stake);
+
+          if (result.success) {
+            // Notify P1
+            io.to(p1.socketId).emit('ttt_match_found', {
+              gameId,
+              stake,
+              yourSymbol: 'X',
+              players: result.game.players
+            });
+
+            // Notify P2
+            io.to(p2.socketId).emit('ttt_match_found', {
+              gameId,
+              stake,
+              yourSymbol: 'O',
+              players: result.game.players
+            });
+
+            console.log(`✅ TTT Match created & notified: ${gameId}`);
+
+            // Broadcast queue update (players removed)
+            io.emit('active_ttt_requests', ticTacToeQueue.map(p => ({
+              userId: p.userId,
+              username: p.username,
+              stake: p.stake,
+              requestId: p.socketId,
+              isTTT: true
+            })));
+
+          } else {
+            console.error('Failed to create TTT game:', result.message);
+            socket.emit('ttt_error', { message: 'Failed to create match' });
+          }
+        } else {
+          // No match yet - waiting in queue
+          // Broadcast queue update (new player added)
+          io.emit('active_ttt_requests', ticTacToeQueue.map(p => ({
+            userId: p.userId,
+            username: p.username,
+            stake: p.stake,
+            requestId: p.socketId,
+            isTTT: true
+          })));
+        }
+      } catch (err) {
+        console.error('Error in TTT matchmaking:', err);
+      }
+    });
+
+    // ========== TIC-TAC-TOE REMATCH HANDLERS ==========
+    socket.on('ttt_request_rematch', async ({ gameId }) => {
+      try {
+        console.log(`🔄 Rematch requested for game ${gameId} by ${socket.id}`);
+
+        // Get current game to find players
+        const game = await TicTacToeGame.findOne({ gameId });
+        if (!game) {
+          socket.emit('ttt_error', { message: 'Game not found' });
+          return;
+        }
+
+        // Find which user is requesting
+        const requestingPlayer = game.players.find(p => p.socketId === socket.id);
+        if (!requestingPlayer) {
+          socket.emit('ttt_error', { message: 'You are not in this game' });
+          return;
+        }
+
+        // Initialize rematch tracking for this game if needed
+        if (!rematchRequests.has(gameId)) {
+          rematchRequests.set(gameId, new Set());
+        }
+
+        const requests = rematchRequests.get(gameId);
+        requests.add(requestingPlayer.userId);
+
+        // Notify opponent
+        const opponent = game.players.find(p => p.userId !== requestingPlayer.userId);
+        if (opponent?.socketId) {
+          io.to(opponent.socketId).emit('ttt_rematch_requested', { userId: requestingPlayer.userId });
+        }
+
+        // Check if both players want rematch
+        if (requests.size === 2) {
+          console.log(`✅ Both players want rematch for ${gameId}, creating new game`);
+
+          // Create new game with same players
+          const newGameId = 'ttt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+          const result = await ticTacToeEngine.createGame(newGameId, [
+            { userId: game.players[0].userId, username: game.players[0].username },
+            { userId: game.players[1].userId, username: game.players[1].username }
+          ], game.stake);
+
+          if (result.success) {
+            // Clean up old rematch requests
+            rematchRequests.delete(gameId);
+
+            // Notify both players
+            game.players.forEach((player, index) => {
+              if (player.socketId) {
+                io.to(player.socketId).emit('ttt_rematch_start', {
+                  gameId: newGameId,
+                  yourSymbol: index === 0 ? 'X' : 'O',
+                  players: result.game.players
+                });
+              }
+            });
+
+            console.log(`🎮 Rematch started: ${newGameId}`);
+          } else {
+            socket.emit('ttt_error', { message: 'Failed to create rematch game' });
+          }
+        }
+      } catch (err) {
+        console.error('Error in TTT rematch:', err);
+        socket.emit('ttt_error', { message: 'Rematch failed' });
+      }
+    });
+    // ========== END TIC-TAC-TOE REMATCH ==========
+    // ========== END TTT MATCHMAKING ==========
+
+
+
+    socket.on('disconnect', async () => {
+      // Keep removing from matchmaking queue logic if it was there? Yes.
+      // Assuming removeFromQueue is global
+      if (typeof removeFromQueue === 'function') removeFromQueue(socket.id);
+
+      if (socket.gameId) {
+        const gameId = socket.gameId;
+        const Game = require('./models/Game');
+        const game = await Game.findOne({ gameId });
+        if (game) {
+          const player = game.players.find(p => p.socketId === socket.id);
+          if (player && player.userId) {
+            const userId = player.userId;
+            const disconnectTimeout = setTimeout(async () => {
+              pendingDisconnects.delete(userId);
+              if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+              const result = await gameEngine.handleDisconnect(gameId, socket.id);
+              if (result) {
+                io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+                if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+              }
+            }, 15000);
+            pendingDisconnects.set(userId, { timeoutId: disconnectTimeout, gameId });
+            return;
+          }
+        }
+        if (typeof clearAllTimersForGame === 'function') clearAllTimersForGame(gameId);
+        const result = await gameEngine.handleDisconnect(gameId, socket.id);
+        if (result) {
+          io.to(gameId).emit('GAME_STATE_UPDATE', { state: result.state });
+          if (result.isCurrentTurn) scheduleAutoTurn(gameId, 1000);
+        }
+      }
+    });
+  });
+
   server.listen(PORT, HOST, () => {
     console.log(`✅ Server running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`🌐 Accessible on network: http://[YOUR_IP]:${PORT}`);

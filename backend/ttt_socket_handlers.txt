@@ -1,0 +1,77 @@
+// ========== TIC-TAC-TOE SOCKET HANDLERS ==========
+// ADD THIS CODE AFTER THE send_chat_message HANDLER AND BEFORE socket.on('disconnect')
+
+const ticTacToeEngine = require('./logic/ticTacToeEngine');
+const TicTacToeGame = require('./models/TicTacToeGame');
+
+socket.on('ttt_join_game', async ({ gameId, userId, sessionId }) => {
+  try {
+    console.log(`🎮 Player ${userId} joining tic-tac-toe game ${gameId}`);
+    const result = await ticTacToeEngine.handleJoinGame(gameId, userId, socket.id);
+    
+    if (result.success) {
+      socket.join(gameId);
+      socket.gameId = gameId; // Track for disconnect
+      socket.gameType = 'TIC_TAC_TOE'; // Track game type
+      
+      const plainState = result.state.toObject ? result.state.toObject() : result.state;
+      io.to(gameId).emit('ttt_game_update', plainState);
+      console.log(`✅ Player ${userId} joined tic-tac-toe game ${gameId}`);
+      
+      // If both players have joined, start the game
+      const game = await TicTacToeGame.findOne({ gameId });
+      if (game && game.players.length === 2 && game.status === 'WAITING') {
+        game.status = 'ACTIVE';
+        game.gameStarted = true;
+        game.message = `Game started! ${game.players[0].username}'s turn`;
+        await game.save();
+        
+        const updatedState = game.toObject ? game.toObject() : game;
+        io.to(gameId).emit('ttt_game_update', updatedState);
+        console.log(`🎲 Tic-tac-toe game ${gameId} started`);
+      }
+    } else {
+      socket.emit('ttt_error', { message: result.message });
+    }
+  } catch (error) {
+    console.error('Error joining tic-tac-toe game:', error);
+    socket.emit('ttt_error', { message: 'Failed to join game' });
+  }
+});
+
+socket.on('ttt_make_move', async ({ gameId, row, col }) => {
+  try {
+    console.log(`📤 Tic-tac-toe move in game ${gameId}: row=${row}, col=${col}`);
+    const result = await ticTacToeEngine.handleMakeMove(gameId, socket.id, row, col);
+    
+    if (result.success) {
+      const plainState = result.state.toObject ? result.state.toObject() : result.state;
+      io.to(gameId).emit('ttt_game_update', plainState);
+      
+      // Send win notification if game completed with winner
+      if (result.settlementData) {
+        const winnerPlayer = plainState.players.find(
+          p => p.userId === result.settlementData.winnerId
+        );
+        
+        if (winnerPlayer && winnerPlayer.socketId) {
+          io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
+          console.log(`🎉 Win notification sent to ${winnerPlayer.username}`);
+        }
+      }
+      
+      // If game ended in draw, notify players
+      if (plainState.winner === 'DRAW') {
+        io.to(gameId).emit('game_draw', { 
+          message: 'Game ended in a draw! Stakes refunded.' 
+        });
+      }
+    } else {
+      socket.emit('ttt_error', { message: result.message });
+    }
+  } catch (error) {
+    console.error('Error making tic-tac-toe move:', error);
+    socket.emit('ttt_error', { message: 'Failed to make move' });
+  }
+});
+// ========== END TIC-TAC-TOE HANDLERS ==========

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Player, PlayerColor } from '../types';
+import type { Player, PlayerColor, GameType } from '../types';
 import { PLAYER_TAILWIND_COLORS, PLAYER_COLORS } from '../lib/boardLayout';
 import { useAuth } from '../context/AuthContext';
 import { gameAPI } from '../services/gameAPI';
@@ -9,6 +9,7 @@ import { Copy, Gem } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import AdminQuickActions from './AdminQuickActions';
 import SlidingNotification from './SlidingNotification';
+import PlayerStatsModal from './PlayerStatsModal';
 
 interface GameSetupProps {
   onStartGame: (players: Player[]) => void;
@@ -22,15 +23,43 @@ interface GameSetupProps {
   showInstallButton?: boolean;
 }
 
-const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterSuperAdmin, onEnterWallet, onEnterReferrals, onEnterLiveMatches, onInstall, showInstallButton }) => {
+// Helper to trigger refresh on mount
+const RefreshTrigger = () => {
+  const { refreshUser } = useAuth();
+  useEffect(() => {
+    refreshUser();
+  }, []);
+  return null;
+};
+
+const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterAdmin, onEnterSuperAdmin, onEnterWallet, onEnterReferrals, onEnterLiveMatches, onInstall, showInstallButton }) => {
   const { user, logout } = useAuth();
+
+  // Game Type Selection State
+  const [selectedGame, setSelectedGame] = useState<GameType>('LUDO');
+
+  // Load saved selection on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('selectedGameType') as GameType;
+    if (saved === 'TIC_TAC_TOE' || saved === 'LUDO') {
+      setSelectedGame(saved);
+    }
+  }, []);
+
+  const handleSelectGame = (type: GameType) => {
+    setSelectedGame(type);
+    localStorage.setItem('selectedGameType', type);
+    toast.success(`Selected ${type === 'TIC_TAC_TOE' ? 'JAR' : 'Ludo'}`);
+  };
+
   const [activeGameInfo, setActiveGameInfo] = useState<any>(null);
   const [showRejoinBanner, setShowRejoinBanner] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [showStatsModal, setShowStatsModal] = useState(false);
 
   const [checkingActiveGame, setCheckingActiveGame] = useState(true);
 
-  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/HGDPdIKPkKw7X1pt58t0VY';
+  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/H1JaSyHUSTk2ZQ0RDZNUHP';
 
 
 
@@ -348,7 +377,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
   // --- Main Menu View ---
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-800 p-4 relative">
+    <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-slate-800 p-4 relative pt-20">
       {/* Conditionally render the Rejoin Game Banner */}
       {showRejoinBanner && activeGameInfo && (
         <RejoinGameBanner
@@ -362,7 +391,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
         />
       )}
 
-      <div className="absolute top-0 left-0 w-full p-2 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm z-10 shadow-sm">
+      <div className="fixed top-0 left-0 w-full p-2 flex justify-between items-center bg-slate-900/50 backdrop-blur-sm z-30 shadow-sm">
         <div className="flex items-center gap-2">
           {/* Super Admin Button */}
           {(() => {
@@ -398,25 +427,25 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
           {/* Wallet Balance Display */}
           <div
             onClick={onEnterWallet}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 rounded-lg cursor-pointer transition-all duration-300 shadow-lg border border-green-400/30"
+            className="flex items-center gap-2 px-2 sm:px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 rounded-lg cursor-pointer transition-all duration-300 shadow-lg border border-green-400/30"
           >
             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex flex-col items-start">
-              <span className="text-xs text-green-100 font-medium">Balance</span>
+              <span className="text-xs text-green-100 font-medium hidden sm:inline">Balance</span>
               <span className="text-sm font-bold text-white">${user?.balance?.toFixed(2) || '0.00'}</span>
             </div>
           </div>
 
           {/* Gems Balance Display */}
           <div
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 rounded-lg cursor-pointer transition-all duration-300 shadow-lg border border-purple-400/30"
+            className="flex items-center gap-2 px-2 sm:px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 rounded-lg cursor-pointer transition-all duration-300 shadow-lg border border-purple-400/30"
             title="Gems for re-rolls (1 gem = $0.01)"
           >
             <Gem className="w-5 h-5 text-white" />
             <div className="flex flex-col items-start">
-              <span className="text-xs text-purple-100 font-medium">Gems</span>
+              <span className="text-xs text-purple-100 font-medium hidden sm:inline">Gems</span>
               <span className="text-sm font-bold text-white">{user?.gems || 0}</span>
             </div>
           </div>
@@ -425,10 +454,17 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
             <img
               src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`}
               alt={user.username}
-              className="w-10 h-10 rounded-full border-2 border-slate-600 shadow-md bg-slate-700"
+              className="w-10 h-10 rounded-full border-2 border-slate-600 shadow-md bg-slate-700 cursor-pointer hover:border-cyan-400 transition-colors"
+              onClick={() => setShowStatsModal(true)}
             />
             <div className="text-left min-w-0">
-              <p className="text-sm font-bold text-white leading-tight truncate max-w-[100px] sm:max-w-[150px]" title={user.username}>{user.username}</p>
+              <div
+                className="cursor-pointer hover:bg-slate-700/50 rounded px-1 -ml-1 transition-colors"
+                onClick={() => setShowStatsModal(true)}
+              >
+                <p className="text-sm font-bold text-white leading-tight truncate max-w-[120px] sm:max-w-[150px]" title={user.username}>{user.username}</p>
+                <p className="text-[10px] text-cyan-400 font-medium">View Stats</p>
+              </div>
               <button
                 onClick={() => {
                   const textToCopy = user.phone;
@@ -499,43 +535,38 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
       <div className="bg-slate-700 p-4 rounded-xl shadow-2xl w-full max-w-md text-center border border-slate-600">
         <WithdrawalTestimonials />
-        <p className="text-slate-300 mb-2 text-xs">Choose how you want to play.</p>
-        <div className="space-y-2">
-          {/* Removed manual rejoin button - auto-check happens in background */}
 
+        {/* Main Menu Buttons Stack */}
+        <div className="space-y-3 w-full">
+          {/* 1. Online (Ludo) Button */}
           <button
-            onClick={onEnterLobby}
+            onClick={() => {
+              handleSelectGame('LUDO');
+              onEnterLobby();
+            }}
             disabled={user?.balance === undefined || user.balance <= 0}
-            className={`w-full flex items-center justify-center space-x-3 font-bold text-2xl py-4 rounded-lg shadow-xl transition transform hover:scale-105 border border-cyan-400/30 ${user?.balance !== undefined && user.balance > 0
-              ? 'bg-cyan-600 hover:bg-cyan-500 text-white'
-              : 'bg-gray-600 cursor-not-allowed opacity-70 text-gray-300'
-              }`}
+            className={`w-full flex items-center justify-center gap-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-bold text-xl py-5 rounded-xl shadow-lg transition-all transform hover:scale-[1.02] active:scale-95 border-b-4 border-blue-800 ${user?.balance !== undefined && user.balance > 0 ? '' : 'grayscale opacity-70 cursor-not-allowed'}`}
           >
-            <video
-              src="/icons/dice.webm"
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="w-14 h-14 rounded-lg object-contain shadow-sm mix-blend-screen"
-            />
-            <span>{user?.balance !== undefined && user.balance > 0 ? 'Online' : 'Insufficient Balance'}</span>
+            <span className="text-3xl filter drop-shadow-md">🎲</span>
+            <span className="text-2xl tracking-wide drop-shadow-sm">Online</span>
           </button>
 
-
-          {/* Wallet Button */}
+          {/* 2. Tic-Tac-Toe Button (Replaces Wallet Balance) - Smaller/Optimized */}
           <button
-            onClick={onEnterWallet}
-            className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-white font-bold text-xl py-4 rounded-lg shadow-xl transition-all transform hover:scale-105 border-2 border-yellow-400/50"
+            onClick={() => {
+              handleSelectGame('TIC_TAC_TOE');
+              onEnterLobby();
+            }}
+            disabled={user?.balance === undefined || user.balance <= 0}
+            className={`w-full flex items-center justify-center gap-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-bold text-lg py-3 rounded-lg shadow-md transition-all transform hover:scale-[1.02] active:scale-95 border-b-4 border-orange-800 ${user?.balance !== undefined && user.balance > 0 ? '' : 'grayscale opacity-70 cursor-not-allowed'}`}
           >
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div className="flex flex-col items-start">
-              <span className="text-xs text-yellow-100 font-medium">Wallet Balance</span>
-              <span className="text-sm font-bold text-white">${user?.balance?.toFixed(2) || '0.00'}</span>
+            <span className="text-2xl">❌⭕</span>
+            <div className="flex flex-col items-start leading-none">
+              <span className="text-lg">JAR</span>
+              <span className="text-[10px] text-amber-100 opacity-90">Win $0.09 • Stake $0.05</span>
             </div>
           </button>
+
 
           {/* Referrals Button - Temporarily Hidden */}
           {/* {onEnterReferrals && (
@@ -654,7 +685,18 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
           </div>
         </div>
       )}
-    </div >
+      {/* Player Stats Modal */}
+      {showStatsModal && user && (
+        <PlayerStatsModal
+          user={user}
+          onClose={() => setShowStatsModal(false)}
+        />
+      )}
+      {/* Auto-refresh user when modal opens to ensure latest XP */}
+      {showStatsModal && (
+        <RefreshTrigger />
+      )}
+    </div>
   );
 };
 

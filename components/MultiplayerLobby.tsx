@@ -218,7 +218,28 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         // --- Match Request Events ---
 
         socket.on('active_requests', ({ requests }: { requests: MatchRequest[] }) => {
-            setActiveRequests(requests);
+            // Only update if playing Ludo (checked via localStorage to avoid closure staleness)
+            if (localStorage.getItem('selectedGameType') !== 'TIC_TAC_TOE') {
+                setActiveRequests(requests);
+            }
+        });
+
+        socket.on('active_ttt_requests', (requests: any[]) => {
+            // Only update if playing JAR (TTT)
+            if (localStorage.getItem('selectedGameType') === 'TIC_TAC_TOE') {
+                const currentUserId = user?._id || user?.id || sessionId;
+                const formattedRequests = requests
+                    .filter((req: any) => req.userId !== currentUserId)
+                    .map((req: any) => ({
+                        requestId: req.requestId,
+                        userId: req.userId,
+                        userName: req.username,
+                        stake: req.stake,
+                        timeRemaining: 120, // Keep them 'fresh' so they show up
+                        canAccept: (user?.balance || 0) >= req.stake
+                    }));
+                setActiveRequests(formattedRequests);
+            }
         });
 
         socket.on('new_match_request', ({ request }: { request: MatchRequest }) => {
@@ -316,6 +337,32 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             });
         });
 
+        // NEW: Tic-Tac-Toe Match Found Handler
+        socket.on('ttt_match_found', ({ gameId, players, stake, yourSymbol }: any) => {
+            console.log('✅ Tic-Tac-Toe Match found!', { gameId, players, stake });
+            setStatus('STARTING');
+
+            if (matchTimeoutRef.current) {
+                clearTimeout(matchTimeoutRef.current);
+                matchTimeoutRef.current = null;
+            }
+
+            // Start Countdown then Launch
+            startCountdown(() => {
+                const playerId = user?._id || user?.id || sessionId;
+                // Map symbol to a dummy color for compatibility, or add symbol to config
+                // We will pass gameType='TIC_TAC_TOE' in config
+                onStartGame([], {
+                    gameId,
+                    localPlayerColor: 'red', // Dummy
+                    sessionId,
+                    playerId,
+                    stake,
+                    gameType: 'TIC_TAC_TOE' // Important!
+                } as any);
+            });
+        });
+
         socket.on('ERROR', ({ message }: any) => {
             console.error('Matchmaking error:', message);
             setStatusMessage(`Error: ${message}`);
@@ -394,6 +441,10 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             return;
         }
 
+        // Check selected game type
+        const selectedGameType = localStorage.getItem('selectedGameType');
+        const isTTT = selectedGameType === 'TIC_TAC_TOE';
+
         // CRITICAL: Use _id for MongoDB lookup, fallback to id, then sessionId for guests
         const userId = user?._id || user?.id || sessionId;
         const userName = user?.username || 'Player';
@@ -406,6 +457,12 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
             return;
         }
 
+        // TTT specific check: Stake must be 0.05
+        if (isTTT && amount !== 0.05) {
+            // Silently correct or warn? For now let's just proceed, server validates
+            console.log('Using fixed TTT stake');
+        }
+
         // Super Admin check
         if (user && ((user.role && user.role.toString().toLowerCase().includes('super')) || (user as any).isSuperAdmin)) {
             setStatusMessage('Super Admin accounts cannot participate.');
@@ -413,32 +470,45 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         }
 
         // AUTO-ACCEPT LOGIC: Check if there's an existing request with the same stake
-        const matchingRequest = activeRequests.find(req =>
-            req.stake === amount &&
-            req.canAccept &&
-            req.userId !== userId
-        );
+        // Only for Ludo for now, unless we want to implement peer-to-peer TTT later
+        // TTT uses a queue system on server
 
-        if (matchingRequest) {
-            console.log('🎯 Auto-accepting matching request:', matchingRequest.requestId);
-            handleAcceptRequest(matchingRequest.requestId);
-            return;
+        if (!isTTT) {
+            const matchingRequest = activeRequests.find(req =>
+                req.stake === amount &&
+                req.canAccept &&
+                req.userId !== userId
+            );
+
+            if (matchingRequest) {
+                console.log('🎯 Auto-accepting matching request:', matchingRequest.requestId);
+                handleAcceptRequest(matchingRequest.requestId);
+                return;
+            }
         }
 
-        console.log('🎮 Creating match request:', { stake: amount, userId, isAuthenticated: !!user });
+        console.log(`🎮 Creating ${isTTT ? 'Tic-Tac-Toe' : 'Ludo'} match request:`, { stake: amount, userId, isAuthenticated: !!user });
         setSelectedStake(amount);
         setStatus('CREATING');
-        setStatusMessage('Creating match request...');
+        setStatusMessage(isTTT ? 'Joining JAR Queue...' : 'Creating match request...');
 
-        socketRef.current.emit('create_match_request', {
-            stake: amount,
-            userId,
-            userName
-        });
+        if (isTTT) {
+            socketRef.current.emit('ttt_find_match', {
+                userId,
+                username: userName,
+                stake: amount // Should be 0.05
+            });
+        } else {
+            socketRef.current.emit('create_match_request', {
+                stake: amount,
+                userId,
+                userName
+            });
+        }
 
         // --- Sending Push Notifications (OneSignal) ---
         // If stake is 0.25, invite other players!
-        if (amount === 0.25) {
+        if (!isTTT && amount === 0.25) {
             console.log('📢 Triggering push notification for 0.25 match...');
             // Need to get token from header for authenticated request
             const token = localStorage.getItem('ludo_token');
@@ -486,6 +556,24 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
         }
     };
 
+    const [gameType, setGameType] = useState<string>(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('selectedGameType') || 'LUDO';
+        }
+        return 'LUDO';
+    });
+
+    useEffect(() => {
+        // Keep listener in case it changes externally (though unlikely in this flow)
+        const type = localStorage.getItem('selectedGameType') || 'LUDO';
+        setGameType(type);
+    }, []);
+
+    const isTTT = gameType === 'TIC_TAC_TOE';
+    const activeBetOptions = isTTT ? [0.05] : BET_OPTIONS;
+
+    // ... existing cleanup code ...
+
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 p-4 relative overflow-hidden">
             {/* Background Elements */}
@@ -523,103 +611,141 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
                 </div>
             )}
 
-            <div className="z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 px-4">
+            <div className="z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 px-4 items-center justify-center">
                 {/* Left Column: Create Request */}
-                <div className="text-center lg:text-left">
-                    <div className="flex flex-col items-center lg:items-start min-h-[160px]">
-                        <video
-                            key={ANIMATIONS[currentAnimIndex]}
-                            src={ANIMATIONS[currentAnimIndex]}
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            className="w-32 h-32 mb-4 rounded-xl object-contain shadow-lg mix-blend-screen"
-                        />
-                        <h1
-                            className="text-2xl sm:text-3xl font-bold mb-2 tracking-tight bg-gradient-to-r from-yellow-400 via-emerald-400 to-cyan-400 bg-clip-text text-transparent leading-tight"
-                            style={{ fontFamily: 'Papyrus, "Comic Sans MS", cursive' }}
-                        >
-                            halkaan ka dooro lacagta aad dhiganayso
-                        </h1>
-                    </div>
+                <div className={`text-center lg:text-left ${isTTT ? 'col-span-1 lg:col-span-2 mx-auto' : ''}`}>
+                    {isTTT ? (
+                        <div className="flex flex-col items-center gap-4 py-8 px-8 bg-slate-800/40 backdrop-blur-xl rounded-[2rem] border border-amber-500/30 shadow-[0_0_40px_rgba(245,158,11,0.15)] animate-in fade-in zoom-in duration-700 max-w-xl mx-auto relative overflow-hidden group">
+                            {/* Decorative elements */}
+                            <div className="absolute -top-10 -right-10 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition-colors duration-500"></div>
+                            <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-orange-500/10 rounded-full blur-2xl group-hover:bg-orange-500/20 transition-colors duration-500"></div>
 
-                    {/* Sliding Notification */}
-                    <div className="mb-8 max-w-md mx-auto lg:mx-0">
+                            <div className="text-6xl mb-2 filter drop-shadow-[0_0_10px_rgba(245,158,11,0.5)] transform group-hover:scale-110 transition-transform duration-500">❌⭕</div>
+
+                            <h1 className="text-2xl sm:text-3xl font-black bg-gradient-to-r from-amber-300 via-amber-400 to-orange-500 bg-clip-text text-transparent uppercase tracking-[0.1em] text-center font-sans drop-shadow-sm">
+                                dheel jartaan lacagna ka sameey
+                            </h1>
+
+                            <div className="h-px w-24 bg-gradient-to-r from-transparent via-amber-500/50 to-transparent"></div>
+
+                            <p className="text-sm sm:text-base text-amber-50/90 font-medium leading-relaxed font-sans italic text-center max-w-md">
+                                ciyaartaan waa jar, barashadeeda iyo dheesheedaba wee fududahay halkii marna waxaad dhigan kartaa $0.05 hada badisidna waxad heleysaa $0.04 total $0.09
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            <video
+                                key={ANIMATIONS[currentAnimIndex]}
+                                src={ANIMATIONS[currentAnimIndex]}
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                className="w-32 h-32 mb-4 rounded-xl object-contain shadow-lg mix-blend-screen"
+                            />
+                            <h1
+                                className="text-2xl sm:text-3xl font-bold mb-2 tracking-tight bg-gradient-to-r from-yellow-400 via-emerald-400 to-cyan-400 bg-clip-text text-transparent leading-tight text-center"
+                                style={{ fontFamily: 'Papyrus, "Comic Sans MS", cursive' }}
+                            >
+                                halkaan ka dooro lacagta aad dhiganayso
+                            </h1>
+                        </>
+                    )}
+                </div>
+
+                {/* Sliding Notification - Ludo Only */}
+                {!isTTT && (
+                    <div className="mb-8 max-w-md mx-auto">
                         <SlidingNotification
                             text="intaa lacag doorato gameka haka bixin hadii kale computer ayaa kuu dheelayo, hadii aadka baxayso taabo calaamada (X)"
                             speed={20}
                             className="rounded-2xl border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.1)]"
                         />
                     </div>
+                )}
 
-                    {status === 'SELECT' ? (
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between mb-4 px-1">
-                                <h3 className="text-xl sm:text-2xl font-bold text-white bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">Select Your Stake</h3>
-                                <button
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        onExit();
-                                    }}
-                                    className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 hover:bg-red-700 text-white transition-all shadow-lg"
-                                    title="Close"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 max-w-md mx-auto lg:mx-0">
-                                {BET_OPTIONS.map((amount) => (
+                {/* JAR Description moved into H1, removing the previous separate box if it exists */}
+
+                {status === 'SELECT' ? (
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between mb-4 px-1 max-w-md mx-auto">
+                            <h3 className="text-xl sm:text-2xl font-bold text-white bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                                {isTTT ? 'Entry Fee' : 'Select Your Stake'}
+                            </h3>
+                            <button
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onExit();
+                                }}
+                                className="flex items-center justify-center w-8 h-8 rounded-full bg-red-600 hover:bg-red-700 text-white transition-all shadow-lg"
+                                title="Close"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className={`flex justify-center gap-3 max-w-md mx-auto flex-wrap`}>
+                            {activeBetOptions.map((amount) => (
+                                <div key={amount} className={`${isTTT ? 'w-64' : 'w-[calc(50%-0.375rem)]'} min-w-[140px]`}>
                                     <BetCard
-                                        key={amount}
                                         amount={amount}
                                         onClick={() => handleCreateRequest(amount)}
                                         disabled={(user?.balance || 0) < amount}
                                     />
-                                ))}
-                            </div>
+                                </div>
+                            ))}
                         </div>
-                    ) : status === 'WAITING' || status === 'CREATING' ? (
-                        <div className="bg-slate-800/80 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700 animate-in zoom-in duration-300 text-center">
-                            <div className="relative w-20 h-20 mx-auto mb-4">
-                                <div className="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"></div>
-                                <Loader2 className="w-full h-full text-cyan-500 animate-spin p-2" />
-                            </div>
-                            <h2 className="text-xl font-bold text-white mb-2">{statusMessage}</h2>
-                            <p className="text-slate-400 mb-6">Stake: <span className="text-cyan-400 font-bold">${selectedStake?.toFixed(2)}</span></p>
-
-                            <button
-                                onClick={handleCancelRequest}
-                                className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-full font-medium transition-colors flex items-center gap-2 mx-auto"
-                            >
-                                <X className="w-4 h-4" /> Cancel Request
-                            </button>
+                    </div>
+                ) : status === 'WAITING' || status === 'CREATING' ? (
+                    <div className="bg-slate-800/80 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700 animate-in zoom-in duration-300 text-center max-w-md mx-auto">
+                        <div className="relative w-20 h-20 mx-auto mb-4">
+                            <div className="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-ping"></div>
+                            <Loader2 className="w-full h-full text-cyan-500 animate-spin p-2" />
                         </div>
-                    ) : null}
+                        <h2 className="text-xl font-bold text-white mb-2">{statusMessage}</h2>
+                        <p className="text-slate-400 mb-6">Stake: <span className="text-cyan-400 font-bold">${selectedStake?.toFixed(2)}</span></p>
 
-                    {status === 'SELECT' && (
                         <button
-                            onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onExit();
-                            }}
-                            className="mt-8 text-slate-500 hover:text-white transition-colors font-medium flex items-center gap-2 mx-auto lg:mx-0"
+                            onClick={handleCancelRequest}
+                            className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-full font-medium transition-colors flex items-center gap-2 mx-auto"
                         >
-                            <span>&larr; Back to Menu</span>
+                            <X className="w-4 h-4" /> Cancel Request
                         </button>
-                    )}
-                </div>
+                    </div>
+                ) : null}
 
-                {/* Right Column: Active Requests List */}
-                <div className="bg-slate-800/50 backdrop-blur-sm rounded-3xl border border-slate-700 p-6 h-[500px] overflow-hidden flex flex-col">
-                    <MatchRequestList
-                        requests={activeRequests}
-                        onAccept={handleAcceptRequest}
-                        currentUserId={user?.id || sessionId}
-                    />
-                </div>
+                {status === 'SELECT' && (
+                    <button
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onExit();
+                        }}
+                        className="mt-8 text-slate-500 hover:text-white transition-colors font-medium flex items-center gap-2 mx-auto"
+                    >
+                        <span>&larr; Back to Menu</span>
+                    </button>
+                )}
+            </div>
+
+            {/* Right Column: Active Requests List */}
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-3xl border border-slate-700 p-6 h-[500px] overflow-hidden flex flex-col">
+                <MatchRequestList
+                    requests={activeRequests}
+                    onAccept={(requestId) => {
+                        if (isTTT) {
+                            // For TTT, "Accepting" means joining the queue with the same stake
+                            const request = activeRequests.find(r => r.requestId === requestId);
+                            if (request) {
+                                handleCreateRequest(request.stake);
+                            }
+                        } else {
+                            handleAcceptRequest(requestId);
+                        }
+                    }}
+                    currentUserId={user?.id || sessionId}
+                />
             </div>
         </div>
     );

@@ -199,7 +199,8 @@ const processGameSettlement = async (gameObj) => {
                 "stats.totalWinnings": profit,
                 // Safely decrement reserved balance. 
                 // We trust the game logic that stake WAS reserved.
-                reservedBalance: -stake
+                reservedBalance: -stake,
+                xp: 100 // Winner gets 100 XP
             },
             $push: {
                 transactions: {
@@ -453,7 +454,8 @@ const processGameSettlement = async (gameObj) => {
                 "stats.gamesLost": 1,
                 "stats.totalLosses": stake,
                 // Atomic decrement of reserved balance
-                reservedBalance: -stake
+                reservedBalance: -stake,
+                xp: 25 // Loser gets 25 XP
             },
             $push: {
                 transactions: {
@@ -897,6 +899,32 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
             return { success: false, message };
         }
 
+        // --- XP REWARD FOR KILL ---
+        let xpAwarded = 0;
+        if (killedTokenId && player.userId && !player.isAI) {
+            try {
+                // Ensure userId is valid string/ObjectId
+                const targetUserId = player.userId.toString();
+                console.log(`🎯 Attempting XP update for user: ${targetUserId}`);
+
+                const updatedUser = await User.findByIdAndUpdate(
+                    targetUserId,
+                    { $inc: { xp: 5 } },
+                    { new: true } // Return updated doc
+                );
+
+                if (updatedUser) {
+                    console.log(`⭐ XP REWARD SUCCESS: ${updatedUser.username} now has ${updatedUser.xp} XP (+5)`);
+                    xpAwarded = 5;
+                } else {
+                    console.error(`❌ XP REWARD FAILED: User ${targetUserId} not found in DB`);
+                }
+            } catch (err) {
+                console.error(`❌ Failed to award XP for kill to ${player.userId}:`, err);
+            }
+        }
+        // --------------------------
+
         // Now, save the final state to the database
         // ATOMIC UPDATE: Replace game.save()
         await Game.updateOne(
@@ -929,7 +957,7 @@ exports.handleMoveToken = async (gameId, socketId, tokenId) => {
 
         const plainState = updatedGameState.toObject ? updatedGameState.toObject() : updatedGameState;
 
-        return { success: true, state: plainState, settlementData, killedTokenId: updatedGameState.killedTokenId || killedTokenId };
+        return { success: true, state: plainState, settlementData, killedTokenId: updatedGameState.killedTokenId || killedTokenId, xpAwarded };
     } catch (error) {
         console.error(`❌ Error in handleMoveToken for game ${gameId}:`, error);
         return { success: false, message: error.message || 'Error moving token' };

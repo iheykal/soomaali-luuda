@@ -15,6 +15,10 @@ const UserSchema = new mongoose.Schema({
   status: { type: String, enum: ['Active', 'Suspended'], default: 'Active' },
   createdAt: { type: Date, default: Date.now },
 
+  // Progression System
+  xp: { type: Number, default: 0 }, // Total experience points
+  level: { type: Number, default: 1 }, // Current player level
+
   // Referral System
   referralCode: { type: String, unique: true, sparse: true }, // User's unique code to share (e.g., LUDO-ABC123)
   referredBy: { type: String, ref: 'User' }, // ID of user who referred this user

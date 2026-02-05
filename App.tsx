@@ -10,11 +10,13 @@ import WinNotification from './components/WinNotification';
 import { useGameLogic } from './hooks/useGameLogic';
 import { useGlobalSocket } from './hooks/useGlobalSocket';
 import MultiplayerLobby from './components/MultiplayerLobby';
+import TicTacToeBoard from './components/TicTacToeBoard'; // NEW
+import { useTicTacToeLogic } from './hooks/useTicTacToeLogic'; // NEW
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import ResetPassword from './components/auth/ResetPassword';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import type { Player, PlayerColor, MultiplayerGame } from './types';
+import type { Player, PlayerColor, MultiplayerGame, GameType } from './types'; // Updated types
 import { debugService } from './services/debugService';
 import DebugConsole from './components/DebugConsole';
 import LiveMatchesModal from './components/LiveMatchesModal';
@@ -37,14 +39,39 @@ interface MultiplayerConfig {
   playerId: string;
   stake?: number;
   isSpectator?: boolean;
+  gameType?: GameType; // NEW: Support game type
 }
 
 
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 const AppContent: React.FC = () => {
   const [multiplayerConfig, setMultiplayerConfig] = useState<MultiplayerConfig | null>(null);
-  const { state, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, isMyTurn, setState, socket } = useGameLogic(multiplayerConfig || undefined);
-  const { gameStarted, players, currentPlayerIndex, turnState, winners, timer } = state;
+
+  // Conditionally initialize hooks based on game type
+  // Note: Hooks rules require unconditional call, so we call both and use based on config
+  const ludoLogic = useGameLogic(multiplayerConfig?.gameType !== 'TIC_TAC_TOE' ? multiplayerConfig : undefined);
+  const ticTacToeLogic = useTicTacToeLogic(
+    multiplayerConfig?.gameType === 'TIC_TAC_TOE' ? {
+      ...multiplayerConfig,
+      onRematchStart: (newGameId) => handleRematchAccepted(newGameId)
+    } : undefined
+  );
+
+  // Destructure Ludo state for easy access (used in UI if Ludo)
+  const { state: ludoState, startGame, handleRollDice, handleMoveToken, handleAnimationComplete, isMyTurn: isLudoMyTurn, setState: setLudoState, socket: ludoSocket } = ludoLogic;
+
+  // Restore variables for existing Ludo code compatibility
+  const state = ludoState;
+  const isMyTurn = isLudoMyTurn;
+  const setState = setLudoState;
+
+  // Use appropriate socket based on active game  (Ludo only, TTT manages its own)
+  const socket = ludoSocket;
+
+  const { gameStarted, players, currentPlayerIndex, turnState, winners, timer } = ludoState;
+
   const { user, isAuthenticated, loading: authLoading, refreshUser } = useAuth();
   const [view, setView] = useState<View>('login');
   const [showSuperAdminOverlay, setShowSuperAdminOverlay] = useState(false);
@@ -80,7 +107,9 @@ const AppContent: React.FC = () => {
     return (
       <div className="fixed inset-0 z-50 bg-white flex items-center justify-center">
         <div className="w-full h-full overflow-auto">
-          <SuperAdminDashboard onExit={() => setShowSuperAdminOverlay(false)} />
+          <ErrorBoundary name="Super Admin Dashboard">
+            <SuperAdminDashboard onExit={() => setShowSuperAdminOverlay(false)} />
+          </ErrorBoundary>
         </div>
       </div>
     );
@@ -508,26 +537,49 @@ const AppContent: React.FC = () => {
 
           <div className="flex-1 flex items-center justify-center p-2">
             <div className="max-w-[700px] w-full aspect-square">
-              <Board
-                gameState={state}
-                onMoveToken={handleMoveToken}
-                onAnimationComplete={handleAnimationComplete}
-                isMyTurn={isMyTurn}
-                perspectiveColor={multiplayerConfig?.localPlayerColor}
-              />
+              {multiplayerConfig?.gameType === 'TIC_TAC_TOE' ? (
+                ticTacToeLogic.state ? (
+                  <TicTacToeBoard
+                    gameState={ticTacToeLogic.state}
+                    onCellClick={ticTacToeLogic.makeMove}
+                    isMyTurn={ticTacToeLogic.isMyTurn}
+                    mySymbol={ticTacToeLogic.mySymbol!}
+                    onExit={handleRestart}
+                    onRematch={ticTacToeLogic.requestRematch}
+                    rematchRequested={ticTacToeLogic.rematchRequested}
+                    ticTacToeLogic={ticTacToeLogic}
+                    opponentRematchRequested={ticTacToeLogic.opponentRematchRequested}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-white">
+                    <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p>Loading JAR...</p>
+                  </div>
+                )
+              ) : (
+                <Board
+                  gameState={ludoState}
+                  onMoveToken={handleMoveToken}
+                  onAnimationComplete={handleAnimationComplete}
+                  isMyTurn={isLudoMyTurn}
+                  perspectiveColor={multiplayerConfig?.localPlayerColor}
+                />
+              )}
             </div>
           </div>
 
           <div className="flex-shrink-0 p-2 flex flex-col items-center gap-4">
-            <Dice
-              value={state.diceValue}
-              onRoll={handleRollDice}
-              isMyTurn={isMyTurn}
-              playerColor={players[currentPlayerIndex]?.color || 'red'}
-              timer={timer}
-              turnState={turnState}
-              potAmount={state.stake}
-            />
+            {multiplayerConfig?.gameType !== 'TIC_TAC_TOE' && (
+              <Dice
+                value={ludoState.diceValue}
+                onRoll={handleRollDice}
+                isMyTurn={isLudoMyTurn}
+                playerColor={players[currentPlayerIndex]?.color || 'red'}
+                timer={timer}
+                turnState={turnState}
+                potAmount={ludoState.stake}
+              />
+            )}
           </div>
 
           {/* Compact Gem Reroll - Positioned above chat button */}

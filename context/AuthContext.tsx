@@ -70,6 +70,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  // Listen for global user refresh events (e.g. from game logic XP updates)
+  useEffect(() => {
+    const handleRefresh = () => {
+      console.log('🔄 Global user refresh triggered');
+      refreshUser();
+    };
+
+    window.addEventListener('LUDO_REFRESH_USER', handleRefresh);
+    return () => window.removeEventListener('LUDO_REFRESH_USER', handleRefresh);
+  }, []);
+
   /*
   // Refresh user data when window gains focus (user returns to tab)
   useEffect(() => {
