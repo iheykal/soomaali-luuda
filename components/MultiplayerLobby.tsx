@@ -289,19 +289,19 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onStartGame, onExit
                 setStatusMessage('Match accepted! Starting...');
                 // Game start logic handled by match_found/game_created event
 
-                // Set a timeout in case match_found never arrives (5 seconds)
+                // Set a timeout in case match_found never arrives (10 seconds)
                 if (matchTimeoutRef.current) {
                     clearTimeout(matchTimeoutRef.current);
                 }
                 matchTimeoutRef.current = setTimeout(() => {
-                    console.error('⏰ Timeout: match_found event not received within 5 seconds');
+                    console.error('⏰ Timeout: match_found event not received within 10 seconds');
                     setStatusMessage('Match creation timed out. Please try again.');
                     setTimeout(() => {
                         setStatus('SELECT');
                         setMyRequestId(null);
                         setStatusMessage('');
                     }, 2000);
-                }, 5000);
+                }, 10000); // Increased from 5 to 10 seconds
             }
         });
 

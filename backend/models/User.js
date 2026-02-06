@@ -40,7 +40,7 @@ const UserSchema = new mongoose.Schema({
   transactions: [{
     type: {
       type: String,
-      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'match_stake', 'match_unstake', 'referral_earning', 'gem_purchase', 'gem_usage']
+      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'refund', 'match_stake', 'match_unstake', 'referral_earning', 'gem_purchase', 'gem_usage']
     },
     amount: Number,
     matchId: String,

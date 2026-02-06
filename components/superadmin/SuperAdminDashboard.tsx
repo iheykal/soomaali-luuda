@@ -346,7 +346,11 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const fetchRevenue = useCallback(async (filter: string = revenueFilter, page: number = 1) => {
     setLoading(true);
     try {
+      console.log('📊 Fetching revenue with filter:', filter, 'page:', page);
       const stats = await adminAPI.getRevenueStats(filter, page);
+      console.log('📊 Revenue stats received:', stats);
+      console.log('📊 Revenue history length:', stats?.history?.length);
+      console.log('📊 Revenue history data:', stats?.history);
       setRevenueStats(stats);
       setRevenueFilter(filter);
       setRevenuePage(page);

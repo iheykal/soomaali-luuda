@@ -14,6 +14,7 @@ const gameEngine = require('./logic/gameEngine');
 const User = require('./models/User');
 const FinancialRequest = require('./models/FinancialRequest');
 const Revenue = require('./models/Revenue');
+const RevenueWithdrawal = require('./models/RevenueWithdrawal');
 const Game = require('./models/Game');
 
 // Global TTT Queue - Must// Global queue for tic-tac-toe matchmaking
@@ -2713,6 +2714,9 @@ const createMatch = async (player1, player2, stake) => {
   usersStartingGame.add(player1.userId);
   usersStartingGame.add(player2.userId);
 
+  // Declare socket variables at function scope so they're accessible in catch block
+  let socket1, socket2;
+
   try {
     // --- Reserve stake from both players ---
     const user1 = await User.findById(player1.userId);
@@ -2821,81 +2825,15 @@ const createMatch = async (player1, player2, stake) => {
       player2.socketId
     );
 
-    // Get sockets with enhanced recovery logic for production environments
-    let socket1 = io.sockets.sockets.get(player1.socketId);
-    let socket2 = io.sockets.sockets.get(player2.socketId);
+    // Get sockets - trust the socket IDs from the request (already validated)
+    socket1 = io.sockets.sockets.get(player1.socketId);
+    socket2 = io.sockets.sockets.get(player2.socketId);
 
-    // Track if we need to use userId room fallback
-    let usePlayer1Fallback = false;
-    let usePlayer2Fallback = false;
+    console.log(`🔍 Socket check - Player1: ${player1.socketId} (${socket1 ? 'found' : 'NOT FOUND'}), Player2: ${player2.socketId} (${socket2 ? 'found' : 'NOT FOUND'})`);
 
-    // Track all possible sockets for each player for redundant broadcasting
-    let player1Sockets = [];
-    let player2Sockets = [];
-
-    console.log(`🔍 Socket recovery check - Player1 socketId: ${player1.socketId}, userId: ${player1.userId}`);
-    console.log(`🔍 Socket recovery check - Player2 socketId: ${player2.socketId}, userId: ${player2.userId}`);
-
-    if (!socket1) {
-      console.warn(`⚠️ Socket not found for player1 (socketId: ${player1.socketId}). Attempting recovery...`);
-
-      // Try to find socket by userId in connected sockets
-      if (player1.userId) {
-        const userSockets = Array.from(io.sockets.sockets.values()).filter(s => {
-          // Check if socket belongs to this user (multiple ways)
-          return s.data?.userId === player1.userId ||
-            s.handshake?.query?.userId === player1.userId ||
-            s.handshake?.auth?.userId === player1.userId;
-        });
-
-        player1Sockets = userSockets; // Store all matching sockets
-        if (userSockets.length > 0) {
-          socket1 = userSockets[0]; // Use the first matching socket
-          console.log(`✅ Recovered socket for player1 using userId: ${player1.userId}, found ${userSockets.length} socket(s)`);
-        } else {
-          console.warn(`⚠️ No socket found for player1 userId: ${player1.userId}. Will use userId room fallback.`);
-          usePlayer1Fallback = true;
-        }
-      } else {
-        console.warn(`⚠️ Player1 has no userId for recovery`);
-        usePlayer1Fallback = true;
-      }
-    } else {
-      player1Sockets = [socket1];
-      console.log(`✅ Player1 socket found directly: ${player1.socketId}`);
-    }
-
-    if (!socket2) {
-      console.warn(`⚠️ Socket not found for player2 (socketId: ${player2.socketId}). Attempting recovery...`);
-
-      // Try to find socket by userId in connected sockets
-      if (player2.userId) {
-        const userSockets = Array.from(io.sockets.sockets.values()).filter(s => {
-          return s.data?.userId === player2.userId ||
-            s.handshake?.query?.userId === player2.userId ||
-            s.handshake?.auth?.userId === player2.userId;
-        });
-
-        player2Sockets = userSockets; // Store all matching sockets
-        if (userSockets.length > 0) {
-          socket2 = userSockets[0];
-          console.log(`✅ Recovered socket for player2 using userId: ${player2.userId}, found ${userSockets.length} socket(s)`);
-        } else {
-          console.warn(`⚠️ No socket found for player2 userId: ${player2.userId}. Will use userId room fallback.`);
-          usePlayer2Fallback = true;
-        }
-      } else {
-        console.warn(`⚠️ Player2 has no userId for recovery`);
-        usePlayer2Fallback = true;
-      }
-    } else {
-      player2Sockets = [socket2];
-      console.log(`✅ Player2 socket found directly: ${player2.socketId}`);
-    }
-
-    // If both sockets are missing and we can't recover, emit error and clean up
-    if (!socket1 && !socket2 && !player1.userId && !player2.userId) {
-      console.error('❌ CRITICAL: Both sockets not found and no userId available for fallback. Match creation failed.');
+    // If either socket is missing, refund and abort
+    if (!socket1 || !socket2) {
+      console.error('❌ CRITICAL: Socket(s) not found. Match creation failed.');
 
       // Try to refund the stakes since match failed
       try {
@@ -2909,7 +2847,7 @@ const createMatch = async (player1, player2, stake) => {
             },
             $push: {
               transactions: {
-                type: 'refund',
+                type: 'game_refund',
                 amount: stake,
                 matchId: gameId,
                 description: `Match creation failed - full refund for game ${gameId}`,
@@ -2928,7 +2866,7 @@ const createMatch = async (player1, player2, stake) => {
             },
             $push: {
               transactions: {
-                type: 'refund',
+                type: 'game_refund',
                 amount: stake,
                 matchId: gameId,
                 description: `Match creation failed - full refund for game ${gameId}`,
@@ -2979,7 +2917,7 @@ const createMatch = async (player1, player2, stake) => {
       }
     }
 
-    // Notify both players with improved fallback logic
+    // Notify both players
     const player1MatchData = {
       gameId,
       playerColor: hostColor,
@@ -2994,142 +2932,106 @@ const createMatch = async (player1, player2, stake) => {
       stake
     };
 
-    // REDUNDANT BROADCASTING: Emit to ALL discovered sockets AND userId rooms for maximum reliability
-    console.log(`📡 Broadcasting match_found to player1 (${player1Sockets.length} socket(s), fallback: ${usePlayer1Fallback})`);
-    console.log(`📡 Broadcasting match_found to player2 (${player2Sockets.length} socket(s), fallback: ${usePlayer2Fallback})`);
+    console.log(`📡 Sending match_found to both players`);
 
-    // Emit to player1 - use ALL available methods for redundancy
-    let player1NotificationsSent = 0;
+    // Emit directly to sockets
+    socket1.emit('match_found', player1MatchData);
+    socket2.emit('match_found', player2MatchData);
 
-    // Method 1: Direct socket(s)
-    if (player1Sockets.length > 0) {
-      player1Sockets.forEach(s => {
-        s.emit('match_found', player1MatchData);
-        player1NotificationsSent++;
-      });
-      console.log(`✅ Emitted match_found to player1 via ${player1Sockets.length} direct socket(s)`);
-    }
-
-    // Method 2: userId room (ALWAYS try this for redundancy)
+    // Also emit to userId rooms for extra reliability
     if (player1.userId) {
       io.to(`user_${player1.userId}`).emit('match_found', player1MatchData);
-      player1NotificationsSent++;
-      console.log(`✅ Emitted match_found to player1 via userId room: user_${player1.userId}`);
     }
-
-    if (player1NotificationsSent === 0) {
-      console.error(`❌ CRITICAL: No notifications sent to player1!`);
-    }
-
-    // Emit to player2 - use ALL available methods for redundancy
-    let player2NotificationsSent = 0;
-
-    // Method 1: Direct socket(s)
-    if (player2Sockets.length > 0) {
-      player2Sockets.forEach(s => {
-        s.emit('match_found', player2MatchData);
-        player2NotificationsSent++;
-      });
-      console.log(`✅ Emitted match_found to player2 via ${player2Sockets.length} direct socket(s)`);
-    }
-
-    // Method 2: userId room (ALWAYS try this for redundancy)
     if (player2.userId) {
       io.to(`user_${player2.userId}`).emit('match_found', player2MatchData);
-      player2NotificationsSent++;
-      console.log(`✅ Emitted match_found to player2 via userId room: user_${player2.userId}`);
     }
 
-    if (player2NotificationsSent === 0) {
-      console.error(`❌ CRITICAL: No notifications sent to player2!`);
-    }
+    console.log(`✅ Match notifications sent to both players`);
 
-    // Send initial game state to both players after a short delay
+    // Send initial game state to both players immediately (no delay)
     if (guestResult.success && guestResult.state) {
-      setTimeout(async () => {
-        const Game = require('./models/Game');
-        const game = await Game.findOne({ gameId });
-        if (game) {
-          // Ensure all players are properly marked as not AI and not disconnected
-          // For multiplayer games, ALL players should be human (isAI: false)
-          let playerFlagsUpdated = false;
-          game.players.forEach(player => {
-            // Always set isAI to false for multiplayer games - no bots allowed
-            if (player.isAI !== false) {
-              player.isAI = false;
+      const Game = require('./models/Game');
+      const game = await Game.findOne({ gameId });
+      if (game) {
+        // Ensure all players are properly marked as not AI and not disconnected
+        // For multiplayer games, ALL players should be human (isAI: false)
+        let playerFlagsUpdated = false;
+        game.players.forEach(player => {
+          // Always set isAI to false for multiplayer games - no bots allowed
+          if (player.isAI !== false) {
+            player.isAI = false;
+            playerFlagsUpdated = true;
+            console.log(`🔧 Forced ${player.color} to be human (isAI: false) in multiplayer game ${gameId}`);
+          }
+          if (player.isDisconnected === undefined || player.isDisconnected === null || player.isDisconnected === true) {
+            // Only set isDisconnected to false if they have a socket
+            if (player.socketId) {
+              player.isDisconnected = false;
               playerFlagsUpdated = true;
-              console.log(`🔧 Forced ${player.color} to be human (isAI: false) in multiplayer game ${gameId}`);
             }
-            if (player.isDisconnected === undefined || player.isDisconnected === null || player.isDisconnected === true) {
-              // Only set isDisconnected to false if they have a socket
-              if (player.socketId) {
-                player.isDisconnected = false;
-                playerFlagsUpdated = true;
-              }
-            }
-          });
-
-          if (playerFlagsUpdated) {
-            await game.save();
-            console.log(`✅ Updated player flags in initial game state for game ${gameId}`);
           }
+        });
 
-          const gameState = game.toObject ? game.toObject() : game;
-          const finalState = {
-            ...gameState,
-            gameStarted: true,
-            status: 'ACTIVE',
-            turnState: 'ROLLING',
-            diceValue: null, // Ensure diceValue is null at game start
-            legalMoves: [] // Ensure legalMoves is empty at game start
-          };
-          console.log(`📤 Sending initial GAME_STATE_UPDATE to game ${gameId} with ${finalState.players?.length} players`);
-          console.log(`📤 Player details:`, finalState.players?.map(p => ({
-            color: p.color,
-            isAI: p.isAI,
-            isDisconnected: p.isDisconnected,
-            hasSocket: !!p.socketId
-          })));
-          console.log(`📤 Initial game state: currentPlayerIndex=${finalState.currentPlayerIndex}, turnState=${finalState.turnState}, diceValue=${finalState.diceValue}, gameStarted=${finalState.gameStarted}`);
-
-          // Ensure state is a plain object
-          io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(finalState) });
-
-          // Start timer for first player if human and connected
-          const firstPlayer = game.players[game.currentPlayerIndex];
-          console.log(`📤 First player: ${firstPlayer?.color}, isAI: ${firstPlayer?.isAI}, isDisconnected: ${firstPlayer?.isDisconnected}, socketId: ${firstPlayer?.socketId}`);
-
-          // CRITICAL: Ensure first player is NOT marked as AI or disconnected if they have a socket
-          if (firstPlayer && firstPlayer.socketId) {
-            // Force human players to be marked correctly
-            if (firstPlayer.isAI !== false) {
-              firstPlayer.isAI = false;
-              console.log(`🔧 Fixed: Set ${firstPlayer.color} isAI to false (had socketId)`);
-            }
-            if (firstPlayer.isDisconnected !== false) {
-              firstPlayer.isDisconnected = false;
-              console.log(`🔧 Fixed: Set ${firstPlayer.color} isDisconnected to false (had socketId)`);
-            }
-            await game.save();
-          }
-
-          // Check if first player is Human/Connected and START TIMER
-          if (firstPlayer && firstPlayer.socketId) {
-            console.log(`⏱️ Starting auto-roll timer for first player ${firstPlayer.color} in game ${gameId}`);
-            scheduleHumanPlayerAutoRoll(gameId);
-          } else if (firstPlayer && !firstPlayer.socketId && (firstPlayer.isAI || firstPlayer.isDisconnected)) {
-            // Only auto-roll if player has NO socketId AND is marked as AI/disconnected
-            console.log(`🤖 First player ${firstPlayer.color} has no socketId and is AI/disconnected, scheduling auto-turn`);
-            scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
-          } else if (firstPlayer) {
-            // Fallback for unclear state - schedule timer to be safe
-            console.log(`⚠️ First player ${firstPlayer.color} state unclear - scheduling auto-roll timer for safety`);
-            scheduleHumanPlayerAutoRoll(gameId);
-          } else {
-            console.log(`⚠️ First player not found`);
-          }
+        if (playerFlagsUpdated) {
+          await game.save();
+          console.log(`✅ Updated player flags in initial game state for game ${gameId}`);
         }
-      }, 200); // Increased delay to allow both players to be ready
+
+        const gameState = game.toObject ? game.toObject() : game;
+        const finalState = {
+          ...gameState,
+          gameStarted: true,
+          status: 'ACTIVE',
+          turnState: 'ROLLING',
+          diceValue: null, // Ensure diceValue is null at game start
+          legalMoves: [] // Ensure legalMoves is empty at game start
+        };
+        console.log(`📤 Sending initial GAME_STATE_UPDATE to game ${gameId} with ${finalState.players?.length} players`);
+        console.log(`📤 Player details:`, finalState.players?.map(p => ({
+          color: p.color,
+          isAI: p.isAI,
+          isDisconnected: p.isDisconnected,
+          hasSocket: !!p.socketId
+        })));
+        console.log(`📤 Initial game state: currentPlayerIndex=${finalState.currentPlayerIndex}, turnState=${finalState.turnState}, diceValue=${finalState.diceValue}, gameStarted=${finalState.gameStarted}`);
+
+        // Ensure state is a plain object
+        io.to(gameId).emit('GAME_STATE_UPDATE', { state: prepareGameStateForEmit(finalState) });
+
+        // Start timer for first player if human and connected
+        const firstPlayer = game.players[game.currentPlayerIndex];
+        console.log(`📤 First player: ${firstPlayer?.color}, isAI: ${firstPlayer?.isAI}, isDisconnected: ${firstPlayer?.isDisconnected}, socketId: ${firstPlayer?.socketId}`);
+
+        // CRITICAL: Ensure first player is NOT marked as AI or disconnected if they have a socket
+        if (firstPlayer && firstPlayer.socketId) {
+          // Force human players to be marked correctly
+          if (firstPlayer.isAI !== false) {
+            firstPlayer.isAI = false;
+            console.log(`🔧 Fixed: Set ${firstPlayer.color} isAI to false (had socketId)`);
+          }
+          if (firstPlayer.isDisconnected !== false) {
+            firstPlayer.isDisconnected = false;
+            console.log(`🔧 Fixed: Set ${firstPlayer.color} isDisconnected to false (had socketId)`);
+          }
+          await game.save();
+        }
+
+        // Check if first player is Human/Connected and START TIMER
+        if (firstPlayer && firstPlayer.socketId) {
+          console.log(`⏱️ Starting auto-roll timer for first player ${firstPlayer.color} in game ${gameId}`);
+          scheduleHumanPlayerAutoRoll(gameId);
+        } else if (firstPlayer && !firstPlayer.socketId && (firstPlayer.isAI || firstPlayer.isDisconnected)) {
+          // Only auto-roll if player has NO socketId AND is marked as AI/disconnected
+          console.log(`🤖 First player ${firstPlayer.color} has no socketId and is AI/disconnected, scheduling auto-turn`);
+          scheduleAutoTurn(gameId, AUTO_TURN_DELAYS.AI_ROLL);
+        } else if (firstPlayer) {
+          // Fallback for unclear state - schedule timer to be safe
+          console.log(`⚠️ First player ${firstPlayer.color} state unclear - scheduling auto-roll timer for safety`);
+          scheduleHumanPlayerAutoRoll(gameId);
+        } else {
+          console.log(`⚠️ First player not found`);
+        }
+      }
     }
 
     return gameId; // Return the created gameId
