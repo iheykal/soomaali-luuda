@@ -557,16 +557,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     setPwNewPassword('');
     
     try {
-      // Create a specific API call function inline here since it's just for this component
-      const token = localStorage.getItem('ludo_token');
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/search-user?query=${encodeURIComponent(pwSearchQuery)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to search user');
-      
-      setPwSearchResult(data.user);
+      const user = await adminAPI.searchUser(pwSearchQuery);
+      setPwSearchResult(user);
     } catch (err: any) {
       showNotificationMessage(err.message, 'error');
     } finally {
@@ -584,21 +576,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     showConfirmationDialog(`Are you sure you want to reset the password for ${pwSearchResult.username}?`, async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem('ludo_token');
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/reset-user-password`, {
-          method: 'POST',
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            userId: pwSearchResult.id,
-            newPassword: pwNewPassword
-          })
-        });
-        
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to reset password');
+        await adminAPI.resetUserPassword(pwSearchResult.id, pwNewPassword);
         
         showNotificationMessage(`Password reset successfully for ${pwSearchResult.username}`, 'success');
         setPwNewPassword(''); // Clear the password field after success

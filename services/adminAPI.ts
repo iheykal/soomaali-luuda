@@ -573,5 +573,40 @@ export const adminAPI = {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch gem revenue analytics';
       throw new Error(errorMessage);
     }
+  },
+
+  async searchUser(query: string): Promise<any> {
+    const url = `${getApiUrl()}/admin/search-user?query=${encodeURIComponent(query)}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      if (responseData.error) throw new Error(responseData.error);
+      return responseData.user;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || error.message || 'Failed to search user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async resetUserPassword(userId: string, newPassword: string): Promise<any> {
+    const url = `${getApiUrl()}/admin/reset-user-password`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ userId, newPassword }),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      if (responseData.error) throw new Error(responseData.error);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || error.message || 'Failed to reset password';
+      throw new Error(errorMessage);
+    }
   }
 };
