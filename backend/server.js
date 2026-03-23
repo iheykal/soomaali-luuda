@@ -819,6 +819,91 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
+// GET: Admin - Search user by phone number
+app.get('/api/admin/search-user', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Access denied. Admin role required.' });
+    }
+
+    const { query } = req.query;
+    if (!query || query.trim().length < 2) {
+      return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+    }
+
+    const normalizedQuery = query.trim();
+    const phoneWithPrefix = normalizedQuery.startsWith('+252') ? normalizedQuery : '+252' + normalizedQuery.replace(/\D/g, '');
+
+    const user = await User.findOne({
+      $or: [
+        { phone: normalizedQuery },
+        { phone: phoneWithPrefix },
+        { phone: { $regex: normalizedQuery.replace(/\D/g, ''), $options: 'i' } },
+        { username: { $regex: normalizedQuery, $options: 'i' } },
+      ]
+    }).select('-password -resetPasswordToken -resetPasswordExpires');
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        phone: user.phone,
+        balance: user.balance,
+        role: user.role,
+        status: user.status,
+        createdAt: user.createdAt,
+        stats: user.stats,
+      }
+    });
+  } catch (error) {
+    console.error('Admin search user error:', error);
+    res.status(500).json({ error: error.message || 'Search failed' });
+  }
+});
+
+// POST: Admin - Reset user password
+app.post('/api/admin/reset-user-password', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Access denied. Admin role required.' });
+    }
+
+    const { userId, newPassword } = req.body;
+    if (!userId || !newPassword) {
+      return res.status(400).json({ error: 'User ID and new password are required' });
+    }
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    }
+
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    targetUser.password = hashedPassword;
+    targetUser.resetPasswordToken = undefined;
+    targetUser.resetPasswordExpires = undefined;
+    await targetUser.save();
+
+    console.log(`🔑 Admin ${adminUser.username} reset password for user ${targetUser.username}`);
+
+    res.json({ success: true, message: `Password for "${targetUser.username}" has been reset successfully` });
+  } catch (error) {
+    console.error('Admin reset password error:', error);
+    res.status(500).json({ error: error.message || 'Failed to reset password' });
+  }
+});
+
 // POST: Create User (Admin/SuperAdmin only)
 app.post('/api/auth/create-user', authenticateToken, async (req, res) => {
   try {

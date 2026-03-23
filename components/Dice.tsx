@@ -35,6 +35,7 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
   const [cubeClass, setCubeClass] = useState('');
   const prevValueRef = useRef<number | null>(null); // Use ref for lastValue to prevent re-render loop
   const animationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchHandledRef = useRef(false);
   const [showNumber, setShowNumber] = useState(value !== null);
 
 
@@ -45,7 +46,6 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
 
     // Handle valid dice values (1-6) - ALWAYS animate on new roll
     if (value !== null && value !== undefined && typeof value === 'number' && value >= 1 && value <= 6) {
-      setShowNumber(true);
       // Check if this is a new roll (value changed from null/undefined/different number)
       const isNewRoll = lastValue === null || lastValue === undefined || lastValue !== value;
 
@@ -58,24 +58,29 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
         // Play dice roll sound
         audioService.play('diceRoll');
 
-        // Stop any ongoing animation and reset
-        setIsAnimating(false);
+        // Hide number and reset cube face BEFORE starting animation (prevents flash)
+        setShowNumber(false);
         setCubeClass('');
+        setIsAnimating(false);
 
-        // Start animation immediately
-        setIsAnimating(true);
+        // Defer animation start by one frame so the reset is painted first
+        requestAnimationFrame(() => {
+          setIsAnimating(true);
 
-        // Set final state after animation completes (shorter for snappier feel)
-        animationTimerRef.current = setTimeout(() => {
-          console.log(`🎲 Animation complete, setting cubeClass to show-${value}`);
-          setCubeClass(`show-${value}`);
-          setIsAnimating(false);
-        }, 400); // 0.4s animation
+          // Set final state after animation completes
+          animationTimerRef.current = setTimeout(() => {
+            console.log(`🎲 Animation complete, setting cubeClass to show-${value}`);
+            setCubeClass(`show-${value}`);
+            setIsAnimating(false);
+            setShowNumber(true); // Only show number after animation finishes
+          }, 400); // 0.4s animation
+        });
       } else {
         // Same value - ensure display is correct
         console.log(`🎲 Same value (${value}), ensuring display is correct`);
         if (cubeClass !== `show-${value}` && !isAnimating) {
           setCubeClass(`show-${value}`);
+          setShowNumber(true);
         }
       }
     }
@@ -111,6 +116,12 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
   }, [value]); // Dependency only on value to prevent loop with state updates
 
   const handleClick = () => {
+    // Prevent double-fire: if touch already handled this event, skip the onClick
+    if (touchHandledRef.current) {
+      touchHandledRef.current = false;
+      return;
+    }
+
     console.log(`🎲 ========== DICE CLICKED ==========`);
     console.log(`🎲 isMyTurn: ${isMyTurn}`);
     console.log(`🎲 current dice value: ${value}`);
@@ -166,10 +177,9 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
           className={`scene ${clickableClass} ${blinkingClass} touch-manipulation z-20`}
           onClick={handleClick}
           onTouchEnd={(e) => {
-            // Prevent default to avoid double-firing with onClick if supported, 
-            // but usually simple prevention of ghost clicks is enough.
-            // However, we want to ensure touch works even if click is finicky.
             e.preventDefault();
+            // Mark that touch handled this event so the subsequent onClick is ignored
+            touchHandledRef.current = true;
             handleClick();
           }}
           role="button"

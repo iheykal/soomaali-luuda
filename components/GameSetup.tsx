@@ -551,8 +551,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
             <span className="text-2xl tracking-wide drop-shadow-sm">Online</span>
           </button>
 
-          {/* 2. Tic-Tac-Toe Button (Replaces Wallet Balance) - Smaller/Optimized */}
-          <button
+          {/* 2. JAR (Tic-Tac-Toe) Button - Hidden until ready */}
+          {/* <button
             onClick={() => {
               handleSelectGame('TIC_TAC_TOE');
               onEnterLobby();
@@ -565,7 +565,7 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
               <span className="text-lg">JAR</span>
               <span className="text-[10px] text-amber-100 opacity-90">Win $0.09 • Stake $0.05</span>
             </div>
-          </button>
+          </button> */}
 
 
           {/* Referrals Button - Temporarily Hidden */}

@@ -183,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -208,6 +208,12 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawDestination, setWithdrawDestination] = useState('');
   const [withdrawReference, setWithdrawReference] = useState('');
+  
+  // Password Reset State
+  const [pwSearchQuery, setPwSearchQuery] = useState('');
+  const [pwSearchResult, setPwSearchResult] = useState<any>(null);
+  const [pwNewPassword, setPwNewPassword] = useState('');
+  const [pwSearchLoading, setPwSearchLoading] = useState(false);
   const [activeGames, setActiveGames] = useState<GameState[]>([]);
   const [visitorAnalytics, setVisitorAnalytics] = useState<{
     totalVisitors: number;
@@ -537,6 +543,71 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         }
       }
     );
+  };
+
+  const handlePasswordSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pwSearchQuery || pwSearchQuery.trim().length < 2) {
+      showNotificationMessage('Please enter at least 2 characters to search', 'error');
+      return;
+    }
+
+    setPwSearchLoading(true);
+    setPwSearchResult(null);
+    setPwNewPassword('');
+    
+    try {
+      // Create a specific API call function inline here since it's just for this component
+      const token = localStorage.getItem('ludo_token');
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/search-user?query=${encodeURIComponent(pwSearchQuery)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to search user');
+      
+      setPwSearchResult(data.user);
+    } catch (err: any) {
+      showNotificationMessage(err.message, 'error');
+    } finally {
+      setPwSearchLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!pwSearchResult) return;
+    if (!pwNewPassword || pwNewPassword.length < 4) {
+      showNotificationMessage('Password must be at least 4 characters', 'error');
+      return;
+    }
+
+    showConfirmationDialog(`Are you sure you want to reset the password for ${pwSearchResult.username}?`, async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('ludo_token');
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/admin/reset-user-password`, {
+          method: 'POST',
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            userId: pwSearchResult.id,
+            newPassword: pwNewPassword
+          })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to reset password');
+        
+        showNotificationMessage(`Password reset successfully for ${pwSearchResult.username}`, 'success');
+        setPwNewPassword(''); // Clear the password field after success
+      } catch (err: any) {
+        showNotificationMessage('Failed to reset password: ' + err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
   };
 
   const handleDeleteRevenueEntry = async (revenueId: string) => {
@@ -2129,6 +2200,112 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             )}
           </div>
         );
+      case 'password':
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <span className="text-2xl">🔑</span> User Password Reset
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">Lookup a user to instantly reset their password</p>
+            </div>
+            
+            <div className="p-6">
+              {/* Search Form */}
+              <form onSubmit={handlePasswordSearch} className="mb-8 max-w-lg">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Search by Phone Number or Username
+                </label>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">🔍</span>
+                    <input
+                      type="text"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="e.g. 0612345678 or Ali123"
+                      value={pwSearchQuery}
+                      onChange={(e) => setPwSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={pwSearchLoading || !pwSearchQuery}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-lg transition-colors shadow-md min-w-[120px]"
+                  >
+                    {pwSearchLoading ? 'Searching...' : 'Search'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Search Result & Reset Panel */}
+              {pwSearchResult ? (
+                <div className="max-w-xl border-2 border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-slate-100 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-800">User Found</h3>
+                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${pwSearchResult.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {pwSearchResult.status}
+                    </span>
+                  </div>
+                  
+                  <div className="p-6 bg-white space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-gray-500 font-medium">Username</p>
+                        <p className="font-bold text-lg text-gray-900">{pwSearchResult.username}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 font-medium">Phone</p>
+                        <p className="font-mono font-bold text-lg text-gray-900">{pwSearchResult.phone || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 font-medium">Balance</p>
+                        <p className="font-bold text-green-600">${(pwSearchResult.balance || 0).toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-500 font-medium">Joined</p>
+                        <p className="font-medium text-gray-800">
+                          {new Date(pwSearchResult.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <hr className="my-6 border-gray-200" />
+
+                    <div className="bg-blue-50 p-5 rounded-xl border border-blue-100">
+                      <label className="block text-sm font-bold text-blue-900 mb-2">
+                        Set New Password for {pwSearchResult.username}
+                      </label>
+                      <div className="flex gap-3">
+                        <input
+                          type="text"
+                          className="flex-1 px-4 py-3 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                          placeholder="Enter new password (min 4 chars)"
+                          value={pwNewPassword}
+                          onChange={(e) => setPwNewPassword(e.target.value)}
+                        />
+                        <button
+                          onClick={handlePasswordReset}
+                          disabled={loading || !pwNewPassword || pwNewPassword.length < 4}
+                          className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-bold rounded-lg transition-colors shadow-md whitespace-nowrap"
+                        >
+                          {loading ? 'Resetting...' : '🔑 Reset Password'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-700 mt-2 flex items-center gap-1">
+                        <span>ℹ️</span> The password will be updated instantly. Give the new password to the player.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="max-w-xl p-8 text-center bg-gray-50 rounded-xl border border-gray-200 border-dashed">
+                  <span className="text-4xl block mb-2 opacity-50">👤</span>
+                  <p className="text-gray-500">Search for a user to see their details and reset their password.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
       case 'recent':
         return (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -2278,6 +2455,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             >
               <span className="text-lg sm:text-xl">👥</span>
               <span>Users</span>
+            </button>
+          )}
+
+          {/* Password Reset - Super Admin Only */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('password')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'password'
+                ? 'bg-blue-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">🔑</span>
+              <span>Password Reset</span>
             </button>
           )}
 
