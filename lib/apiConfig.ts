@@ -49,14 +49,14 @@ const getApiUrl = () => {
       const hostname = window.location.hostname;
       const protocol = window.location.protocol;
 
-      // In production mode, if frontend is on Render, use the same origin for the API
-      if (hostname.includes('onrender.com')) {
+      // In production mode, always use the current origin (this fixes custom domains like laadhuu.online!)
+      if (import.meta.env.PROD) {
         const url = ensureApiPath(`${window.location.origin}`);
-        console.log('🔧 Using same origin API URL for Render:', url);
+        console.log('🔧 Using origin API URL (Prod):', url);
         return url;
       }
 
-      // If accessed via network IP (mobile/remote), use network IP for backend
+      // If accessed via network IP (mobile/remote dev), use network IP for backend
       if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
         // Use same hostname but port 5000 for backend
         const url = `${protocol}//${hostname}:5000`;
@@ -88,11 +88,10 @@ const getSocketUrl = () => {
       }
 
       // Dynamic fallback based on the current hostname
-      if (window.location.hostname.includes('onrender.com')) {
-        const url = `${window.location.protocol}//${window.location.hostname}`;
-        console.log('🔧 Automatically detected production Socket URL:', url);
-        return url;
-      }
+      // Removed the 'onrender.com' hardcoding so it works perfectly for custom domains
+      const url = `${window.location.protocol}//${window.location.hostname}`;
+      console.log('🔧 Automatically detected production Socket URL:', url);
+      return url;
     }
 
     // --- DEVELOPMENT LOGIC ---
