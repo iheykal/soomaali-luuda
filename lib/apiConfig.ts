@@ -49,10 +49,10 @@ const getApiUrl = () => {
       const hostname = window.location.hostname;
       const protocol = window.location.protocol;
 
-      // In production mode, always use the current origin (this fixes custom domains like laadhuu.online!)
+      // In production mode, always use the custom backend domain
       if (import.meta.env.PROD) {
-        const url = ensureApiPath(`${window.location.origin}`);
-        console.log('🔧 Using origin API URL (Prod):', url);
+        const url = ensureApiPath('https://api.laadhuu.online');
+        console.log('🔧 Using custom domain API URL (Prod):', url);
         return url;
       }
 
@@ -87,10 +87,9 @@ const getSocketUrl = () => {
         return envUrl;
       }
 
-      // Dynamic fallback based on the current hostname
-      // Removed the 'onrender.com' hardcoding so it works perfectly for custom domains
-      const url = `${window.location.protocol}//${window.location.hostname}`;
-      console.log('🔧 Automatically detected production Socket URL:', url);
+      // Hardcode explicitly for the verified custom backend domain
+      const url = 'https://api.laadhuu.online';
+      console.log('🔧 Using custom domain production Socket URL:', url);
       return url;
     }
 

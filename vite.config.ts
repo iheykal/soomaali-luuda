@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
       allowedHosts: [
         'soomaali-ludda.onrender.com',
         '.onrender.com', // Allow all Render subdomains
+        'laadhuu.online',
+        '.laadhuu.online',
         'localhost',
         '127.0.0.1'
       ]
