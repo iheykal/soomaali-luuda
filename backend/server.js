@@ -205,6 +205,18 @@ app.get('/api/health', (req, res) => {
 const rejoinRoutes = require('./routes/rejoin');
 app.use('/api/game', rejoinRoutes);
 
+// Admin quick actions (deposit/withdrawal panel)
+const adminQuickActions = require('./routes/adminQuickActions');
+
+// Analytics routes
+const analyticsRoutes = require('./routes/analyticsRoutes');
+
+// Today analytics
+const todayAnalyticsRoutes = require('./routes/todayAnalyticsRoutes');
+
+// Gems routes
+const gemsRoutes = require('./routes/gemsRoutes');
+
 // Basic Rate Limiter Map (IP -> Timestamp)
 const rateLimit = new Map();
 const activeAutoTurns = new Set(); // Track games with scheduled auto-turns
@@ -377,6 +389,12 @@ const authorizeAdmin = (req, res, next) => {
 
   next();
 };
+
+// Mount route files (MUST be after middleware is defined)
+app.use('/api/admin/quick', authenticateToken, authorizeAdmin, adminQuickActions);
+app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, analyticsRoutes);
+app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, todayAnalyticsRoutes);
+app.use('/api/gems', authenticateToken, gemsRoutes);
 
 // --- AUTHENTICATION ROUTES ---
 
