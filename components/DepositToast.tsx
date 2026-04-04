@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { audioService } from '../services/audioService';
 
 interface DepositToastProps {
   amount: number;
@@ -12,6 +13,13 @@ const DepositToast: React.FC<DepositToastProps> = ({ amount, type, newBalance, m
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    // Play sound immediately when component mounts
+    try {
+      audioService.play('win'); // The win sound is a nice positive chime
+    } catch (e) {
+      console.warn('Could not play toast audio:', e);
+    }
+
     // Animate in
     const showTimer = setTimeout(() => setVisible(true), 50);
     // Auto-dismiss after 6 seconds
