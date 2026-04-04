@@ -87,7 +87,7 @@ const AppContent: React.FC = () => {
   // Connect to global socket for financial notifications
   useGlobalSocket(user?.id || user?._id, isAuthenticated);
 
-  // Unlock audio on first user interaction to avoid browser autoplay blocks
+  // Unlock audio and request PUSH NOTIFICATION permissions on first user interaction
   useEffect(() => {
     const handler = () => {
       audioService.unlock();
@@ -97,6 +97,14 @@ const AppContent: React.FC = () => {
       } catch (e) {
         // ignore
       }
+
+      // Ask for Facebook-style system push notifications
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then((permission) => {
+          console.log('🔔 Push Notification permission:', permission);
+        });
+      }
+
       window.removeEventListener('pointerdown', handler);
     };
     window.addEventListener('pointerdown', handler, { once: true });
