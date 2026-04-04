@@ -220,15 +220,20 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
                 
                 // Chrome for Android requires ServiceWorker to show native notifications
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.ready.then(registration => {
-                        registration.showNotification(title, {
-                            body: body,
-                            icon: '/wello.png',
-                            badge: '/wello.png',
-                            tag: `balance_update_${Date.now()}`
-                        });
+                    navigator.serviceWorker.getRegistration().then(registration => {
+                        if (registration) {
+                            registration.showNotification(title, {
+                                body: body,
+                                icon: '/wello.png',
+                                badge: '/wello.png',
+                                tag: `balance_update_${Date.now()}`
+                            });
+                        } else {
+                            // Fallback if no SW is actually registered
+                            const notification = new Notification(title, { body, icon: '/wello.png' });
+                            setTimeout(() => notification.close(), 5000);
+                        }
                     }).catch(() => {
-                        // Fallback
                         const notification = new Notification(title, { body, icon: '/wello.png' });
                         setTimeout(() => notification.close(), 5000);
                     });

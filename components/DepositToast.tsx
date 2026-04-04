@@ -37,8 +37,8 @@ const DepositToast: React.FC<DepositToastProps> = ({ amount, type, newBalance, m
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 z-[9999] flex justify-center pointer-events-none p-4 sm:p-6"
-      style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
+      className="fixed top-0 left-0 right-0 flex justify-center pointer-events-none p-4 sm:p-6"
+      style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', zIndex: 999999 }}
     >
       {/* Toast Banner */}
       <div
