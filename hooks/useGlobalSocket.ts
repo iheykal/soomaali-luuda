@@ -213,18 +213,29 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
                 }
             }));
 
-            // 2. Try browser notification as a bonus (only if already granted — don't re-prompt)
+            // 2. Try browser notification as a bonus (only if already granted)
             if ('Notification' in window && Notification.permission === 'granted') {
                 const title = data.type === 'DEPOSIT' ? '💸 Lacag La Soo Geliyey' : '💳 Lacag La Raaray';
-                const notification = new Notification(title, {
-                    body: `$${data.amount.toFixed ? data.amount.toFixed(2) : data.amount} — Haraagii: $${data.newBalance}`,
-                    icon: '/wello.png',
-                    badge: '/wello.png',
-                    tag: `balance_update_${Date.now()}`,
-                    requireInteraction: false,
-                });
-                setTimeout(() => notification.close(), 5000);
-                notification.onclick = () => { window.focus(); notification.close(); };
+                const body = `$${data.amount.toFixed ? data.amount.toFixed(2) : data.amount} — Haraagii: $${data.newBalance}`;
+                
+                // Chrome for Android requires ServiceWorker to show native notifications
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.ready.then(registration => {
+                        registration.showNotification(title, {
+                            body: body,
+                            icon: '/wello.png',
+                            badge: '/wello.png',
+                            tag: `balance_update_${Date.now()}`
+                        });
+                    }).catch(() => {
+                        // Fallback
+                        const notification = new Notification(title, { body, icon: '/wello.png' });
+                        setTimeout(() => notification.close(), 5000);
+                    });
+                } else {
+                    const notification = new Notification(title, { body, icon: '/wello.png' });
+                    setTimeout(() => notification.close(), 5000);
+                }
             }
 
             // 3. Refresh balance in context
