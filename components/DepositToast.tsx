@@ -37,121 +37,92 @@ const DepositToast: React.FC<DepositToastProps> = ({ amount, type, newBalance, m
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
-      style={{ backdropFilter: visible ? 'none' : 'none' }}
+      className="fixed top-0 left-0 right-0 z-[9999] flex justify-center pointer-events-none p-4 sm:p-6"
+      style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
     >
-      {/* Overlay tap-to-dismiss */}
+      {/* Toast Banner */}
       <div
-        className="absolute inset-0 pointer-events-auto"
+        className="relative pointer-events-auto w-full max-w-md flex items-center gap-4 p-4 rounded-2xl shadow-2xl cursor-pointer"
         onClick={() => {
           setVisible(false);
           setTimeout(onClose, 400);
         }}
-      />
-
-      {/* Toast Card */}
-      <div
-        className="relative pointer-events-auto mx-4 w-full max-w-sm"
         style={{
-          transform: visible ? 'translateY(0) scale(1)' : 'translateY(-40px) scale(0.92)',
+          transform: visible ? 'translateY(0)' : 'translateY(-150%)',
           opacity: visible ? 1 : 0,
-          transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease',
+          transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease',
+          background: isDeposit
+            ? 'linear-gradient(135deg, rgba(20, 83, 45, 0.95) 0%, rgba(5, 46, 22, 0.98) 100%)'
+            : 'linear-gradient(135deg, rgba(127, 29, 29, 0.95) 0%, rgba(69, 10, 10, 0.98) 100%)',
+          border: isDeposit ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(239, 68, 68, 0.4)',
+          backdropFilter: 'blur(12px)',
         }}
       >
-        {/* Glow effect */}
+        {/* Glow effect under the banner */}
         <div
-          className="absolute inset-0 rounded-3xl blur-xl opacity-60"
+          className="absolute inset-0 rounded-2xl blur-lg opacity-40 z-[-1]"
           style={{
-            background: isDeposit
-              ? 'radial-gradient(ellipse at center, #22c55e 0%, transparent 70%)'
-              : 'radial-gradient(ellipse at center, #ef4444 0%, transparent 70%)',
+            background: isDeposit ? '#22c55e' : '#ef4444',
           }}
         />
 
+        {/* Icon */}
         <div
-          className="relative rounded-3xl overflow-hidden shadow-2xl"
+          className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-2xl"
           style={{
             background: isDeposit
-              ? 'linear-gradient(135deg, #052e16 0%, #14532d 50%, #052e16 100%)'
-              : 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 50%, #450a0a 100%)',
-            border: isDeposit ? '1px solid #22c55e40' : '1px solid #ef444440',
+              ? 'radial-gradient(circle, #166534, #052e16)'
+              : 'radial-gradient(circle, #991b1b, #450a0a)',
+            boxShadow: isDeposit
+              ? '0 0 15px rgba(34, 197, 94, 0.5), inset 0 1px 1px rgba(74, 222, 128, 0.4)'
+              : '0 0 15px rgba(239, 68, 68, 0.5), inset 0 1px 1px rgba(248, 113, 113, 0.4)',
+            animation: 'pulse-icon 2s infinite',
           }}
         >
-          {/* Top accent bar */}
-          <div
-            className="h-1 w-full"
-            style={{
-              background: isDeposit
-                ? 'linear-gradient(90deg, transparent, #22c55e, #4ade80, #22c55e, transparent)'
-                : 'linear-gradient(90deg, transparent, #ef4444, #f87171, #ef4444, transparent)',
-            }}
-          />
+          {isDeposit ? '💸' : '💳'}
+        </div>
 
-          <div className="p-6 text-center">
-            {/* Icon */}
-            <div
-              className="mx-auto mb-4 w-20 h-20 rounded-full flex items-center justify-center text-4xl"
-              style={{
-                background: isDeposit
-                  ? 'radial-gradient(circle, #166534, #052e16)'
-                  : 'radial-gradient(circle, #991b1b, #450a0a)',
-                boxShadow: isDeposit
-                  ? '0 0 30px #22c55e60, inset 0 1px 1px #4ade8040'
-                  : '0 0 30px #ef444460, inset 0 1px 1px #f8717140',
-                animation: 'pulse 2s ease-in-out infinite',
-              }}
-            >
-              {isDeposit ? '💸' : '💳'}
-            </div>
-
-            {/* Title */}
-            <p
-              className="text-xs font-black uppercase tracking-[0.3em] mb-1"
-              style={{ color: isDeposit ? '#4ade80' : '#f87171' }}
-            >
-              {isDeposit ? 'Lacag La Soo Geliyey' : 'Lacag La Raaray'}
-            </p>
-
-            {/* Amount */}
-            <div
-              className="text-5xl font-black mb-1 tabular-nums"
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-[10px] sm:text-xs font-black uppercase tracking-wider mb-0.5 truncate"
+            style={{ color: isDeposit ? '#4ade80' : '#f87171' }}
+          >
+            {isDeposit ? 'Lacag La Soo Geliyey' : 'Lacag La Raaray'}
+          </p>
+          <div className="flex items-baseline gap-2 truncate">
+            <span
+              className="text-xl sm:text-2xl font-black tabular-nums"
               style={{
                 color: '#ffffff',
-                textShadow: isDeposit ? '0 0 20px #22c55e' : '0 0 20px #ef4444',
-                letterSpacing: '-0.02em',
+                textShadow: isDeposit ? '0 0 10px rgba(34, 197, 94, 0.5)' : '0 0 10px rgba(239, 68, 68, 0.5)',
               }}
             >
               {isDeposit ? '+' : '-'}${amount.toFixed(2)}
-            </div>
-
-            {/* Message */}
-            <p className="text-white/70 text-sm mb-4 font-medium">
-              {message}
-            </p>
-
-            {/* New balance */}
-            <div
-              className="mx-auto inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold"
-              style={{
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                color: 'rgba(255,255,255,0.85)',
-              }}
-            >
-              <span>💰</span>
-              <span>Haraagii: <span className="text-white font-black">${newBalance.toFixed(2)}</span></span>
-            </div>
-
-            {/* Dismiss hint */}
-            <p className="text-white/30 text-xs mt-4 font-medium">Taabo si aad u xirto</p>
+            </span>
           </div>
+          <p className="text-white/70 text-xs font-medium truncate mt-0.5">
+            {message}
+          </p>
+        </div>
+
+        {/* Balance Badge */}
+        <div
+          className="flex-shrink-0 flex flex-col items-end justify-center px-3 py-1.5 rounded-lg"
+          style={{
+            background: 'rgba(0,0,0,0.3)',
+            border: '1px solid rgba(255,255,255,0.1)',
+          }}
+        >
+          <span className="text-[10px] text-white/60 font-bold uppercase tracking-wider mb-0.5">Haraagii</span>
+          <span className="text-sm font-black text-white tabular-nums">${newBalance.toFixed(2)}</span>
         </div>
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); box-shadow: ${isDeposit ? '0 0 30px #22c55e60' : '0 0 30px #ef444460'}; }
-          50% { transform: scale(1.05); box-shadow: ${isDeposit ? '0 0 50px #22c55e80' : '0 0 50px #ef444480'}; }
+        @keyframes pulse-icon {
+          0%, 100% { transform: scale(1); box-shadow: ${isDeposit ? '0 0 15px rgba(34, 197, 94, 0.5)' : '0 0 15px rgba(239, 68, 68, 0.5)'}; }
+          50% { transform: scale(1.05); box-shadow: ${isDeposit ? '0 0 25px rgba(34, 197, 94, 0.8)' : '0 0 25px rgba(239, 68, 68, 0.8)'}; }
         }
       `}</style>
     </div>
