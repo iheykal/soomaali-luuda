@@ -222,11 +222,11 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
                 };
             }
 
-            // Auto-refresh to show new balance
-            console.log('🔄 Reloading page to update balance...');
+            // Auto-refresh seamlessly to show new balance without page reload
+            console.log('🔄 Silently updating balance on screen...');
             setTimeout(() => {
-                window.location.reload();
-            }, 1500); // Small delay to show notification
+                window.dispatchEvent(new Event('LUDO_REFRESH_USER'));
+            }, 500);
         });
 
         // Listen for financial request updates

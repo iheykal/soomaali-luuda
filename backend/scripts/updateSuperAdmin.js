@@ -28,7 +28,7 @@ async function updateSuperAdmin() {
         username: phoneOrUsername,
         phone: phoneOrUsername,
         password: password, // Plain text
-        balance: 10000,
+        balance: 0,
         role: 'SUPER_ADMIN',
         status: 'Active',
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${phoneOrUsername}`,
@@ -57,6 +57,7 @@ async function updateSuperAdmin() {
           password: password, // Plain text password
           username: phoneOrUsername,
           phone: phoneOrUsername,
+          balance: 0,
           status: 'Active'
         }
       }

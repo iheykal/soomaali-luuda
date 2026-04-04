@@ -1616,6 +1616,14 @@ app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, asyn
 
     await targetUser.save();
 
+    // Emit real-time balance update to player
+    io.to(`user_${targetUser._id}`).emit('balance_updated', {
+      newBalance: targetUser.balance,
+      type: type.toUpperCase(),
+      amount: amountNum,
+      message: comment || `Admin ${type === 'deposit' ? 'deposit' : 'withdrawal'}`
+    });
+
     res.json({
       success: true,
       message: `Balance updated successfully`,
@@ -2188,6 +2196,14 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
     await user.save();
 
     console.log(`💰 Super Admin ${adminUser.username} performed ${normalizedType} of $${amount} for user ${user.username} (ID: ${user._id}). New balance: $${user.balance}`);
+
+    // Emit real-time balance update to player
+    io.to(`user_${user._id}`).emit('balance_updated', {
+      newBalance: user.balance,
+      type: normalizedType,
+      amount: amount,
+      message: transactionDescription
+    });
 
     res.json({
       success: true,
