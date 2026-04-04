@@ -813,7 +813,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     };
 
     const handleRollDice = useCallback(async () => {
-        if (!state.gameStarted || isProcessingRef.current) {
+        if (!state.gameStarted) {
             return;
         }
 
@@ -837,8 +837,11 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
                 // Ideally, we just play the sound immediately
                 audioService.play('diceRoll');
 
-                debugService.socket({ event: 'emit', type: 'roll_dice', gameId: multiplayerConfig.gameId });
-                socket.emit('roll_dice', { gameId: multiplayerConfig.gameId });
+                // Extract userId for robust backend validation (survives socket reconnections)
+                const effectiveUserId = multiplayerConfig.playerId || multiplayerConfig.sessionId;
+
+                debugService.socket({ event: 'emit', type: 'roll_dice', gameId: multiplayerConfig.gameId, userId: effectiveUserId });
+                socket.emit('roll_dice', { gameId: multiplayerConfig.gameId, userId: effectiveUserId });
             }
             return;
         }
@@ -859,7 +862,7 @@ export const useGameLogic = (multiplayerConfig?: MultiplayerConfig) => {
     }, [state.gameStarted, state.turnState, isMyTurn, isMultiplayer, multiplayerConfig, socket, calculateLegalMoves]);
 
     const handleMoveToken = useCallback((tokenId: string) => {
-        if (state.turnState !== 'MOVING' || isProcessingRef.current) return;
+        if (!state.gameStarted || state.turnState !== 'MOVING') return;
 
         if (isMultiplayer) {
             if (isMyTurn) {

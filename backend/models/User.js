@@ -40,7 +40,7 @@ const UserSchema = new mongoose.Schema({
   transactions: [{
     type: {
       type: String,
-      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'refund', 'match_stake', 'match_unstake', 'referral_earning', 'gem_purchase', 'gem_usage']
+      enum: ['deposit', 'withdrawal', 'game_win', 'game_loss', 'game_refund', 'refund', 'match_stake', 'match_unstake', 'referral_earning', 'gem_purchase', 'gem_usage', 'gem_giveaway']
     },
     amount: Number,
     matchId: String,
@@ -58,8 +58,6 @@ const UserSchema = new mongoose.Schema({
 // ===== INDEX OPTIMIZATION =====
 // Compound index for admin dashboard (filter by role and status)
 UserSchema.index({ role: 1, status: 1 });
-// Index for referral code lookups
-UserSchema.index({ referralCode: 1 });
 // Index for referral queries
 UserSchema.index({ referredBy: 1 });
 

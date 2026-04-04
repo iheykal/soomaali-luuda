@@ -183,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -214,6 +214,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [pwSearchResult, setPwSearchResult] = useState<any>(null);
   const [pwNewPassword, setPwNewPassword] = useState('');
   const [pwSearchLoading, setPwSearchLoading] = useState(false);
+
+  // Gem Giveaway State
+  const [gemSearchQuery, setGemSearchQuery] = useState('');
+  const [gemSearchResult, setGemSearchResult] = useState<any>(null);
+  const [gemSearchLoading, setGemSearchLoading] = useState(false);
+  const [gemGrantCount, setGemGrantCount] = useState<string>('5');
+  const [gemGrantReason, setGemGrantReason] = useState<string>('Free giveaway');
+  const [gemGrantLoading, setGemGrantLoading] = useState(false);
   const [activeGames, setActiveGames] = useState<GameState[]>([]);
   const [visitorAnalytics, setVisitorAnalytics] = useState<{
     totalVisitors: number;
@@ -2380,6 +2388,191 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             </div>
           </div>
         );
+      case 'gems':
+        const handleGemSearch = async (e: React.FormEvent) => {
+          e.preventDefault();
+          if (!gemSearchQuery || gemSearchQuery.trim().length < 2) {
+            showNotificationMessage('Please enter at least 2 characters to search', 'error');
+            return;
+          }
+          setGemSearchLoading(true);
+          setGemSearchResult(null);
+          try {
+            const result = await adminAPI.searchUser(gemSearchQuery);
+            setGemSearchResult(result);
+          } catch (err: any) {
+            showNotificationMessage(err.message, 'error');
+          } finally {
+            setGemSearchLoading(false);
+          }
+        };
+
+        const handleGrantGems = async () => {
+          if (!gemSearchResult) return;
+          const count = parseInt(gemGrantCount, 10);
+          if (!count || count <= 0 || count > 1000) {
+            showNotificationMessage('Gem count must be between 1 and 1000', 'error');
+            return;
+          }
+          showConfirmationDialog(
+            `Grant ${count} free undo gem${count !== 1 ? 's' : ''} to "${gemSearchResult.username}"? This will NOT appear in revenue.`,
+            async () => {
+              setGemGrantLoading(true);
+              try {
+                const result = await adminAPI.grantGems(gemSearchResult.id, count, gemGrantReason || undefined);
+                showNotificationMessage(result.message, 'success');
+                // Update local result to show new gem balance
+                setGemSearchResult((prev: any) => prev ? { ...prev, gems: result.newGemBalance } : prev);
+              } catch (err: any) {
+                showNotificationMessage('Failed to grant gems: ' + err.message, 'error');
+              } finally {
+                setGemGrantLoading(false);
+              }
+            }
+          );
+        };
+
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-emerald-600 to-teal-600">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <span className="text-2xl">💎</span> Free Gem Giveaway
+              </h2>
+              <p className="text-emerald-100 text-sm mt-1">Grant free undo gems to players — invisible in revenue reports</p>
+              <div className="mt-3 inline-flex items-center gap-2 bg-white/20 text-white text-xs font-bold px-3 py-1 rounded-full">
+                <span>🔒</span> Giveaways are NOT counted as revenue
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* Search */}
+              <form onSubmit={handleGemSearch} className="mb-8 max-w-lg">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  🔍 Search Player by Phone or Username
+                </label>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">💎</span>
+                    <input
+                      type="text"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      placeholder="e.g. 0612345678 or Ali123"
+                      value={gemSearchQuery}
+                      onChange={(e) => setGemSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={gemSearchLoading || !gemSearchQuery}
+                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold rounded-lg transition-colors shadow-md min-w-[120px]"
+                  >
+                    {gemSearchLoading ? 'Searching...' : 'Search'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Result Panel */}
+              {gemSearchResult ? (
+                <div className="max-w-xl border-2 border-emerald-200 rounded-xl overflow-hidden shadow-sm">
+                  {/* User Info Header */}
+                  <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 border-b border-emerald-200">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="font-black text-emerald-900 text-lg">{gemSearchResult.username}</h3>
+                        <p className="text-sm text-emerald-600 font-mono">{gemSearchResult.phone || 'No phone'}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500 font-medium">Current Gems</p>
+                        <p className="text-3xl font-black text-emerald-700 flex items-center gap-1 justify-end">
+                          <span>💎</span> {gemSearchResult.gems ?? '—'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grant Panel */}
+                  <div className="p-6 bg-white space-y-5">
+                    {/* Quick Presets */}
+                    <div>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Quick Select</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {[1, 3, 5, 10, 20].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setGemGrantCount(String(n))}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all border-2 ${
+                              gemGrantCount === String(n)
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                                : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400'
+                            }`}
+                          >
+                            💎 {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Custom Amount */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Gems to Grant</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={gemGrantCount}
+                          onChange={(e) => setGemGrantCount(e.target.value)}
+                          className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all text-lg font-bold"
+                          placeholder="5"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Reason (optional)</label>
+                        <input
+                          type="text"
+                          value={gemGrantReason}
+                          onChange={(e) => setGemGrantReason(e.target.value)}
+                          className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition-all"
+                          placeholder="Free giveaway"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Info Banner */}
+                    <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                      <span className="text-xl mt-0.5">ℹ️</span>
+                      <div className="text-sm text-amber-800">
+                        <p className="font-bold">Revenue-safe giveaway</p>
+                        <p className="text-xs mt-1 text-amber-700">These gems are added directly to the player's account without creating any revenue entry. They appear as <code className="bg-amber-100 px-1 rounded">gem_giveaway</code> in their personal history only.</p>
+                      </div>
+                    </div>
+
+                    {/* Grant Button */}
+                    <button
+                      onClick={handleGrantGems}
+                      disabled={gemGrantLoading || !gemGrantCount || parseInt(gemGrantCount) <= 0}
+                      className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-400 text-white font-black text-lg rounded-xl shadow-lg transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-3"
+                    >
+                      {gemGrantLoading ? (
+                        <><span className="animate-spin">⏳</span> Granting...</>
+                      ) : (
+                        <><span className="text-2xl">💎</span> Grant {gemGrantCount || '0'} Free Gem{parseInt(gemGrantCount || '0') !== 1 ? 's' : ''}</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="max-w-xl p-10 text-center bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border-2 border-dashed border-emerald-200">
+                  <span className="text-5xl block mb-3 opacity-60">💎</span>
+                  <p className="text-emerald-800 font-bold">Search for a player first</p>
+                  <p className="text-sm text-emerald-600 mt-1">Enter their phone number or username to find them and grant gems.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
       default:
         return <div className="text-gray-600">Select a tab</div>;
     }
@@ -2449,6 +2642,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               <span>Password Reset</span>
             </button>
           )}
+
+          {/* Gem Giveaway - Admin and Super Admin */}
+          <button
+            onClick={() => setActiveTab('gems')}
+            className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'gems'
+              ? 'bg-emerald-600 text-white shadow-md font-semibold'
+              : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+              }`}
+          >
+            <span className="text-lg sm:text-xl">💎</span>
+            <span>Gem Giveaway</span>
+          </button>
 
           {/* Games - Super Admin Only */}
           {user?.role === 'SUPER_ADMIN' && (

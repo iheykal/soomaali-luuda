@@ -41,7 +41,12 @@ const Login: React.FC<LoginProps> = ({ onSuccess, onSwitchToRegister, onSwitchTo
         onSuccess();
       }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Failed to login. Please check your phone number and password.');
+      const errorMsg = err.message || '';
+      if (errorMsg.toLowerCase().includes('password') || errorMsg.toLowerCase().includes('invalid')) {
+        setError('numberka ama passwordka aad isticmaashay waa qalad fadlan iska hubi ama nagala soo xariir whatsapp ka si aan kuu caawinno');
+      } else {
+        setError(errorMsg || 'Failed to login. Please check your phone number and password.');
+      }
       setLoading(false);
     }
   };

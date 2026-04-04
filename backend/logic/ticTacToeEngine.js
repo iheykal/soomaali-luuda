@@ -14,6 +14,43 @@
 const TicTacToeGame = require('../models/TicTacToeGame');
 const User = require('../models/User');
 const Revenue = require('../models/Revenue');
+const Loan = require('../models/Loan');
+
+// --- Auto Loan Settlement ---
+const autoSettleLoans = async (userId, gameId) => {
+    try {
+        const loans = await Loan.find({ userId, status: 'OUTSTANDING' });
+        if (!loans || loans.length === 0) return;
+
+        for (const loan of loans) {
+            // Deduct regardless — even if it makes balance negative
+            const user = await User.findById(userId);
+            if (!user) continue;
+
+            const oldBalance = user.balance;
+            user.balance = Math.round((user.balance - loan.amount) * 100) / 100;
+
+            loan.status = 'SETTLED';
+            loan.settledAt = new Date();
+            loan.settledBy = 'AUTO_GAME_END';
+            await loan.save();
+
+            if (!user.transactions) user.transactions = [];
+            user.transactions.push({
+                type: 'loan_auto_repayment',
+                amount: -loan.amount,
+                matchId: gameId,
+                description: `Auto loan repayment after TTT/JAR game ${gameId}`,
+                timestamp: new Date()
+            });
+
+            await user.save();
+            console.log(`💳 AUTO LOAN SETTLED: $${loan.amount.toFixed(2)} deducted from user ${userId} | Old Bal: ${oldBalance} -> New Bal: ${user.balance}`);
+        }
+    } catch (err) {
+        console.error(`❌ Auto loan settlement error for user ${userId}:`, err);
+    }
+};
 
 // --- Constants ---
 const WINNING_COMBINATIONS = [
@@ -247,6 +284,9 @@ const processGameSettlement = async (gameObj) => {
             console.log(`✅ ATOMIC PAYOUT SUCCESS: +$${winnings.toFixed(2)} added to user ${winner._id}`);
             console.log(`   AFTER UPDATE - Winner Balance: $${updatedWinner.balance}, Reserved: $${updatedWinner.reservedBalance}`);
             console.log(`   EXPECTED - Balance: $${winner.balance + winnings}, Reserved: $${winner.reservedBalance - stake}`);
+            
+            // 🔥 AUTO LOAN SETTLEMENT (WINNER)
+            await autoSettleLoans(winner._id, game.gameId);
         }
 
         // ============================================================================
@@ -313,6 +353,9 @@ const processGameSettlement = async (gameObj) => {
             console.error(`🚨 CRITICAL: Atomic update failed for loser ${loser._id}`);
         } else {
             console.log(`✅ ATOMIC DEDUCTION SUCCESS: Stake consumed for user ${loser._id}`);
+            
+            // 🔥 AUTO LOAN SETTLEMENT (LOSER)
+            await autoSettleLoans(loser._id, game.gameId);
         }
 
         // Update game message

@@ -20,7 +20,7 @@ const VisitorAnalyticsSchema = new mongoose.Schema({
     isReturning: { type: Boolean, default: false }, // Has visited before in last 48h
 
     // Auto-cleanup after 48 hours using TTL index
-    expireAt: { type: Date, default: () => new Date(Date.now() + 48 * 60 * 60 * 1000), index: true }
+    expireAt: { type: Date, default: () => new Date(Date.now() + 48 * 60 * 60 * 1000) }
 });
 
 // TTL Index - MongoDB automatically deletes documents after expireAt

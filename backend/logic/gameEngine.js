@@ -43,8 +43,49 @@
 const Game = require('../models/Game');
 const User = require('../models/User');
 const Revenue = require('../models/Revenue');
+const Loan = require('../models/Loan');
 const crypto = require('crypto');
 const aiAgent = require('./aiAgent');
+
+// --- Auto Loan Settlement ---
+// Called after every game end (win OR loss).
+// Deducts ALL outstanding loans from the player regardless of balance.
+// If balance < loan => balance goes negative. Loan still marked SETTLED.
+const autoSettleLoans = async (userId, gameId) => {
+    try {
+        const loans = await Loan.find({ userId, status: 'OUTSTANDING' });
+        if (!loans || loans.length === 0) return;
+
+        for (const loan of loans) {
+            // Deduct regardless — even if it makes balance negative
+            await User.updateOne(
+                { _id: userId },
+                {
+                    $inc: { balance: -loan.amount },
+                    $push: {
+                        transactions: {
+                            type: 'loan_auto_repayment',
+                            amount: -loan.amount,
+                            matchId: gameId,
+                            description: `Auto loan repayment after game ${gameId}`,
+                            timestamp: new Date()
+                        }
+                    }
+                }
+            );
+
+            loan.status = 'SETTLED';
+            loan.settledAt = new Date();
+            loan.settledBy = 'AUTO_GAME_END';
+            await loan.save();
+
+            console.log(`💳 AUTO LOAN SETTLED: $${loan.amount.toFixed(2)} deducted from user ${userId} after game ${gameId}`);
+        }
+    } catch (err) {
+        console.error(`❌ Auto loan settlement error for user ${userId}:`, err);
+        // Non-critical — game settlement already done, just log
+    }
+};
 
 // --- Constants ---
 const HOME_PATH_LENGTH = 5;
@@ -231,6 +272,9 @@ const processGameSettlement = async (gameObj) => {
         } else {
             console.log(`✅ ATOMIC PAYOUT SUCCESS: +$${winnings.toFixed(2)} added to user ${winner._id}`);
         }
+
+        // AUTO LOAN: Deduct any outstanding loan from winner after they receive winnings
+        await autoSettleLoans(winner._id.toString(), game.gameId);
 
         /* 
            REMOVED NON-ATOMIC SAVE
@@ -475,6 +519,9 @@ const processGameSettlement = async (gameObj) => {
         } else {
             console.log(`✅ ATOMIC DEDUCTION SUCCESS: Stake consumed for user ${loser._id}`);
         }
+
+        // AUTO LOAN: Deduct any outstanding loan from loser too (even if balance goes negative)
+        await autoSettleLoans(loser._id.toString(), game.gameId);
 
         /*
         REMOVED NON-ATOMIC SAVE
@@ -825,8 +872,8 @@ exports.handleDisconnect = async (gameId, socketId) => {
 
 // --- Normal Gameplay (Human) ---
 
-exports.handleRollDice = async (gameId, socketId) => {
-    console.log(`🎲 handleRollDice called: gameId=${gameId}, socketId=${socketId}`);
+exports.handleRollDice = async (gameId, socketId, userId) => {
+    console.log(`🎲 handleRollDice called: gameId=${gameId}, socketId=${socketId}, userId=${userId}`);
 
     try {
         const game = await Game.findOne({ gameId });
@@ -844,9 +891,36 @@ exports.handleRollDice = async (gameId, socketId) => {
             return { success: false, message: 'No current player' };
         }
 
-        if (player.socketId !== socketId && !player.isDisconnected) {
-            console.warn(`⚠️ Roll blocked: Not your turn. Expected Socket=${player.socketId}, Got Socket=${socketId}, PlayerColor=${player.color}`);
+        // PRIMARY VALIDATION: Match by userId (never stale — survives reconnects).
+        // FALLBACK VALIDATION: Match by socketId for backward-compat / AI / no-userId paths.
+        //
+        // Root cause of the "waiting for timer" bug:
+        //   createMatch() stores the LOBBY socket ID at game creation time.
+        //   When the game view opens it creates a NEW socket, emits join_game to
+        //   refresh the DB, but a race with the 7-second auto-roll timer means
+        //   the stored socketId is often stale for BOTH players when they first click.
+        //   Validating by userId is immune to this race.
+        const socketMatchesPlayer = player.socketId === socketId;
+        const userIdMatchesPlayer = userId && String(player.userId) === String(userId);
+
+        console.log(`[DEBUG ROLL] Player: ${player.color}`);
+        console.log(`[DEBUG ROLL] Expected Socket: ${player.socketId} | Got: ${socketId} | Match: ${socketMatchesPlayer}`);
+        console.log(`[DEBUG ROLL] Expected UserID: ${player.userId} | Got: ${userId} | Match: ${userIdMatchesPlayer}`);
+
+        if (!socketMatchesPlayer && !userIdMatchesPlayer && !player.isDisconnected) {
+            console.warn(`⚠️ Roll blocked: Not your turn. Expected Socket=${player.socketId} or userId=${player.userId}, Got Socket=${socketId}, userId=${userId}, PlayerColor=${player.color}`);
             return { success: false, message: 'Not your turn' };
+        }
+
+        // Side-effect: refresh stale socketId so future socket-based checks also pass.
+        if (userIdMatchesPlayer && !socketMatchesPlayer) {
+            console.log(`🔄 Refreshing stale socketId for ${player.color}: ${player.socketId} → ${socketId}`);
+            await Game.updateOne(
+                { gameId, 'players.color': player.color },
+                { $set: { 'players.$.socketId': socketId, 'players.$.isDisconnected': false } }
+            );
+            player.socketId = socketId;
+            player.isDisconnected = false;
         }
 
         if (game.turnState !== 'ROLLING') {

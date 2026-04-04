@@ -116,11 +116,6 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
   }, [value]); // Dependency only on value to prevent loop with state updates
 
   const handleClick = () => {
-    // Prevent double-fire: if touch already handled this event, skip the onClick
-    if (touchHandledRef.current) {
-      touchHandledRef.current = false;
-      return;
-    }
 
     console.log(`🎲 ========== DICE CLICKED ==========`);
     console.log(`🎲 isMyTurn: ${isMyTurn}`);
@@ -176,12 +171,6 @@ const Dice: React.FC<DiceProps> = ({ value, onRoll, isMyTurn, playerColor, timer
         <div
           className={`scene ${clickableClass} ${blinkingClass} touch-manipulation z-20`}
           onClick={handleClick}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            // Mark that touch handled this event so the subsequent onClick is ignored
-            touchHandledRef.current = true;
-            handleClick();
-          }}
           role="button"
           tabIndex={0}
           aria-label="Roll dice"

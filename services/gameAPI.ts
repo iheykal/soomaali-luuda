@@ -95,5 +95,23 @@ export const gameAPI = {
       return { success: false, leaderboard: [] };
     }
   },
-};
 
+  async buyGems(packagePrice: number, packageGems: number): Promise<{ success: boolean; newBalance?: number; newGems?: number; message?: string; error?: string }> {
+    const url = `${getGameUrl()}/buy-gems`;
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ packagePrice, packageGems }),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.error || 'Failed to purchase gems';
+      throw new Error(errorMessage);
+    }
+  },
+};

@@ -34,7 +34,7 @@ function usePrevious<T>(value: T): T | undefined {
 }
 
 
-const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red' }) => {
+const Board: React.FC<BoardProps> = ({ gameState, onMoveToken, onAnimationComplete, isMyTurn, perspectiveColor = 'red' }) => {
   // Defensive destructuring: Ensure tokens and legalMoves are always arrays
   const { tokens = [], legalMoves = [], diceValue, turnState } = gameState || {};
 
@@ -210,71 +210,104 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
     return angle;
   };
 
-  const renderGridAndPaths = () => {
-    // Full 4-player board stars
-    const STAR_COLORS: Record<number, PlayerColor> = { 8: 'green', 21: 'yellow', 34: 'blue', 47: 'red' };
+const StaticGrid = React.memo(({ size, cellSize }: { size: number, cellSize: number }) => {
+  // Full 4-player board stars
+  const STAR_COLORS: Record<number, PlayerColor> = { 8: 'green', 21: 'yellow', 34: 'blue', 47: 'red' };
+  
+  const toPx = (norm: number) => norm * size;
 
-    return (
-      <>
-        {/* Bases */}
-        <rect x={0} y={0} width={cellSize * 6} height={cellSize * 6} className="fill-green" />
-        <rect x={cellSize * 9} y={0} width={cellSize * 6} height={cellSize * 6} className="fill-yellow" />
-        <rect x={0} y={cellSize * 9} width={cellSize * 6} height={cellSize * 6} className="fill-red" />
-        <rect x={cellSize * 9} y={cellSize * 9} width={cellSize * 6} height={cellSize * 6} className="fill-blue" />
+  return (
+    <>
+      {/* Bases */}
+      <rect x={0} y={0} width={cellSize * 6} height={cellSize * 6} className="fill-green" />
+      <rect x={cellSize * 9} y={0} width={cellSize * 6} height={cellSize * 6} className="fill-yellow" />
+      <rect x={0} y={cellSize * 9} width={cellSize * 6} height={cellSize * 6} className="fill-red" />
+      <rect x={cellSize * 9} y={cellSize * 9} width={cellSize * 6} height={cellSize * 6} className="fill-blue" />
 
-        {/* Inner Base Squares */}
-        <rect x={cellSize * 0.5} y={cellSize * 0.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
-        <rect x={cellSize * 9.5} y={cellSize * 0.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
-        <rect x={cellSize * 0.5} y={cellSize * 9.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
-        <rect x={cellSize * 9.5} y={cellSize * 9.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
+      {/* Inner Base Squares */}
+      <rect x={cellSize * 0.5} y={cellSize * 0.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
+      <rect x={cellSize * 9.5} y={cellSize * 0.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
+      <rect x={cellSize * 0.5} y={cellSize * 9.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
+      <rect x={cellSize * 9.5} y={cellSize * 9.5} width={cellSize * 5} height={cellSize * 5} fill="white" stroke="#d1d5db" strokeWidth="2" rx="8" />
 
-        {/* Center Triangles */}
-        <path d={`M ${size / 2},${size / 2} L ${cellSize * 6},${cellSize * 6} L ${cellSize * 6},${cellSize * 9} Z`} className="fill-green" />
-        <path d={`M ${size / 2},${size / 2} L ${cellSize * 6},${cellSize * 6} L ${cellSize * 9},${cellSize * 6} Z`} className="fill-yellow" />
-        <path d={`M ${size / 2},${size / 2} L ${cellSize * 9},${cellSize * 9} L ${cellSize * 6},${cellSize * 9} Z`} className="fill-red" />
-        <path d={`M ${size / 2},${size / 2} L ${cellSize * 9},${cellSize * 9} L ${cellSize * 9},${cellSize * 6} Z`} className="fill-blue" />
+      {/* Center Triangles */}
+      <path d={`M ${size / 2},${size / 2} L ${cellSize * 6},${cellSize * 6} L ${cellSize * 6},${cellSize * 9} Z`} className="fill-green" />
+      <path d={`M ${size / 2},${size / 2} L ${cellSize * 6},${cellSize * 6} L ${cellSize * 9},${cellSize * 6} Z`} className="fill-yellow" />
+      <path d={`M ${size / 2},${size / 2} L ${cellSize * 9},${cellSize * 9} L ${cellSize * 6},${cellSize * 9} Z`} className="fill-red" />
+      <path d={`M ${size / 2},${size / 2} L ${cellSize * 9},${cellSize * 9} L ${cellSize * 9},${cellSize * 6} Z`} className="fill-blue" />
 
-        {mainPathCoords.map((c) => {
-          const isStar = SAFE_SQUARES.includes(c.index);
-          const isStart = Object.values(START_POSITIONS).includes(c.index);
-          const isArrowSquare = [4, 17, 30, 43].includes(c.index); // Arrow squares
-          let cellColorClass = 'ludo-cell';
-          let starColorClass = '';
+      {mainPathCoords.map((c) => {
+        const isStar = SAFE_SQUARES.includes(c.index);
+        const isStart = Object.values(START_POSITIONS).includes(c.index);
+        let cellColorClass = 'ludo-cell';
+        let starColorClass = '';
 
-          if (isStart) {
-            const color = PLAYER_COLORS.find(pc => START_POSITIONS[pc] === c.index)!;
-            cellColorClass = `ludo-home-path ${color}`;
-          }
-          if (isStar && !isStart) {
-            const starColor = STAR_COLORS[c.index];
-            if (starColor) starColorClass = `star-${starColor}`;
-          }
+        if (isStart) {
+          const color = PLAYER_COLORS.find(pc => START_POSITIONS[pc] === c.index)!;
+          cellColorClass = `ludo-home-path ${color}`;
+        }
+        if (isStar && !isStart) {
+          const starColor = STAR_COLORS[c.index];
+          if (starColor) starColorClass = `star-${starColor}`;
+        }
 
-          return (
-            <g key={`cell-${c.index}`} transform={`translate(${toPx(c.x)}, ${toPx(c.y)})`}>
-              <rect x={-cellSize / 2} y={-cellSize / 2} width={cellSize} height={cellSize} className={cellColorClass} />
-              {starColorClass && <text dy=".3em" textAnchor="middle" className={`star ${starColorClass}`}>★</text>}
-              {/* Removed old arrow - now using StaticArrows component */}
-            </g>
-          );
-        })}
-
-        {/* Home Paths */}
-        {homePathCoords.map((c) => (
-          <g key={`home-${c.color}-${c.index}`} transform={`translate(${toPx(c.x)}, ${toPx(c.y)})`}>
-            <rect x={-cellSize / 2} y={-cellSize / 2} width={cellSize} height={cellSize} className={`ludo-home-path ${c.color}`} />
+        return (
+          <g key={`cell-${c.index}`} transform={`translate(${toPx(c.x)}, ${toPx(c.y)})`}>
+            <rect x={-cellSize / 2} y={-cellSize / 2} width={cellSize} height={cellSize} className={cellColorClass} />
+            {starColorClass && <text dy=".3em" textAnchor="middle" className={`star ${starColorClass}`}>★</text>}
           </g>
-        ))}
+        );
+      })}
 
-        {/* Yard Spots */}
-        {yardCoords.map((c) => (
-          <g key={`yard-spot-${c.color}-${c.index}`} transform={`translate(${toPx(c.x)}, ${toPx(c.y)})`}>
-            <circle r={cellSize * 0.45} className="yard-spot" />
-          </g>
-        ))}
-      </>
-    );
-  };
+      {/* Home Paths */}
+      {homePathCoords.map((c) => (
+        <g key={`home-${c.color}-${c.index}`} transform={`translate(${toPx(c.x)}, ${toPx(c.y)})`}>
+          <rect x={-cellSize / 2} y={-cellSize / 2} width={cellSize} height={cellSize} className={`ludo-home-path ${c.color}`} />
+        </g>
+      ))}
+
+      {/* Yard Spots */}
+      {yardCoords.map((c) => (
+        <g key={`yard-spot-${c.color}-${c.index}`} transform={`translate(${toPx(c.x)}, ${toPx(c.y)})`}>
+          <circle r={cellSize * 0.45} className="yard-spot" />
+        </g>
+      ))}
+    </>
+  );
+});
+
+const BoardToken = React.memo(({ token, cellSize, xPos, yPos, xOffset, yOffset, canClick, onClick }: any) => {
+  return (
+    <g
+      transform={`translate(${xPos + xOffset}, ${yPos + yOffset})`}
+      onClick={() => canClick && onClick(token.id)}
+      onTouchEnd={(e) => {
+        e.preventDefault(); // Prevent ghost clicks
+        if (canClick) onClick(token.id);
+      }}
+      style={{
+        cursor: canClick ? 'pointer' : 'default',
+        transition: 'transform 0.2s ease-in-out',
+        touchAction: 'manipulation'
+      }}
+      className={canClick ? 'cursor-pointer' : ''}
+    >
+      {/* Invisible Hit Target - Larger for sensitivity */}
+      <circle
+        r={cellSize * 0.85}
+        fill="transparent"
+        style={{ pointerEvents: 'all' }}
+      />
+      {/* Visual Token - Restored Size */}
+      <circle
+        r={cellSize * 0.45}
+        fill={`url(#grad-${token.color})`}
+        className="token"
+        style={{ pointerEvents: 'none' }}
+      />
+    </g>
+  );
+});
 
   const renderTokens = () => {
     const tokensByPosition: Record<string, Token[]> = tokens.reduce((acc, token) => {
@@ -304,7 +337,6 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
       if (!coords) return null;
 
       const isMovable = legalMoves.some(m => m.tokenId === token.id);
-      console.log(`🎯 Token ${token.id}: position=${token.position.type}:${token.position.index}, isMovable=${isMovable}`);
       const group = tokensByPosition[JSON.stringify(token.position)];
       const stackIndex = group.findIndex(t => t.id === token.id);
       const stackOffset = cellSize * 0.15;
@@ -313,35 +345,17 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
       const canClick = isMovable && isMyTurn;
 
       return (
-        <g
+        <BoardToken
           key={token.id}
-          transform={`translate(${toPx(coords.x) + xOffset}, ${toPx(coords.y) + yOffset})`}
-          onClick={() => canClick && onMoveToken(token.id)}
-          onTouchEnd={(e) => {
-            e.preventDefault(); // Prevent ghost clicks
-            if (canClick) onMoveToken(token.id);
-          }}
-          style={{
-            cursor: canClick ? 'pointer' : 'default',
-            transition: 'transform 0.2s ease-in-out',
-            touchAction: 'manipulation'
-          }}
-          className={canClick ? 'cursor-pointer' : ''}
-        >
-          {/* Invisible Hit Target - Larger for sensitivity */}
-          <circle
-            r={cellSize * 0.85}
-            fill="transparent"
-            style={{ pointerEvents: 'all' }}
-          />
-          {/* Visual Token - Restored Size */}
-          <circle
-            r={cellSize * 0.45}
-            fill={`url(#grad-${token.color})`}
-            className="token"
-            style={{ pointerEvents: 'none' }}
-          />
-        </g>
+          token={token}
+          cellSize={cellSize}
+          xPos={toPx(coords.x)}
+          yPos={toPx(coords.y)}
+          xOffset={xOffset}
+          yOffset={yOffset}
+          canClick={canClick}
+          onClick={onMoveToken}
+        />
       );
     });
   };
@@ -471,7 +485,7 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
             )
           })}
         </defs>
-        {renderGridAndPaths()}
+        <StaticGrid size={size} cellSize={cellSize} />
         {/* Render static arrow graphics */}
         <StaticArrows boardSize={size} cellSize={cellSize} />
         {renderTokens()}
@@ -488,7 +502,24 @@ const Board: React.FC<BoardProps> = React.memo(({ gameState, onMoveToken, onAnim
       </svg>
     </div>
   );
+};
+
+export default React.memo(Board, (prevProps, nextProps) => {
+  if (prevProps.isMyTurn !== nextProps.isMyTurn) return false;
+  if (prevProps.perspectiveColor !== nextProps.perspectiveColor) return false;
+  
+  const pState = prevProps.gameState;
+  const nState = nextProps.gameState;
+  
+  // Strict equality array references (they map nicely to reducer in useGameLogic)
+  if (pState.tokens !== nState.tokens) return false;
+  if (pState.legalMoves !== nState.legalMoves) return false;
+  
+  if (pState.diceValue !== nState.diceValue) return false;
+  if (pState.turnState !== nState.turnState) return false;
+  if (pState.message !== nState.message) return false;
+  
+  // NOTE: Deliberately skipping pState.timer to prevent board re-rendering every second
+
+  return true;
 });
-
-export default Board;
-

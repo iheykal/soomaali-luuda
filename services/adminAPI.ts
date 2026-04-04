@@ -258,11 +258,11 @@ export const adminAPI = {
   },
 
   async updateUserBalance(userId: string, amount: number, type: 'deposit' | 'withdrawal', comment?: string): Promise<{ success: boolean; message: string; user: { id: string; username: string; balance: number } }> {
-    const url = `${getApiUrl()}/admin/user/balance-update`;
+    const url = `${getApiUrl()}/admin/users/${userId}/balance`;
     const options = {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ userId, amount, type, comment }),
+      body: JSON.stringify({ amount, type, comment }),
     };
 
     try {
@@ -606,6 +606,45 @@ export const adminAPI = {
       return responseData;
     } catch (error: any) {
       const errorMessage = error.responseData?.message || error.responseData?.error || error.message || 'Failed to reset password';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Grant free undo gems to a player (does NOT appear in revenue - pure giveaway)
+  async grantGems(userId: string, gemCount: number, reason?: string): Promise<{ success: boolean; message: string; gemsGranted: number; newGemBalance: number; username: string }> {
+    const url = `${getApiUrl()}/admin/grant-gems`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ userId, gemCount, reason }),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      if (!responseData.success) throw new Error(responseData.error || 'Failed to grant gems');
+      return responseData;
+    } catch (error: any) {
+      const errorMessage = error.responseData?.message || error.responseData?.error || error.message || 'Failed to grant gems';
+      throw new Error(errorMessage);
+    }
+  },
+
+  async giveLoan(userId: string, amount: number, note?: string): Promise<{ success: boolean; newBalance: number; loan?: any; message?: string; error?: string }> {
+    const url = `${getApiUrl()}/admin/loans/give`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ userId, amount, note }),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      if (error.responseData) {
+        return error.responseData;
+      }
+      const errorMessage = error.responseData?.message || error.responseData?.error || error.message || 'Failed to give loan';
       throw new Error(errorMessage);
     }
   }

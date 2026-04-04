@@ -30,7 +30,7 @@ const AdminQuickActions: React.FC = () => {
 
     // Confirmation Modal State
     const [showConfirmModal, setShowConfirmModal] = useState(false);
-    const [confirmAction, setConfirmAction] = useState<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'GEM_DEPOSIT', amount: number } | null>(null);
+    const [confirmAction, setConfirmAction] = useState<{ type: 'DEPOSIT' | 'WITHDRAWAL' | 'GEM_DEPOSIT' | 'LOAN', amount: number } | null>(null);
 
     // Receipt state
     const receiptRef = useRef<HTMLDivElement>(null);
@@ -155,7 +155,7 @@ const AdminQuickActions: React.FC = () => {
     };
 
 
-    const handleTransaction = async (type: 'DEPOSIT' | 'WITHDRAWAL', amountOverride?: number) => {
+    const handleTransaction = async (type: 'DEPOSIT' | 'WITHDRAWAL' | 'LOAN', amountOverride?: number) => {
         const val = amountOverride !== undefined ? amountOverride : parseFloat(amount);
         if (!user || !val || val <= 0) {
             toast.error('Invalid amount');
@@ -196,6 +196,21 @@ const AdminQuickActions: React.FC = () => {
                     toast.error(data.error || 'Failed to deposit gems');
                 }
                 return; // Exit here for gem deposits
+            }
+
+            if (type === 'LOAN') {
+                const response = await adminAPI.giveLoan(user.userId, transactionAmount, 'Quick Action Loan');
+                if (response.success) {
+                    toast.success(`Loan of $${transactionAmount.toFixed(2)} Given! New Balance: $${response.newBalance.toFixed(2)}`);
+                    setUser({ ...user, balance: response.newBalance });
+                    setAmount('');
+                    setConfirmAction(null);
+                    setLastTransaction({ type, amount: transactionAmount });
+                    fetchRecentTransactions();
+                } else {
+                    toast.error(response.error || 'Failed to give loan');
+                }
+                return; // Exit here for loans
             }
 
             // Original logic for DEPOSIT/WITHDRAWAL
@@ -356,12 +371,11 @@ const AdminQuickActions: React.FC = () => {
                             <div className="flex flex-col gap-3 w-full md:w-auto p-3 bg-slate-800 rounded-lg border border-slate-700">
                                 {/* Preset Amounts */}
                                 <div className="flex gap-2 justify-center">
-                                    {[0.25, 0.50, 1.00, 5.00].map((val) => (
+                                    {[0.05, 0.25, 0.50, 1.00, 5.00].map((val) => (
                                         <button
                                             key={val}
                                             onClick={() => {
                                                 setAmount(val.toString());
-                                                handleTransaction('DEPOSIT', val);
                                             }}
                                             className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-slate-300 rounded border border-slate-600 transition-colors"
                                         >
@@ -396,6 +410,14 @@ const AdminQuickActions: React.FC = () => {
                                         className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-lg hover:shadow-red-500/20 transition-all disabled:opacity-50"
                                     >
                                         - Withdraw
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleTransaction('LOAN')}
+                                        disabled={actionLoading}
+                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg hover:shadow-blue-500/20 transition-all disabled:opacity-50"
+                                    >
+                                        + Give Loan
                                     </button>
                                 </div>
 
@@ -439,20 +461,20 @@ const AdminQuickActions: React.FC = () => {
                     }}
                 >
                     <div
-                        className={`bg-gradient-to-br ${confirmAction.type === 'GEM_DEPOSIT' ? 'from-purple-600 via-fuchsia-600 to-pink-600' : (confirmAction.type === 'DEPOSIT' ? 'from-green-500 via-green-600 to-emerald-600' : 'from-red-500 via-red-600 to-rose-600')} rounded-3xl max-w-md w-full p-8 shadow-2xl animate-in zoom-in duration-300`}
+                        className={`bg-gradient-to-br ${confirmAction.type === 'GEM_DEPOSIT' ? 'from-purple-600 via-fuchsia-600 to-pink-600' : (confirmAction.type === 'DEPOSIT' ? 'from-green-500 via-green-600 to-emerald-600' : (confirmAction.type === 'LOAN' ? 'from-blue-500 via-blue-600 to-indigo-600' : 'from-red-500 via-red-600 to-rose-600'))} rounded-3xl max-w-md w-full p-8 shadow-2xl animate-in zoom-in duration-300`}
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="text-center">
                             {/* Icon */}
                             <div className="bg-white/20 backdrop-blur-sm rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center">
                                 <span className="text-6xl">
-                                    {confirmAction.type === 'GEM_DEPOSIT' ? '💎' : (confirmAction.type === 'DEPOSIT' ? '💵' : '💸')}
+                                    {confirmAction.type === 'GEM_DEPOSIT' ? '💎' : (confirmAction.type === 'DEPOSIT' ? '💵' : (confirmAction.type === 'LOAN' ? '🏦' : '💸'))}
                                 </span>
                             </div>
 
                             {/* Title */}
                             <h2 className="text-3xl font-bold text-white mb-4">
-                                {confirmAction.type === 'GEM_DEPOSIT' ? 'Dhigasho Gems' : (confirmAction.type === 'DEPOSIT' ? 'Dhigasho' : 'Bixiso')}
+                                {confirmAction.type === 'GEM_DEPOSIT' ? 'Dhigasho Gems' : (confirmAction.type === 'DEPOSIT' ? 'Dhigasho' : (confirmAction.type === 'LOAN' ? 'Deynta (Loan)' : 'Bixiso'))}
                             </h2>
 
                             {/* Message in Somali */}
@@ -461,7 +483,7 @@ const AdminQuickActions: React.FC = () => {
                                     ? `Mahubtaa inaad gems u dhigto`
                                     : (confirmAction.type === 'DEPOSIT'
                                         ? `Mahubtaa inaad lacag u dhigto`
-                                        : `Mahubtaa inaad lacag u bixiso`)}
+                                        : (confirmAction.type === 'LOAN' ? `Mahubtaa inaad deyn siisid` : `Mahubtaa inaad lacag u bixiso`))}
                             </p>
 
                             {/* Amount and User */}

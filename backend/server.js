@@ -16,6 +16,7 @@ const FinancialRequest = require('./models/FinancialRequest');
 const Revenue = require('./models/Revenue');
 const RevenueWithdrawal = require('./models/RevenueWithdrawal');
 const Game = require('./models/Game');
+const Loan = require('./models/Loan');
 
 // Global TTT Queue - Must// Global queue for tic-tac-toe matchmaking
 const ticTacToeQueue = [];
@@ -36,6 +37,36 @@ const server = http.createServer(app);
 // Example: 0.24999999... becomes 0.25
 const roundCurrency = (value) => {
   return Math.round(value * 100) / 100;
+};
+
+// --- Auto Loan Settlement on Deposit ---
+// Deducts any outstanding loans when a player's balance increases via deposit.
+const autoSettleLoansOnDeposit = async (user, descriptionPrefix) => {
+  try {
+    const loans = await Loan.find({ userId: user._id, status: 'OUTSTANDING' });
+    if (!loans || loans.length === 0) return;
+
+    for (const loan of loans) {
+      user.balance = roundCurrency(user.balance - loan.amount);
+
+      loan.status = 'SETTLED';
+      loan.settledAt = new Date();
+      loan.settledBy = 'AUTO_DEPOSIT_DEDUCTION';
+      await loan.save();
+
+      if (!user.transactions) user.transactions = [];
+      user.transactions.push({
+        type: 'loan_auto_repayment',
+        amount: -loan.amount,
+        description: `Auto loan repayment from ${descriptionPrefix}`,
+        timestamp: new Date()
+      });
+
+      console.log(`💳 AUTO LOAN SETTLED: $${loan.amount.toFixed(2)} deducted from user ${user._id} after deposit`);
+    }
+  } catch (err) {
+    console.error(`❌ Auto loan settlement error on deposit for user ${user._id}:`, err);
+  }
 };
 
 /**
@@ -264,7 +295,7 @@ app.use(async (req, res, next) => {
 });
 
 // Database Connection
-const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb+srv://ludo:ilyaas@ludo.1umgvpn.mongodb.net/ludo?retryWrites=true&w=majority&appName=ludo';
+const MONGO_URI = process.env.CONNECTION_URI || process.env.MONGO_URI || 'mongodb+srv://ludo:ilyaas@laandhuu-online.6lc4tez.mongodb.net/ludo?appName=laandhuu-online';
 
 // Optimized MongoDB connection options for 512MB RAM
 const mongooseOptions = {
@@ -279,14 +310,20 @@ async function ensureMongoConnect() {
   try {
     await mongoose.connect(MONGO_URI, mongooseOptions);
     console.log('✅ MongoDB Connected successfully');
-    console.log('📊 Database:', MONGO_URI.includes('@') ? MONGO_URI.split('@')[1] : MONGO_URI);
+    console.log('📊 Database:', MONGO_URI.includes('@') ? MONGO_URI.split('@')[1].split('/')[0] : 'Localhost');
   } catch (err) {
     console.error('❌ MongoDB Connection Error:', err.message);
+    
+    if (err.name === 'MongoServerSelectionError' || err.code === 'ENOTFOUND') {
+      console.error('❌ Network/DNS Error: Could not resolve MongoDB Atlas hostname.');
+      console.error('💡 One common reason is that you\'re trying to access the database from an IP that isn\'t whitelisted.');
+      console.error('💡 Check your Atlas cluster\'s IP whitelist: https://www.mongodb.com/docs/atlas/security-whitelist/');
+    }
+
     console.error('💡 Make sure MongoDB is running and CONNECTION_URI is correct');
     console.error('💡 For local MongoDB: mongodb://localhost:27017/ludo-master');
     console.error('💡 For MongoDB Atlas: Check your connection string in environment variables');
-    // Do not throw here - we want the server to start for non-DB endpoints in development,
-    // but callers that need DB should `await ensureMongoConnect()`.
+    // Do not throw here - we want the server to start for non-DB endpoints in development
   }
 }
 
@@ -640,6 +677,54 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   }
 });
 
+// POST: Direct User Gem Purchase from Balance
+app.post('/api/buy-gems', authenticateToken, async (req, res) => {
+  try {
+    const { packagePrice, packageGems } = req.body;
+
+    if (!packagePrice || !packageGems || packagePrice <= 0 || packageGems <= 0) {
+      return res.status(400).json({ error: 'Invalid package details' });
+    }
+
+    const { userId } = req.user;
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.balance < packagePrice) {
+      return res.status(400).json({ error: 'Insufficient balance to purchase this gem package.' });
+    }
+
+    // Deduct balance and add gems
+    user.balance = roundCurrency(user.balance - packagePrice);
+    user.gems = (user.gems || 0) + packageGems;
+
+    // Record the transaction
+    if (!user.transactions) user.transactions = [];
+    user.transactions.push({
+      type: 'gem_purchase',
+      amount: packageGems,
+      description: `Purchased ${packageGems} gems package for $${packagePrice.toFixed(2)}`,
+      timestamp: new Date()
+    });
+
+    await user.save();
+    
+    console.log(`✅ User ${user.username} securely purchased ${packageGems} gems for $${packagePrice.toFixed(2)}`);
+
+    res.json({
+      success: true,
+      message: `Successfully purchased ${packageGems} gems`,
+      newBalance: user.balance,
+      newGems: user.gems
+    });
+  } catch (error) {
+    console.error('Gem purchase error:', error);
+    res.status(500).json({ error: 'Failed to process gem purchase' });
+  }
+});
 
 
 // --- ONESIGNAL PUSH NOTIFICATION ROUTES ---
@@ -901,6 +986,234 @@ app.post('/api/admin/reset-user-password', authenticateToken, async (req, res) =
   } catch (error) {
     console.error('Admin reset password error:', error);
     res.status(500).json({ error: error.message || 'Failed to reset password' });
+  }
+});
+
+// POST: Admin - Grant free undo gems to a player (giveaway, does NOT appear in revenue)
+app.post('/api/admin/grant-gems', authenticateToken, async (req, res) => {
+  try {
+    // Require ADMIN or SUPER_ADMIN
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Access denied. Admin role required.' });
+    }
+
+    const { userId, gemCount, reason } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    const parsedCount = parseInt(gemCount, 10);
+    if (!parsedCount || parsedCount <= 0 || parsedCount > 1000) {
+      return res.status(400).json({ error: 'Gem count must be between 1 and 1000' });
+    }
+
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Add gems to the player — does NOT touch Revenue model, so it won't inflate revenue stats
+    targetUser.gems = (targetUser.gems || 0) + parsedCount;
+
+    // Log the giveaway in the user's own transaction history only
+    if (!targetUser.transactions) targetUser.transactions = [];
+    targetUser.transactions.push({
+      type: 'gem_giveaway',
+      amount: parsedCount,
+      description: reason || `Free undo gems giveaway by admin ${adminUser.username}`,
+      createdAt: new Date()
+    });
+
+    await targetUser.save();
+
+    console.log(`💎 Admin ${adminUser.username} granted ${parsedCount} free gems to ${targetUser.username} (${userId}). New balance: ${targetUser.gems}`);
+
+    res.json({
+      success: true,
+      message: `Successfully granted ${parsedCount} undo gem${parsedCount !== 1 ? 's' : ''} to ${targetUser.username}`,
+      gemsGranted: parsedCount,
+      newGemBalance: targetUser.gems,
+      username: targetUser.username
+    });
+  } catch (error) {
+    console.error('Grant gems error:', error);
+    res.status(500).json({ error: error.message || 'Failed to grant gems' });
+  }
+});
+
+// ===== ACCOUNTS RECEIVABLE / PLAYER LOAN ROUTES =====
+
+// POST: Give a loan to a player (SUPER_ADMIN only)
+app.post('/api/admin/loans/give', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    const { userId, amount, note } = req.body;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    const parsedAmount = parseFloat(amount);
+    if (!parsedAmount || parsedAmount <= 0 || parsedAmount > 100) {
+      return res.status(400).json({ error: 'Loan amount must be between $0.01 and $100' });
+    }
+
+    const targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+
+    const balanceAtLoan = roundCurrency(targetUser.balance || 0);
+
+    // Add balance to the player
+    targetUser.balance = roundCurrency(balanceAtLoan + parsedAmount);
+
+    // Log in user transactions
+    if (!targetUser.transactions) targetUser.transactions = [];
+    targetUser.transactions.push({
+      type: 'deposit',
+      amount: parsedAmount,
+      description: `Loan from admin ${adminUser.username}: ${note || 'Player loan'}`,
+      createdAt: new Date()
+    });
+    await targetUser.save();
+
+    // Create loan record (Accounts Receivable)
+    const loan = new Loan({
+      userId: targetUser._id,
+      username: targetUser.username,
+      phone: targetUser.phone,
+      amount: parsedAmount,
+      balanceAtLoan,
+      note: note || '',
+      status: 'OUTSTANDING',
+      grantedBy: adminUser.username,
+      grantedByUserId: adminUser._id
+    });
+    await loan.save();
+
+    console.log(`💳 SuperAdmin ${adminUser.username} gave $${parsedAmount} loan to ${targetUser.username}. New balance: $${targetUser.balance}`);
+
+    res.json({
+      success: true,
+      message: `Loan of $${parsedAmount.toFixed(2)} given to ${targetUser.username}`,
+      loan,
+      newBalance: targetUser.balance
+    });
+  } catch (error) {
+    console.error('Give loan error:', error);
+    res.status(500).json({ error: error.message || 'Failed to give loan' });
+  }
+});
+
+// GET: List all loans (SUPER_ADMIN only)
+app.get('/api/admin/loans', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    const { status } = req.query; // 'OUTSTANDING', 'SETTLED', or omit for all
+    const filter = {};
+    if (status && ['OUTSTANDING', 'SETTLED'].includes(status)) {
+      filter.status = status;
+    }
+
+    const loans = await Loan.find(filter).sort({ grantedAt: -1 });
+
+    const totalOutstanding = loans
+      .filter(l => l.status === 'OUTSTANDING')
+      .reduce((sum, l) => sum + l.amount, 0);
+    const totalSettled = loans
+      .filter(l => l.status === 'SETTLED')
+      .reduce((sum, l) => sum + l.amount, 0);
+
+    res.json({
+      success: true,
+      loans,
+      summary: {
+        totalOutstanding: roundCurrency(totalOutstanding),
+        totalSettled: roundCurrency(totalSettled),
+        outstandingCount: loans.filter(l => l.status === 'OUTSTANDING').length,
+        settledCount: loans.filter(l => l.status === 'SETTLED').length
+      }
+    });
+  } catch (error) {
+    console.error('List loans error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch loans' });
+  }
+});
+
+// POST: Settle a loan — deducts balance from player and marks as settled (SUPER_ADMIN only)
+app.post('/api/admin/loans/:loanId/settle', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    const loan = await Loan.findById(req.params.loanId);
+    if (!loan) return res.status(404).json({ error: 'Loan not found' });
+    if (loan.status === 'SETTLED') return res.status(400).json({ error: 'Loan already settled' });
+
+    const targetUser = await User.findById(loan.userId);
+    if (!targetUser) return res.status(404).json({ error: 'Player not found' });
+
+    if (targetUser.balance < loan.amount) {
+      return res.status(400).json({
+        error: `Insufficient balance. Player has $${targetUser.balance.toFixed(2)} but loan is $${loan.amount.toFixed(2)}`
+      });
+    }
+
+    // Deduct the loan amount from the player's balance
+    targetUser.balance = roundCurrency((targetUser.balance || 0) - loan.amount);
+    if (!targetUser.transactions) targetUser.transactions = [];
+    targetUser.transactions.push({
+      type: 'withdrawal',
+      amount: loan.amount,
+      description: `Loan repayment settled by admin ${adminUser.username}`,
+      createdAt: new Date()
+    });
+    await targetUser.save();
+
+    // Mark loan as settled
+    loan.status = 'SETTLED';
+    loan.settledAt = new Date();
+    loan.settledBy = adminUser.username;
+    await loan.save();
+
+    console.log(`✅ Loan settled: ${adminUser.username} recovered $${loan.amount} from ${targetUser.username}. Remaining balance: $${targetUser.balance}`);
+
+    res.json({
+      success: true,
+      message: `Loan of $${loan.amount.toFixed(2)} settled. $${loan.amount.toFixed(2)} deducted from ${targetUser.username}'s balance.`,
+      loan,
+      newBalance: targetUser.balance
+    });
+  } catch (error) {
+    console.error('Settle loan error:', error);
+    res.status(500).json({ error: error.message || 'Failed to settle loan' });
+  }
+});
+
+// DELETE: Remove a loan record (SUPER_ADMIN only — for write-offs or mistakes)
+app.delete('/api/admin/loans/:loanId', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    }
+
+    const loan = await Loan.findByIdAndDelete(req.params.loanId);
+    if (!loan) return res.status(404).json({ error: 'Loan not found' });
+
+    console.log(`🗑️ Loan record deleted by ${adminUser.username}: $${loan.amount} from ${loan.username}`);
+    res.json({ success: true, message: 'Loan record deleted successfully' });
+  } catch (error) {
+    console.error('Delete loan error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete loan' });
   }
 });
 
@@ -1283,6 +1596,9 @@ app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, asyn
         timestamp: new Date()
       });
       console.log(`✅ Admin ${adminUser.username} deposited $${amountNum} to ${targetUser.username}`);
+      
+      // AUTO LOAN SETTLEMENT
+      await autoSettleLoansOnDeposit(targetUser, 'admin deposit');
     } else {
       // FIX: Use rounding to prevent floating point errors (e.g. 0.24999 < 0.25)
       if (Math.round(targetUser.balance * 100) < Math.round(amountNum * 100)) {
@@ -1857,6 +2173,11 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
 
     // 4. Update User Balance and Log Transaction
     user.balance = roundCurrency(newBalance);
+    // AUTO LOAN SETTLEMENT (only if it was a deposit)
+    if (normalizedType === 'DEPOSIT') {
+      await autoSettleLoansOnDeposit(user, 'direct admin balance update');
+    }
+
     user.transactions.push({
       type: transactionType,
       amount: type === 'DEPOSIT' ? amount : -amount, // Store withdrawals as negative amounts
@@ -2647,6 +2968,9 @@ app.post('/api/admin/wallet/request/:id', authenticateToken, async (req, res) =>
         user.balance = roundCurrency(user.balance + request.amount);
         request.status = 'APPROVED';
         request.adminComment = adminComment || "Approved by admin";
+        
+        // AUTO LOAN SETTLEMENT
+        await autoSettleLoansOnDeposit(user, 'approved deposit request');
       } else if (request.type === 'WITHDRAWAL') {
         if (user.balance >= request.amount) {
           user.balance = roundCurrency(user.balance - request.amount);
@@ -3626,27 +3950,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('roll_dice', async ({ gameId }) => {
+  socket.on('roll_dice', async ({ gameId, userId }) => {
     console.log(`[SOCKET] Received roll_dice for game: ${gameId}, from socket: ${socket.id}`);
     if (humanPlayerTimers.has(gameId)) {
       clearTimeout(humanPlayerTimers.get(gameId));
       humanPlayerTimers.delete(gameId);
     }
 
-    const gameBeforeRoll = await Game.findOne({ gameId });
-    if (!gameBeforeRoll) {
-      console.log(`[SOCKET] Game ${gameId} not found during roll_dice.`);
-    } else {
-      console.log(`[SOCKET] Game ${gameId} found. Status: ${gameBeforeRoll.status}, TurnState: ${gameBeforeRoll.turnState}`);
-      const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
-      if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
-        await Game.updateOne({ gameId, 'players.socketId': socket.id }, { $set: { 'players.$.isDisconnected': false } });
-        console.log(`[SOCKET] Player ${currentPlayer.color} in game ${gameId} was disconnected, now marked as connected.`);
-      }
-    }
-
-    console.log(`[SOCKET] Calling gameEngine.handleRollDice for game: ${gameId}, socket: ${socket.id}`);
-    const result = await gameEngine.handleRollDice(gameId, socket.id);
+    const rollUserId = userId || socket.data.userId;
+    console.log(`[SOCKET] Calling gameEngine.handleRollDice for game: ${gameId}, socket: ${socket.id}, userId: ${rollUserId}`);
+    const result = await gameEngine.handleRollDice(gameId, socket.id, rollUserId);
     console.log(`[SOCKET] gameEngine.handleRollDice result for ${gameId}: success=${result?.success}, message=${result?.message}`);
     if (!result) {
       console.error(`[SOCKET] gameEngine.handleRollDice returned null for game ${gameId}`);
@@ -4409,7 +4722,7 @@ try {
   const frontendDist = path.join(__dirname, '..', 'dist');
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
+    app.get('/:path*', (req, res) => {
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
     console.log('✅ Serving frontend from', frontendDist);
@@ -4593,163 +4906,10 @@ setInterval(async () => {
   // to everything under /api/admin/analytics via the above mounting.
   // But for clarity and explicit protection:
   app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, todayAnalyticsRoutes);
-  // --- SOCKET.IO HANDLERS (RESTORED) ---
+  // --- SOCKET.IO HANDLERS (RESTORED TIC-TAC-TOE ONLY) ---
   io.on('connection', (socket) => {
-    console.log(`🔌 New client connected: ${socket.id}`);
-
-    socket.on('watch_game', async ({ gameId }) => {
-      socket.join(gameId);
-      const Game = require('./models/Game');
-      try {
-        const game = await Game.findOne({ gameId });
-        if (game) {
-          socket.emit('GAME_STATE_UPDATE', { state: game.toObject ? game.toObject() : game });
-        } else {
-          socket.emit('ERROR', { message: 'Game not found' });
-        }
-      } catch (error) { console.error(error); }
-    });
-
-    socket.on('join_game', async ({ gameId, userId, playerColor }) => {
-      socket.join(gameId);
-      socket.gameId = gameId;
-      if (pendingDisconnects.has(userId)) {
-        const pending = pendingDisconnects.get(userId);
-        if (pending && pending.gameId === gameId) {
-          clearTimeout(pending.timeoutId);
-          pendingDisconnects.delete(userId);
-        }
-      }
-      const result = await gameEngine.handleJoinGame(gameId, userId, playerColor, socket.id);
-      if (result.success && result.state) {
-        const plainState = result.state.toObject ? result.state.toObject() : result.state;
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-        if (result.state.status === 'ACTIVE' && result.state.turnState === 'ROLLING') {
-          const currentPlayer = result.state.players[result.state.currentPlayerIndex];
-          if (currentPlayer && currentPlayer.userId === userId && !currentPlayer.isAI) {
-            scheduleHumanPlayerAutoRoll(gameId);
-          }
-        }
-      } else {
-        socket.emit('ERROR', { message: result.message || 'Failed to join game.' });
-      }
-    });
-
-    socket.on('roll_dice', async ({ gameId }) => {
-      if (humanPlayerTimers.has(gameId)) {
-        clearTimeout(humanPlayerTimers.get(gameId));
-        humanPlayerTimers.delete(gameId);
-      }
-      const Game = require('./models/Game');
-      const gameBeforeRoll = await Game.findOne({ gameId });
-      if (gameBeforeRoll) {
-        const currentPlayer = gameBeforeRoll.players[gameBeforeRoll.currentPlayerIndex];
-        if (currentPlayer && currentPlayer.socketId === socket.id && currentPlayer.isDisconnected) {
-          await Game.updateOne({ gameId, 'players.socketId': socket.id }, { $set: { 'players.$.isDisconnected': false } });
-        }
-      }
-
-      const result = await gameEngine.handleRollDice(gameId, socket.id);
-      if (!result) return socket.emit('ERROR', { message: 'Failed to roll dice' });
-
-      if (result.success) {
-        const gameState = result.state.toObject ? result.state.toObject() : result.state;
-        if (gameState.diceValue !== null && gameState.diceValue !== undefined) gameState.diceValue = Number(gameState.diceValue);
-
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: gameState });
-
-        if (gameState.legalMoves && gameState.legalMoves.length > 0) {
-          const currentPlayer = gameState.players[gameState.currentPlayerIndex];
-          if (currentPlayer && !currentPlayer.isAI && !currentPlayer.isDisconnected) {
-            scheduleHumanPlayerAutoMove(gameId);
-          }
-        } else if (gameState.legalMoves && gameState.legalMoves.length === 0 && gameState.diceValue !== null) {
-          if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
-          setTimeout(async () => {
-            const game = await Game.findOne({ gameId });
-            if (game && game.turnState === 'MOVING' && game.legalMoves.length === 0) {
-              const nextPlayerIndex = gameEngine.getNextPlayerIndex(game, game.currentPlayerIndex, false);
-              game.currentPlayerIndex = nextPlayerIndex;
-              game.diceValue = null;
-              game.turnState = 'ROLLING';
-              game.legalMoves = [];
-              await game.save();
-              const updatedState = game.toObject ? game.toObject() : game;
-              io.to(gameId).emit('GAME_STATE_UPDATE', { state: updatedState });
-              const nextPlayer = game.players[nextPlayerIndex];
-              if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId, 1500);
-              else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
-            }
-          }, 1200);
-        }
-
-        const gameRecord = await Game.findOne({ gameId });
-        if (gameRecord && result.state.turnState === 'ROLLING') {
-          const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
-          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId);
-          else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
-        }
-
-      } else {
-        socket.emit('ERROR', { message: result.message || 'Failed to roll dice' });
-        if (result.message === 'Wait for animation' || result.message === 'Not rolling state') {
-          const Game = require('./models/Game');
-          const currentGame = await Game.findOne({ gameId });
-          if (currentGame) socket.emit('GAME_STATE_UPDATE', { state: currentGame.toObject ? currentGame.toObject() : currentGame });
-        }
-      }
-    });
-
-    socket.on('move_token', async ({ gameId, tokenId }) => {
-      if (humanPlayerTimers.has(gameId)) { clearTimeout(humanPlayerTimers.get(gameId)); humanPlayerTimers.delete(gameId); }
-
-      const Game = require('./models/Game');
-      const result = await gameEngine.handleMoveToken(gameId, socket.id, tokenId);
-
-      if (result.success) {
-        const plainState = result.state.toObject ? result.state.toObject() : result.state;
-        if (result.killedTokenId) io.to(gameId).emit('TOKEN_KILLED', { killedTokenId: result.killedTokenId });
-
-        // --- REAL-TIME XP UPDATE ---
-        if (result.xpAwarded) {
-          io.to(socket.id).emit('xp_updated', {
-            amount: result.xpAwarded,
-            reason: 'kill',
-            message: `You earned ${result.xpAwarded} XP for capturing a pawn!`
-          });
-        }
-        // --------------------------
-
-        if (plainState.turnState !== 'ROLLING' && plainState.diceValue === null) plainState.turnState = 'ROLLING';
-        io.to(gameId).emit('GAME_STATE_UPDATE', { state: plainState });
-        if (result.settlementData) {
-          const winnerPlayer = plainState.players.find(p => p.userId === result.settlementData.winnerId);
-          if (winnerPlayer && winnerPlayer.socketId) io.to(winnerPlayer.socketId).emit('win_notification', result.settlementData);
-          else io.to(gameId).emit('win_notification', result.settlementData);
-        }
-
-        const gameRecord = await Game.findOne({ gameId });
-        if (gameRecord && plainState.turnState === 'ROLLING') {
-          const nextPlayer = gameRecord.players[gameRecord.currentPlayerIndex];
-          if (nextPlayer && (nextPlayer.isAI || nextPlayer.isDisconnected)) scheduleAutoTurn(gameId);
-          else if (nextPlayer) scheduleHumanPlayerAutoRoll(gameId);
-        }
-      } else {
-        socket.emit('ERROR', { message: result.message });
-      }
-    });
-
-    socket.on('send_chat_message', async ({ gameId, userId, message }) => {
-      const Game = require('./models/Game');
-      const game = await Game.findOne({ gameId });
-      if (game) {
-        const player = game.players.find(p => p.userId === userId);
-        if (player) {
-          const chatData = { userId, playerColor: player.color, playerName: player.username || player.userId, message, timestamp: Date.now() };
-          io.to(gameId).emit('chat_message', chatData);
-        }
-      }
-    });
+    // Ludo socket handlers were duplicated here and have been removed.
+    // They are correctly defined in the primary io.on('connection', ...) block above.
 
     // ========== TIC-TAC-TOE SOCKET HANDLERS ==========
     const ticTacToeEngine = require('./logic/ticTacToeEngine');
