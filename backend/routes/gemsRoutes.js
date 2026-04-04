@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 // Import models (adjust path as needed)
-const User = require('./models/User');
+const User = require('../models/User');
 
 // Middleware (already defined in server.js, use those)
 // const authenticateToken = require('./middleware/auth');
