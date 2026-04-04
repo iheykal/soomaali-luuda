@@ -1585,8 +1585,8 @@ app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, asyn
     const lookupResult = await smartUserLookup(req.user.userId, req.user.username, 'admin-update-balance');
     const adminUser = lookupResult.success ? lookupResult.user : null;
 
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Access denied. Super Admin role required.' });
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
+      return res.status(403).json({ error: 'Access denied. Admin role required.' });
     }
 
     const { id: targetUserId } = req.params;
@@ -1650,6 +1650,9 @@ app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, asyn
       message: `Balance updated successfully`,
       newBalance: targetUser.balance,
       user: {
+        id: targetUser._id,
+        username: targetUser.username,
+        balance: targetUser.balance,
         phone: targetUser.phone
       }
     });
