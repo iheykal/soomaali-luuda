@@ -175,6 +175,9 @@ const io = new Server(server, {
   destroyUpgradeTimeout: 1000
 });
 
+// Make io accessible to route handlers via req.app.get('io')
+app.set('io', io);
+
 app.use(express.json());
 app.use(require('cookie-parser')());
 

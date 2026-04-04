@@ -178,7 +178,7 @@ router.post('/transaction', async (req, res) => {
         // Emit socket event to notify user of balance update (triggers auto-refresh)
         const io = req.app.get('io');
         if (io) {
-            io.to(userId).emit('balance_updated', {
+            io.to(`user_${userId}`).emit('balance_updated', {
                 newBalance: updatedUser.balance,
                 type,
                 amount: numAmount,
