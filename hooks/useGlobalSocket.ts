@@ -203,26 +203,31 @@ export const useGlobalSocket = (userId: string | null | undefined, isAuthenticat
         socket.on('balance_updated', (data: { newBalance: number, type: string, amount: number, message: string }) => {
             console.log('💰 Balance update received:', data);
 
-            // Show notification
+            // 1. Always dispatch in-app toast event (works regardless of browser notification permission)
+            window.dispatchEvent(new CustomEvent('BALANCE_CREDITED', {
+                detail: {
+                    amount: data.amount,
+                    type: (data.type || 'DEPOSIT').toUpperCase(),
+                    newBalance: data.newBalance,
+                    message: data.message || 'Admin balance update',
+                }
+            }));
+
+            // 2. Try browser notification as a bonus (only if already granted — don't re-prompt)
             if ('Notification' in window && Notification.permission === 'granted') {
-                const title = data.type === 'DEPOSIT' ? '💵 Balance Credited' : '💸 Withdrawal Processed';
+                const title = data.type === 'DEPOSIT' ? '💸 Lacag La Soo Geliyey' : '💳 Lacag La Raaray';
                 const notification = new Notification(title, {
-                    body: `${data.message}: $${data.amount}. New balance: $${data.newBalance}`,
+                    body: `$${data.amount.toFixed ? data.amount.toFixed(2) : data.amount} — Haraagii: $${data.newBalance}`,
                     icon: '/wello.png',
                     badge: '/wello.png',
                     tag: `balance_update_${Date.now()}`,
                     requireInteraction: false,
                 });
-
                 setTimeout(() => notification.close(), 5000);
-
-                notification.onclick = () => {
-                    window.focus();
-                    notification.close();
-                };
+                notification.onclick = () => { window.focus(); notification.close(); };
             }
 
-            // Auto-refresh seamlessly to show new balance without page reload
+            // 3. Refresh balance in context
             console.log('🔄 Silently updating balance on screen...');
             setTimeout(() => {
                 window.dispatchEvent(new Event('LUDO_REFRESH_USER'));

@@ -29,6 +29,7 @@ import Wallet from './components/Wallet';
 import ReferralDashboard from './components/ReferralDashboard';
 import AdminDiceControl from './components/AdminDiceControl';
 import CompactGemReroll from './components/CompactGemReroll';
+import DepositToast from './components/DepositToast';
 
 type View = 'setup' | 'game' | 'multiplayer-lobby' | 'login' | 'register' | 'reset-password' | 'superadmin' | 'wallet';
 
@@ -81,6 +82,7 @@ const AppContent: React.FC = () => {
   const [showLiveMatches, setShowLiveMatches] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any | null>(null);
   const [winNotification, setWinNotification] = useState<WinNotificationData | null>(null);
+  const [depositToastData, setDepositToastData] = useState<{ amount: number; type: 'DEPOSIT' | 'WITHDRAWAL'; newBalance: number; message: string } | null>(null);
 
   // Connect to global socket for financial notifications
   useGlobalSocket(user?.id || user?._id, isAuthenticated);
@@ -179,6 +181,18 @@ const AppContent: React.FC = () => {
       socket.off('win_notification', handleWinNotification);
     };
   }, [socket, user]);
+
+  // Listen for the custom BALANCE_CREDITED event to show DepositToast
+  useEffect(() => {
+    const handleBalanceCredited = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail) {
+        setDepositToastData(customEvent.detail);
+      }
+    };
+    window.addEventListener('BALANCE_CREDITED', handleBalanceCredited);
+    return () => window.removeEventListener('BALANCE_CREDITED', handleBalanceCredited);
+  }, []);
 
 
   useEffect(() => {
@@ -454,6 +468,16 @@ const AppContent: React.FC = () => {
           platformFee={winNotification.commission}
           onClose={() => setWinNotification(null)}
           onNavigateToWallet={handleEnterWallet}
+        />
+      )}
+
+      {depositToastData && (
+        <DepositToast
+          amount={depositToastData.amount}
+          type={depositToastData.type}
+          newBalance={depositToastData.newBalance}
+          message={depositToastData.message}
+          onClose={() => setDepositToastData(null)}
         />
       )}
 
