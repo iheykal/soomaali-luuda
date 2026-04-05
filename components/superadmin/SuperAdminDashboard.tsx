@@ -253,6 +253,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     paidAt: new Date().toISOString().slice(0, 10), note: '', customCategory: ''
   });
 
+  // Cash Tracking State
+  const [cashLogs, setCashLogs] = useState<any[]>([]);
+  const [cashLogsSummary, setCashLogsSummary] = useState<{ evc_received: number; bank_deposit: number }>({ evc_received: 0, bank_deposit: 0 });
+  const [showCashLogForm, setShowCashLogForm] = useState(false);
+  const [cashLogForm, setCashLogForm] = useState({
+    type: 'bank_deposit', amount: '', note: ''
+  });
+
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: 'wins' | 'balance' | 'joined' | 'username'; direction: 'asc' | 'desc' }>({ key: 'joined', direction: 'desc' });
 
@@ -468,6 +476,16 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
   }, []);
 
+  const fetchCashLogs = useCallback(async (month: string) => {
+    try {
+      const result = await adminAPI.getCashLogs(month);
+      setCashLogs(result.cashLogs || []);
+      setCashLogsSummary(result.summary || { evc_received: 0, bank_deposit: 0 });
+    } catch (err: any) {
+      console.error('Error fetching cash logs:', err);
+    }
+  }, []);
+
   const handleUserClick = async (userId: string) => {
     setLoading(true);
     try {
@@ -667,6 +685,40 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     });
   };
 
+  const handleAddCashLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cashLogForm.amount || parseFloat(cashLogForm.amount) <= 0) {
+      return showNotificationMessage('Please enter a valid amount', 'error');
+    }
+    setAccountingLoading(true);
+    try {
+      await adminAPI.createCashLog({
+        type: cashLogForm.type,
+        amount: parseFloat(cashLogForm.amount),
+        note: cashLogForm.note
+      });
+      showNotificationMessage('Cash log added successfully', 'success');
+      setShowCashLogForm(false);
+      setCashLogForm({ type: 'bank_deposit', amount: '', note: '' });
+      fetchCashLogs(accountingMonth);
+    } catch (err: any) {
+      showNotificationMessage(err.message || 'Failed to add cash log', 'error');
+    } finally {
+      setAccountingLoading(false);
+    }
+  };
+
+  const handleDeleteCashLog = async (id: string) => {
+    if (!window.confirm('Delete this cash log entry?')) return;
+    try {
+      await adminAPI.deleteCashLog(id);
+      showNotificationMessage('Cash log deleted', 'success');
+      fetchCashLogs(accountingMonth);
+    } catch (err: any) {
+      showNotificationMessage(err.message || 'Failed to delete cash log', 'error');
+    }
+  };
+
   const handleProcessRequest = async (requestId: string, action: 'APPROVE' | 'REJECT') => {
     showConfirmationDialog(`Are you sure you want to ${action} this request (ID: ${requestId})?`, async () => {
       try {
@@ -781,8 +833,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
     if (activeTab === 'accounting' && user?.role === 'SUPER_ADMIN') {
       fetchAccountingSummary(accountingMonth);
+      fetchCashLogs(accountingMonth);
     }
-  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, user]);
+  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, user, fetchCashLogs]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -2908,6 +2961,107 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                       </p>
                     </div>
                   </div>
+                </div>
+
+                {/* EVC -> Bank Tracker */}
+                <div className="mt-8 bg-white rounded-2xl border-2 border-indigo-100 shadow-sm overflow-hidden mb-8">
+                  <div className="p-5 border-b border-indigo-50 bg-gradient-to-r from-indigo-50 to-white flex items-center justify-between">
+                    <div>
+                      <h3 className="font-black text-indigo-900 flex items-center gap-2">📱 EVC → 🏦 Bank Cash Flow</h3>
+                      <p className="text-xs text-indigo-600 mt-1 font-medium">Track real-world money received vs deposited to bank</p>
+                    </div>
+                    <button
+                      onClick={() => setShowCashLogForm(!showCashLogForm)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors"
+                    >
+                      {showCashLogForm ? 'Cancel' : '+ Log Transfer'}
+                    </button>
+                  </div>
+                  
+                  <div className="p-5">
+                    <div className="flex flex-col md:flex-row gap-6 items-center">
+                      <div className="flex-1 w-full grid grid-cols-2 gap-4">
+                        <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 relative">
+                          <p className="text-[10px] uppercase font-black text-indigo-500">💰 Platform Income (In EVC)</p>
+                          <p className="text-2xl font-black text-indigo-900 mt-1">${(income?.total || 0).toFixed(2)}</p>
+                          <div className="absolute top-4 right-4 text-2xl opacity-50">📱</div>
+                        </div>
+                        <div className="bg-green-50 p-4 rounded-xl border border-green-100 relative">
+                          <p className="text-[10px] uppercase font-black text-green-600">Total Moved to Bank</p>
+                          <p className="text-2xl font-black text-green-900 mt-1">${cashLogsSummary.bank_deposit.toFixed(2)}</p>
+                          <div className="absolute top-4 right-4 text-2xl opacity-50">🏦</div>
+                        </div>
+                      </div>
+                      <div className="flex-1 w-full flex items-center justify-center">
+                        <div className={`p-6 rounded-2xl border-2 ${(income?.total || 0) - cashLogsSummary.bank_deposit > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'} text-center w-full max-w-sm relative shadow-inner`}>
+                          <p className={`text-xs font-black uppercase tracking-widest ${(income?.total || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-600' : 'text-gray-500'}`}>⚠️ Still in EVC (Unbanked)</p>
+                          <p className={`text-4xl font-black mt-2 ${(income?.total || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-700' : 'text-gray-900'}`}>${Math.max(0, (income?.total || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {showCashLogForm && (
+                    <div className="p-5 bg-indigo-50/50 border-t border-indigo-100">
+                      <form onSubmit={handleAddCashLog} className="flex flex-col md:flex-row gap-3">
+                        <select
+                          value={cashLogForm.type}
+                          disabled
+                          className="px-3 py-2 border border-gray-100 bg-gray-50 rounded-lg text-sm flex-1 font-bold text-gray-700 cursor-not-allowed"
+                        >
+                          <option value="bank_deposit">🏦 Deposit to Bank (extracted money)</option>
+                        </select>
+                        <input
+                          type="number"
+                          placeholder="Amount ($)"
+                          step="0.01"
+                          required
+                          value={cashLogForm.amount}
+                          onChange={(e) => setCashLogForm({ ...cashLogForm, amount: e.target.value })}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-32 font-bold text-gray-900"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Note (e.g. 'Daily batch')"
+                          value={cashLogForm.note}
+                          onChange={(e) => setCashLogForm({ ...cashLogForm, note: e.target.value })}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm flex-1"
+                        />
+                        <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm shadow-md transition-all">Save</button>
+                      </form>
+                    </div>
+                  )}
+
+                  {cashLogs.length > 0 && (
+                    <div className="border-t border-gray-100 max-h-60 overflow-y-auto w-full">
+                      <table className="w-full text-left text-xs bg-white">
+                        <thead className="bg-gray-50/80 sticky top-0 border-b border-gray-200">
+                          <tr>
+                            <th className="px-5 py-3 font-bold text-gray-500 uppercase">Type</th>
+                            <th className="px-5 py-3 font-bold text-gray-500 uppercase text-right">Amount</th>
+                            <th className="px-5 py-3 font-bold text-gray-500 uppercase hidden sm:table-cell">Note</th>
+                            <th className="px-5 py-3 font-bold text-gray-500 uppercase bg-transparent">Date</th>
+                            <th className="px-5 py-3 font-bold text-gray-500 uppercase text-center w-12 border-none"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {cashLogs.map(log => (
+                            <tr key={log._id} className="hover:bg-gray-50 group">
+                              <td className="px-5 py-3 font-semibold text-gray-900">
+                                {log.type === 'evc_received' ? <span className="text-indigo-600 flex items-center gap-1.5"><span className="text-lg">📱</span> EVC In</span> : <span className="text-green-600 flex items-center gap-1.5"><span className="text-lg">🏦</span> Bank Out</span>}
+                              </td>
+                              <td className="px-5 py-3 font-black text-gray-900 text-right">${log.amount.toFixed(2)}</td>
+                              <td className="px-5 py-3 text-gray-500 italic hidden sm:table-cell max-w-[150px] truncate">{log.note || '-'}</td>
+                              <td className="px-5 py-3 text-gray-500 font-mono">{new Date(log.createdAt).toLocaleDateString()}</td>
+                              <td className="px-5 py-3 text-center border-none">
+                                <button onClick={() => handleDeleteCashLog(log._id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity" title="Delete entry">🗑️</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
                 {/* Expense List */}

@@ -721,4 +721,48 @@ export const adminAPI = {
     }
   },
 
+  async getCashLogs(month?: string, type?: string): Promise<{ success: boolean; cashLogs: any[]; summary: any }> {
+    let query = '';
+    if (month || type) {
+      const params = new URLSearchParams();
+      if (month) params.append('month', month);
+      if (type) params.append('type', type);
+      query = `?${params.toString()}`;
+    }
+    const url = `${getApiUrl()}/admin/cash-logs${query}`;
+    const options = { method: 'GET', headers: getAuthHeaders() };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to fetch cash logs');
+    }
+  },
+
+  async createCashLog(data: { type: string; amount: number; note?: string; createdAt?: string }): Promise<{ success: boolean; cashLog: any }> {
+    const url = `${getApiUrl()}/admin/cash-logs`;
+    const options = {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to create cash log');
+    }
+  },
+
+  async deleteCashLog(id: string): Promise<{ success: boolean }> {
+    const url = `${getApiUrl()}/admin/cash-logs/${id}`;
+    const options = { method: 'DELETE', headers: getAuthHeaders() };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to delete cash log');
+    }
+  },
+
 };

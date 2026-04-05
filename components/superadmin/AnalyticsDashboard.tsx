@@ -320,9 +320,16 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                     <MetricCard
                         title="Playable Wallets"
                         value={overview.playableUsers || 0}
-                        subtitle={`Total: $${(overview.playableBalance || 0).toFixed(2)}`}
+                        subtitle={`Total: $${(overview.playableBalance || 0).toFixed(2)}\n⚠️ Belongs to players`}
                         icon="💳"
                         gradient="from-emerald-50 to-emerald-100 border-emerald-200"
+                    />
+                    <MetricCard
+                        title="Platform Earned"
+                        value={`$${((overview.ggr || 0) + (gemRevenueData?.allTime?.total || 0)).toFixed(2)}`}
+                        subtitle="✅ Already extracted (Real Money)"
+                        icon="💰"
+                        gradient="from-yellow-200 to-yellow-300 border-yellow-400 shadow-md ring-2 ring-yellow-500 ring-opacity-50"
                     />
                     {churnData && churnData.data && (
                         <MetricCard

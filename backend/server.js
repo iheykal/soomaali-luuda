@@ -18,6 +18,7 @@ const RevenueWithdrawal = require('./models/RevenueWithdrawal');
 const Game = require('./models/Game');
 const Loan = require('./models/Loan');
 const Expense = require('./models/Expense');
+const CashLog = require('./models/CashLog');
 
 // Global TTT Queue - Must// Global queue for tic-tac-toe matchmaking
 const ticTacToeQueue = [];
@@ -733,6 +734,21 @@ app.post('/api/buy-gems', authenticateToken, async (req, res) => {
     });
 
     await user.save();
+    
+    // --> NEW REVENUE RECORD FOR GEMS <--
+    const Revenue = require('./models/Revenue');
+    const gemRevenueRecord = new Revenue({
+      gameId: 'STORE',
+      gameType: 'LUDO', // arbitrary default
+      amount: 0,
+      gemRevenue: packagePrice, // The money paid for the gems in dollars
+      totalPot: 0,
+      winnerId: user._id,
+      reason: 'Premium Gem Store Purchase',
+      timestamp: new Date()
+    });
+    await gemRevenueRecord.save();
+    // -----------------------------------
     
     console.log(`✅ User ${user.username} securely purchased ${packageGems} gems for $${packagePrice.toFixed(2)}`);
 
@@ -2304,6 +2320,100 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
     });
   } catch (e) {
     console.error('Accounting summary error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// CASH LOG ROUTES (SUPER_ADMIN only)
+// ============================================================
+
+// GET: All cash logs (filter by type, month)
+app.get('/api/admin/cash-logs', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    const { month, type } = req.query;
+    let query = {};
+    if (month) {
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      query.createdAt = { $gte: start, $lt: end };
+    }
+    if (type) {
+      query.type = type;
+    }
+    const cashLogs = await CashLog.find(query).sort({ createdAt: -1 });
+    
+    // Calculate totals
+    const totals = await CashLog.aggregate([
+      { $match: query },
+      { $group: { _id: '$type', totalAmount: { $sum: '$amount' } } }
+    ]);
+    
+    const summary = {
+      evc_received: totals.find(t => t._id === 'evc_received')?.totalAmount || 0,
+      bank_deposit: totals.find(t => t._id === 'bank_deposit')?.totalAmount || 0
+    };
+
+    res.json({ success: true, cashLogs, summary });
+  } catch (e) {
+    console.error('GET cash-logs error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST: Create a new cash log
+app.post('/api/admin/cash-logs', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    
+    const { type, amount, note, createdAt } = req.body;
+    
+    if (!type || !['evc_received', 'bank_deposit'].includes(type)) {
+      return res.status(400).json({ error: 'Valid type (evc_received, bank_deposit) is required.' });
+    }
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'A positive amount is required.' });
+    }
+    
+    const cashLog = new CashLog({
+      type,
+      amount,
+      note: note || '',
+      createdBy: adminUser._id,
+      createdAt: createdAt ? new Date(createdAt) : new Date()
+    });
+    
+    await cashLog.save();
+    console.log(`💵 CashLog added: [${type}] $${amount} by ${adminUser.username}`);
+    res.json({ success: true, cashLog });
+  } catch (e) {
+    console.error('POST cash-log error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE: Remove a cash log
+app.delete('/api/admin/cash-logs/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    
+    const cashLog = await CashLog.findByIdAndDelete(req.params.id);
+    if (!cashLog) return res.status(404).json({ error: 'Cash log not found.' });
+    
+    res.json({ success: true, message: 'Cash log deleted.' });
+  } catch (e) {
+    console.error('DELETE cash-log error:', e);
     res.status(500).json({ error: e.message });
   }
 });
