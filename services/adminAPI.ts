@@ -647,5 +647,71 @@ export const adminAPI = {
       const errorMessage = error.responseData?.message || error.responseData?.error || error.message || 'Failed to give loan';
       throw new Error(errorMessage);
     }
-  }
+  },
+
+  // ── ACCOUNTING ──────────────────────────────────────────────────────────────
+
+  async getExpenses(month?: string): Promise<{ success: boolean; expenses: any[] }> {
+    const url = `${getApiUrl()}/admin/expenses${month ? `?month=${month}` : ''}`;
+    const options = { method: 'GET', headers: getAuthHeaders() };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to fetch expenses');
+    }
+  },
+
+  async createExpense(data: {
+    name: string; category: string; amount: number;
+    recurrence: string; paidAt: string; note?: string;
+  }): Promise<{ success: boolean; expense: any }> {
+    const url = `${getApiUrl()}/admin/expenses`;
+    const options = { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(data) };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to create expense');
+    }
+  },
+
+  async updateExpense(id: string, data: Partial<{ name: string; category: string; amount: number; recurrence: string; paidAt: string; note: string }>): Promise<{ success: boolean; expense: any }> {
+    const url = `${getApiUrl()}/admin/expenses/${id}`;
+    const options = { method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify(data) };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to update expense');
+    }
+  },
+
+  async deleteExpense(id: string): Promise<{ success: boolean }> {
+    const url = `${getApiUrl()}/admin/expenses/${id}`;
+    const options = { method: 'DELETE', headers: getAuthHeaders() };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to delete expense');
+    }
+  },
+
+  async getAccountingSummary(month?: string): Promise<{
+    success: boolean;
+    month: string;
+    income: { gameRake: number; gemRevenue: number; total: number };
+    expenses: { items: any[]; total: number; byCategory: Record<string, number> };
+    netProfit: number;
+  }> {
+    const url = `${getApiUrl()}/admin/accounting/summary${month ? `?month=${month}` : ''}`;
+    const options = { method: 'GET', headers: getAuthHeaders() };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to fetch accounting summary');
+    }
+  },
 };

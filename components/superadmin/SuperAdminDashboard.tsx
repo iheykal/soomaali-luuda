@@ -183,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems' | 'accounting';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -234,6 +234,24 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [referralLeaderboard, setReferralLeaderboard] = useState<ReferralLeaderboardEntry[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [gemRevenueData, setGemRevenueData] = useState<any>(null);
+
+  // Accounting State
+  const [accountingMonth, setAccountingMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [accountingSummary, setAccountingSummary] = useState<{
+    income: { gameRake: number; gemRevenue: number; total: number };
+    expenses: { items: any[]; total: number; byCategory: Record<string, number> };
+    netProfit: number;
+  } | null>(null);
+  const [accountingLoading, setAccountingLoading] = useState(false);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<any | null>(null);
+  const [expenseForm, setExpenseForm] = useState({
+    name: '', category: 'hosting', amount: '', recurrence: 'monthly',
+    paidAt: new Date().toISOString().slice(0, 10), note: '', customCategory: ''
+  });
 
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: 'wins' | 'balance' | 'joined' | 'username'; direction: 'asc' | 'desc' }>({ key: 'joined', direction: 'desc' });
@@ -424,6 +442,23 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       setGemRevenueData(result.data);
     } catch (err: any) {
       console.error('Error fetching gem revenue:', err);
+    }
+  }, []);
+
+  const fetchAccountingSummary = useCallback(async (month: string) => {
+    setAccountingLoading(true);
+    try {
+      const result = await adminAPI.getAccountingSummary(month);
+      setAccountingSummary({
+        income: result.income,
+        expenses: result.expenses,
+        netProfit: result.netProfit,
+      });
+    } catch (err: any) {
+      console.error('Error fetching accounting summary:', err);
+      showNotificationMessage('Failed to load accounting data', 'error');
+    } finally {
+      setAccountingLoading(false);
     }
   }, []);
 
@@ -737,6 +772,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
     if (activeTab === 'recent') {
       fetchRecentTransactions();
+    }
+    if (activeTab === 'accounting' && user?.role === 'SUPER_ADMIN') {
+      fetchAccountingSummary(accountingMonth);
     }
   }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, user]);
 
@@ -2575,6 +2613,367 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
         );
       default:
         return <div className="text-gray-600">Select a tab</div>;
+
+      case 'accounting': {
+        const CATEGORY_META: Record<string, { label: string; emoji: string; color: string }> = {
+          hosting:   { label: 'Hosting',    emoji: '🖥️',  color: 'bg-blue-100 text-blue-800' },
+          database:  { label: 'Database',   emoji: '🗄️',  color: 'bg-purple-100 text-purple-800' },
+          internet:  { label: 'Internet',   emoji: '🌐',  color: 'bg-cyan-100 text-cyan-800' },
+          marketing: { label: 'Marketing',  emoji: '📣',  color: 'bg-orange-100 text-orange-800' },
+          salary:    { label: 'Salary',     emoji: '👤',  color: 'bg-pink-100 text-pink-800' },
+          other:     { label: 'Other',      emoji: '📦',  color: 'bg-gray-100 text-gray-700' },
+        };
+
+        const handleExpenseSubmit = async (e: React.FormEvent) => {
+          e.preventDefault();
+          const amount = parseFloat(expenseForm.amount);
+          // Resolve final category: if 'custom', use typed value
+          const resolvedCategory = expenseForm.category === 'custom'
+            ? (expenseForm.customCategory.trim() || 'other')
+            : expenseForm.category;
+          if (!expenseForm.name || !amount || amount <= 0) {
+            showNotificationMessage('Name and a valid amount are required', 'error');
+            return;
+          }
+          if (expenseForm.category === 'custom' && !expenseForm.customCategory.trim()) {
+            showNotificationMessage('Please enter a custom category name', 'error');
+            return;
+          }
+          setAccountingLoading(true);
+          try {
+            const payload = { ...expenseForm, category: resolvedCategory, amount };
+            if (editingExpense) {
+              await adminAPI.updateExpense(editingExpense._id, payload);
+              showNotificationMessage('Expense updated', 'success');
+            } else {
+              await adminAPI.createExpense(payload);
+              showNotificationMessage('Expense added', 'success');
+            }
+            setShowExpenseForm(false);
+            setEditingExpense(null);
+            setExpenseForm({ name: '', category: 'hosting', amount: '', recurrence: 'monthly', paidAt: new Date().toISOString().slice(0, 10), note: '', customCategory: '' });
+            fetchAccountingSummary(accountingMonth);
+          } catch (err: any) {
+            showNotificationMessage(err.message, 'error');
+          } finally {
+            setAccountingLoading(false);
+          }
+        };
+
+        const handleDeleteExpense = (expense: any) => {
+          showConfirmationDialog(`Delete expense "${expense.name}" ($${expense.amount.toFixed(2)})?`, async () => {
+            setAccountingLoading(true);
+            try {
+              await adminAPI.deleteExpense(expense._id);
+              showNotificationMessage('Expense deleted', 'success');
+              fetchAccountingSummary(accountingMonth);
+            } catch (err: any) {
+              showNotificationMessage(err.message, 'error');
+            } finally {
+              setAccountingLoading(false);
+            }
+          });
+        };
+
+        const handleEditExpense = (expense: any) => {
+          setEditingExpense(expense);
+          // If category is not in predefined list, treat as custom
+          const PREDEFINED = ['hosting', 'database', 'internet', 'marketing', 'salary', 'other'];
+          const isCustom = !PREDEFINED.includes(expense.category);
+          setExpenseForm({
+            name: expense.name,
+            category: isCustom ? 'custom' : expense.category,
+            customCategory: isCustom ? expense.category : '',
+            amount: String(expense.amount),
+            recurrence: expense.recurrence,
+            paidAt: new Date(expense.paidAt).toISOString().slice(0, 10),
+            note: expense.note || ''
+          });
+          setShowExpenseForm(true);
+        };
+
+        const income = accountingSummary?.income;
+        const expenses = accountingSummary?.expenses;
+        const netProfit = accountingSummary?.netProfit ?? 0;
+        const isProfit = netProfit >= 0;
+
+        return (
+          <div className="space-y-6">
+            {/* Header Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+              <div>
+                <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">🧾 Accounting Ledger</h2>
+                <p className="text-sm text-gray-500 mt-1">Track platform income vs. operational expenses</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Month Picker */}
+                <input
+                  type="month"
+                  value={accountingMonth}
+                  onChange={e => {
+                    setAccountingMonth(e.target.value);
+                    fetchAccountingSummary(e.target.value);
+                  }}
+                  className="border-2 border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
+                />
+                <button
+                  onClick={() => fetchAccountingSummary(accountingMonth)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-bold text-gray-700 transition-colors flex items-center gap-2"
+                >
+                  🔄 Refresh
+                </button>
+                <button
+                  onClick={() => { setEditingExpense(null); setExpenseForm({ name: '', category: 'hosting', amount: '', recurrence: 'monthly', paidAt: new Date().toISOString().slice(0, 10), note: '', customCategory: '' }); setShowExpenseForm(true); }}
+                  className="px-4 py-2 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white rounded-xl text-sm font-black shadow-md transition-all transform hover:scale-105 flex items-center gap-2"
+                >
+                  ➕ Add Expense
+                </button>
+              </div>
+            </div>
+
+            {/* Add / Edit Expense Form */}
+            {showExpenseForm && (
+              <div className="bg-white rounded-2xl border-2 border-indigo-200 shadow-lg p-6 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-lg font-black text-indigo-900 flex items-center gap-2">
+                    {editingExpense ? '✏️ Edit Expense' : '➕ New Expense'}
+                  </h3>
+                  <button onClick={() => { setShowExpenseForm(false); setEditingExpense(null); }} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold transition-colors">✕</button>
+                </div>
+                <form onSubmit={handleExpenseSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Name */}
+                  <div className="lg:col-span-1">
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Name *</label>
+                    <input
+                      type="text" required
+                      value={expenseForm.name}
+                      onChange={e => setExpenseForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="e.g. Render Pro Plan"
+                      className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-sm"
+                    />
+                  </div>
+                  {/* Amount */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Amount (USD) *</label>
+                    <input
+                      type="number" required min="0.01" step="0.01"
+                      value={expenseForm.amount}
+                      onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))}
+                      placeholder="0.00"
+                      className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-sm"
+                    />
+                  </div>
+                  {/* Category */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Category</label>
+                    <select
+                      value={expenseForm.category}
+                      onChange={e => setExpenseForm(p => ({ ...p, category: e.target.value, customCategory: '' }))}
+                      className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-sm bg-white"
+                    >
+                      {Object.entries(CATEGORY_META).map(([k, v]) => (
+                        <option key={k} value={k}>{v.emoji} {v.label}</option>
+                      ))}
+                      <option value="custom">✏️ Custom...</option>
+                    </select>
+                    {/* Custom category text input - shows when 'custom' is selected */}
+                    {expenseForm.category === 'custom' && (
+                      <input
+                        type="text"
+                        required
+                        autoFocus
+                        value={expenseForm.customCategory}
+                        onChange={e => setExpenseForm(p => ({ ...p, customCategory: e.target.value }))}
+                        placeholder="e.g. Domain, SMS, VAT..."
+                        className="mt-2 w-full p-3 border-2 border-indigo-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all text-sm bg-indigo-50 font-semibold"
+                      />
+                    )}
+                  </div>
+                  {/* Recurrence */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Recurrence</label>
+                    <select
+                      value={expenseForm.recurrence}
+                      onChange={e => setExpenseForm(p => ({ ...p, recurrence: e.target.value }))}
+                      className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-sm bg-white"
+                    >
+                      <option value="monthly">📅 Monthly</option>
+                      <option value="yearly">📆 Yearly</option>
+                      <option value="one-time">1️⃣ One-time</option>
+                    </select>
+                  </div>
+                  {/* Date Paid */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Date Paid</label>
+                    <input
+                      type="date"
+                      value={expenseForm.paidAt}
+                      onChange={e => setExpenseForm(p => ({ ...p, paidAt: e.target.value }))}
+                      className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-sm"
+                    />
+                  </div>
+                  {/* Note */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Note (optional)</label>
+                    <input
+                      type="text"
+                      value={expenseForm.note}
+                      onChange={e => setExpenseForm(p => ({ ...p, note: e.target.value }))}
+                      placeholder="Invoice #, plan tier…"
+                      className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-sm"
+                    />
+                  </div>
+                  {/* Submit */}
+                  <div className="md:col-span-2 lg:col-span-3 flex gap-3 justify-end pt-2">
+                    <button type="button" onClick={() => { setShowExpenseForm(false); setEditingExpense(null); }}
+                      className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors text-sm">
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={accountingLoading}
+                      className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-60 text-white rounded-xl font-black shadow-lg transition-all transform hover:scale-105 text-sm flex items-center gap-2">
+                      {accountingLoading ? <><span className="animate-spin">⏳</span> Saving…</> : <>{editingExpense ? '💾 Update' : '✅ Save Expense'}</>}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Loading state */}
+            {accountingLoading && !accountingSummary && (
+              <div className="flex items-center justify-center py-20">
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-gray-500 font-semibold">Loading accounting data…</p>
+                </div>
+              </div>
+            )}
+
+            {accountingSummary && (
+              <>
+                {/* P&L Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Total Income */}
+                  <div className="bg-gradient-to-br from-emerald-500 to-green-600 text-white rounded-2xl p-6 shadow-lg relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -translate-y-8 translate-x-8"></div>
+                    <p className="text-emerald-100 text-xs font-black uppercase tracking-widest mb-2">💰 Total Income</p>
+                    <p className="text-4xl font-black">${income!.total.toFixed(2)}</p>
+                    <div className="mt-3 space-y-1 text-xs text-emerald-100 font-semibold">
+                      <div className="flex justify-between"><span>Game Rake</span><span>${income!.gameRake.toFixed(2)}</span></div>
+                      <div className="flex justify-between"><span>Gem Revenue</span><span>${income!.gemRevenue.toFixed(2)}</span></div>
+                    </div>
+                  </div>
+
+                  {/* Total Expenses */}
+                  <div className="bg-gradient-to-br from-rose-500 to-red-600 text-white rounded-2xl p-6 shadow-lg relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -translate-y-8 translate-x-8"></div>
+                    <p className="text-rose-100 text-xs font-black uppercase tracking-widest mb-2">💸 Total Expenses</p>
+                    <p className="text-4xl font-black">${expenses!.total.toFixed(2)}</p>
+                    <div className="mt-3 space-y-1 text-xs text-rose-100 font-semibold">
+                      {Object.entries(expenses!.byCategory).length === 0
+                        ? <span className="opacity-70">No breakdown yet</span>
+                        : Object.entries(expenses!.byCategory).map(([cat, amt]) => (
+                          <div key={cat} className="flex justify-between">
+                            <span>{CATEGORY_META[cat]?.emoji} {CATEGORY_META[cat]?.label || cat}</span>
+                            <span>${(amt as number).toFixed(2)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* Net Profit */}
+                  <div className={`bg-gradient-to-br ${isProfit ? 'from-indigo-600 to-violet-700' : 'from-gray-700 to-gray-900'} text-white rounded-2xl p-6 shadow-lg relative overflow-hidden`}>
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -translate-y-8 translate-x-8"></div>
+                    <p className="text-indigo-200 text-xs font-black uppercase tracking-widest mb-2">📊 Net Profit</p>
+                    <p className={`text-4xl font-black ${isProfit ? 'text-white' : 'text-red-300'}`}>
+                      {isProfit ? '+' : ''}{netProfit.toFixed(2)}
+                    </p>
+                    <p className="mt-3 text-xs text-indigo-200 font-semibold">
+                      {isProfit ? '✅ Platform is profitable this month' : '⚠️ Expenses exceed income'}
+                    </p>
+                    <div className="mt-2">
+                      <div className="w-full bg-white/20 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${isProfit ? 'bg-green-300' : 'bg-red-400'}`}
+                          style={{ width: `${income!.total > 0 ? Math.min(100, (expenses!.total / income!.total) * 100) : 100}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-[10px] text-indigo-200 mt-1">
+                        {income!.total > 0 ? `${((expenses!.total / income!.total) * 100).toFixed(1)}% of income spent on expenses` : 'No income recorded'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expense List */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="font-black text-gray-900 flex items-center gap-2">📋 Expense Entries
+                      <span className="ml-1 text-xs font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{expenses!.items.length}</span>
+                    </h3>
+                  </div>
+
+                  {expenses!.items.length === 0 ? (
+                    <div className="p-16 text-center">
+                      <p className="text-5xl mb-3">🧾</p>
+                      <p className="text-gray-600 font-semibold">No expenses recorded for this month</p>
+                      <p className="text-sm text-gray-400 mt-1">Click "Add Expense" to log your first cost</p>
+                      <div className="mt-4 p-4 bg-gray-50 rounded-xl text-left max-w-xs mx-auto text-xs text-gray-500 space-y-1">
+                        <p className="font-bold text-gray-700 mb-2">💡 Common expenses to add:</p>
+                        <p>🖥️ Render Pro Plan — $7/mo</p>
+                        <p>🗄️ MongoDB Atlas Flex — variable</p>
+                        <p>🌐 Internet bill — monthly</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {expenses!.items.map((exp: any) => {
+                        const meta = CATEGORY_META[exp.category] || CATEGORY_META.other;
+                        return (
+                          <div key={exp._id} className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors group">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold ${meta.color}`}>
+                                {meta.emoji}
+                              </div>
+                              <div>
+                                <p className="font-bold text-gray-900 text-sm">{exp.name}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${meta.color}`}>{meta.label}</span>
+                                  <span className="text-[10px] text-gray-400 font-semibold">
+                                    {exp.recurrence === 'monthly' ? '📅 Monthly' : exp.recurrence === 'yearly' ? '📆 Yearly' : '1️⃣ One-time'}
+                                  </span>
+                                  <span className="text-[10px] text-gray-400">
+                                    {new Date(exp.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </span>
+                                </div>
+                                {exp.note && <p className="text-[10px] text-gray-400 mt-0.5 italic">{exp.note}</p>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <p className="text-lg font-black text-red-600">-${exp.amount.toFixed(2)}</p>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => handleEditExpense(exp)}
+                                  className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 transition-colors"
+                                  title="Edit"
+                                >✏️</button>
+                                <button
+                                  onClick={() => handleDeleteExpense(exp)}
+                                  className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                                  title="Delete"
+                                >🗑️</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
     }
   };
 
@@ -2703,6 +3102,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             >
               <span className="text-lg sm:text-xl">📈</span>
               <span>Revenue</span>
+            </button>
+          )}
+
+          {/* Accounting - Super Admin Only */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('accounting')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'accounting'
+                ? 'bg-teal-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">🧾</span>
+              <span>Accounting</span>
             </button>
           )}
         </nav>

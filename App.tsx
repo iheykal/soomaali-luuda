@@ -543,29 +543,31 @@ const AppContent: React.FC = () => {
 
           {/* Prize Display - Only visible to players, not spectators */}
           {multiplayerConfig && state.stake && state.stake > 0 && !multiplayerConfig.isSpectator && (
-            <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-10">
-              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-4 py-2 rounded-full shadow-xl border border-yellow-300">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🏆</span>
+            <div className="fixed top-2 left-1/2 transform -translate-x-1/2 z-10">
+              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-3 py-1 rounded-full shadow-md border border-yellow-300">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🏆</span>
                   <div className="text-center">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide opacity-90">Prize</div>
-                    <div className="text-lg font-bold">${((state.stake || 0) * 0.8).toFixed(2)}</div>
+                    <div className="text-[8px] font-semibold uppercase tracking-wide opacity-90 leading-tight">Prize</div>
+                    <div className="text-sm font-bold leading-tight">${((state.stake || 0) * 0.8).toFixed(2)}</div>
                   </div>
-                  <span className="text-lg">💰</span>
+                  <span className="text-base">💰</span>
                 </div>
               </div>
             </div>
           )}
 
 
-          <div className="absolute top-4 right-4 z-20">
-            <button
-              onClick={handleRestart}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition shadow-lg font-bold"
-            >
-              {multiplayerConfig?.isSpectator ? 'Exit Spectator Mode' : 'Exit Game'}
-            </button>
-          </div>
+          {multiplayerConfig?.isSpectator && (
+            <div className="absolute top-4 right-4 z-20">
+              <button
+                onClick={handleRestart}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg transition shadow-lg font-bold text-sm"
+              >
+                Exit Spectator Mode
+              </button>
+            </div>
+          )}
 
           <div className="flex-1 flex items-center justify-center p-2">
             <div className="max-w-[700px] w-full aspect-square">

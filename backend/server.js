@@ -17,6 +17,7 @@ const Revenue = require('./models/Revenue');
 const RevenueWithdrawal = require('./models/RevenueWithdrawal');
 const Game = require('./models/Game');
 const Loan = require('./models/Loan');
+const Expense = require('./models/Expense');
 
 // Global TTT Queue - Must// Global queue for tic-tac-toe matchmaking
 const ticTacToeQueue = [];
@@ -2155,6 +2156,154 @@ app.post('/api/admin/revenue/withdraw', authenticateToken, async (req, res) => {
 
   } catch (e) {
     console.error("Withdrawal Error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// ACCOUNTING ROUTES (SUPER_ADMIN only)
+// ============================================================
+
+// GET: All expenses (with optional month filter)
+app.get('/api/admin/expenses', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    const { month } = req.query; // e.g. "2026-04"
+    let query = {};
+    if (month) {
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      query.paidAt = { $gte: start, $lt: end };
+    }
+    const expenses = await Expense.find(query).sort({ paidAt: -1 });
+    res.json({ success: true, expenses });
+  } catch (e) {
+    console.error('GET expenses error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST: Create a new expense
+app.post('/api/admin/expenses', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    const { name, category, amount, recurrence, paidAt, note } = req.body;
+    if (!name || !amount || amount <= 0) {
+      return res.status(400).json({ error: 'Name and a positive amount are required.' });
+    }
+    const expense = new Expense({
+      name,
+      category: category || 'other',
+      amount,
+      recurrence: recurrence || 'monthly',
+      paidAt: paidAt ? new Date(paidAt) : new Date(),
+      note: note || '',
+      createdBy: adminUser._id
+    });
+    await expense.save();
+    console.log(`💸 Expense added: ${name} $${amount} by ${adminUser.username}`);
+    res.json({ success: true, expense });
+  } catch (e) {
+    console.error('POST expense error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT: Update an expense
+app.put('/api/admin/expenses/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    const expense = await Expense.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    );
+    if (!expense) return res.status(404).json({ error: 'Expense not found.' });
+    res.json({ success: true, expense });
+  } catch (e) {
+    console.error('PUT expense error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE: Remove an expense
+app.delete('/api/admin/expenses/:id', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    const expense = await Expense.findByIdAndDelete(req.params.id);
+    if (!expense) return res.status(404).json({ error: 'Expense not found.' });
+    res.json({ success: true, message: 'Expense deleted.' });
+  } catch (e) {
+    console.error('DELETE expense error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET: Accounting summary - income vs expenses for a given month
+app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+    const { month } = req.query; // e.g. "2026-04"
+    let matchQuery = {};
+    if (month) {
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      matchQuery.timestamp = { $gte: start, $lt: end };
+    }
+
+    // Income: game rake + gem revenue
+    const incomeAgg = await Revenue.aggregate([
+      { $match: matchQuery },
+      { $group: { _id: null, gameRake: { $sum: '$amount' }, gemRevenue: { $sum: { $ifNull: ['$gemRevenue', 0] } } } }
+    ]);
+    const gameRake = incomeAgg[0]?.gameRake || 0;
+    const gemRevenue = incomeAgg[0]?.gemRevenue || 0;
+    const totalIncome = gameRake + gemRevenue;
+
+    // Expenses for the month
+    let expQuery = {};
+    if (month) {
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      expQuery.paidAt = { $gte: start, $lt: end };
+    }
+    const expenses = await Expense.find(expQuery).sort({ paidAt: -1 });
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const netProfit = totalIncome - totalExpenses;
+
+    // Breakdown by category
+    const byCategory = {};
+    expenses.forEach(e => {
+      byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
+    });
+
+    res.json({
+      success: true,
+      month: month || 'all-time',
+      income: { gameRake, gemRevenue, total: totalIncome },
+      expenses: { items: expenses, total: totalExpenses, byCategory },
+      netProfit
+    });
+  } catch (e) {
+    console.error('Accounting summary error:', e);
     res.status(500).json({ error: e.message });
   }
 });
