@@ -709,9 +709,16 @@ export const adminAPI = {
     const options = { method: 'GET', headers: getAuthHeaders() };
     try {
       const { responseData } = await instrumentedFetch(url, options);
-      return responseData;
+      return {
+        success: responseData.success ?? true,
+        month: responseData.month ?? month ?? '',
+        income: responseData.income ?? { gameRake: 0, gemRevenue: 0, total: 0 },
+        expenses: responseData.expenses ?? { items: [], total: 0, byCategory: {} },
+        netProfit: responseData.netProfit ?? 0,
+      };
     } catch (error: any) {
       throw new Error(error.responseData?.error || 'Failed to fetch accounting summary');
     }
   },
+
 };

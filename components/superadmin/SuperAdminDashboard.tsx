@@ -450,13 +450,19 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     try {
       const result = await adminAPI.getAccountingSummary(month);
       setAccountingSummary({
-        income: result.income,
-        expenses: result.expenses,
-        netProfit: result.netProfit,
+        income: result.income ?? { gameRake: 0, gemRevenue: 0, total: 0 },
+        expenses: result.expenses ?? { items: [], total: 0, byCategory: {} },
+        netProfit: result.netProfit ?? 0,
       });
     } catch (err: any) {
       console.error('Error fetching accounting summary:', err);
       showNotificationMessage('Failed to load accounting data', 'error');
+      // Set safe empty state so the tab renders without crashing
+      setAccountingSummary({
+        income: { gameRake: 0, gemRevenue: 0, total: 0 },
+        expenses: { items: [], total: 0, byCategory: {} },
+        netProfit: 0,
+      });
     } finally {
       setAccountingLoading(false);
     }
