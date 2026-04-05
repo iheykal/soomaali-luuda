@@ -2311,10 +2311,89 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
       byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
     });
 
+    // 1. ALL APPROVED FINANCIAL REQUEST DEPOSITS (from app requests + quick admin actions)
+    let frMatchQuery = { type: 'DEPOSIT', status: 'APPROVED' };
+    if (month) {
+      const start = new Date(`${month}-01T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setMonth(end.getMonth() + 1);
+      frMatchQuery.timestamp = { $gte: start, $lt: end };
+    }
+    const approvedFrAgg = await FinancialRequest.aggregate([
+      { $match: frMatchQuery },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const totalFrDeposits = approvedFrAgg[0]?.total || 0;
+
+    // 2. COMPREHENSIVE DB-LEVEL AGGREGATION FOR ALL USER TRANSACTIONS
+    const txAggregation = await User.aggregate([
+      { $unwind: '$transactions' },
+      { 
+        $addFields: {
+          txMonth: { $dateToString: { format: "%Y-%m", date: { $ifNull: [ "$transactions.timestamp", "$transactions.createdAt", "$$NOW" ] } } }
+        } 
+      },
+      {
+        $match: {
+          txMonth: month || { $exists: true },
+          "transactions.type": { $in: ['deposit', 'admin_deposit', 'gem_purchase'] }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          directWalletDeposits: {
+            $sum: {
+              $cond: [
+                { $in: ["$transactions.type", ['deposit', 'admin_deposit']] },
+                "$transactions.amount",
+                0
+              ]
+            }
+          },
+          gemSalesRaw: {
+            $sum: {
+              $cond: [
+                { $eq: ["$transactions.type", 'gem_purchase'] },
+                {
+                  $switch: {
+                    branches: [
+                      { case: { $eq: [{ $abs: "$transactions.amount" }, 50] }, then: 0.35 },
+                      { case: { $eq: [{ $abs: "$transactions.amount" }, 150] }, then: 1.00 },
+                      { case: { $eq: [{ $abs: "$transactions.amount" }, 400] }, then: 2.50 },
+                      { case: { $eq: [{ $abs: "$transactions.amount" }, 800] }, then: 4.50 }
+                    ],
+                    default: { $divide: [{ $abs: "$transactions.amount" }, 100] }
+                  }
+                },
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
+
+    const walletFromTxs = txAggregation[0]?.directWalletDeposits || 0;
+    const gemsFromTxs = txAggregation[0]?.gemSalesRaw || 0;
+
+    const evcPlayerDeposits = totalFrDeposits + walletFromTxs;
+    const gemDeposits = gemsFromTxs;
+    const totalEVCReceived = evcPlayerDeposits + gemDeposits;
+
+    console.log(`📊 ACC SUMMARY: Month=${month || 'all'}, Wallet=${evcPlayerDeposits}, Gems=${gemDeposits}`);
+
+    const evcTracking = { 
+      playerDeposits: evcPlayerDeposits, 
+      gemDeposits: gemDeposits, 
+      totalEvcReceived: totalEVCReceived 
+    };
+
     res.json({
       success: true,
       month: month || 'all-time',
       income: { gameRake, gemRevenue, total: totalIncome },
+      evcTracking, // Pass the already defined evcTracking object correctly
       expenses: { items: expenses, total: totalExpenses, byCategory },
       netProfit
     });

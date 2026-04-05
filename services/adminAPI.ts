@@ -702,6 +702,7 @@ export const adminAPI = {
     success: boolean;
     month: string;
     income: { gameRake: number; gemRevenue: number; total: number };
+    evcTracking?: { playerDeposits: number; gemDeposits: number; totalEvcReceived: number };
     expenses: { items: any[]; total: number; byCategory: Record<string, number> };
     netProfit: number;
   }> {
@@ -713,6 +714,7 @@ export const adminAPI = {
         success: responseData.success ?? true,
         month: responseData.month ?? month ?? '',
         income: responseData.income ?? { gameRake: 0, gemRevenue: 0, total: 0 },
+        evcTracking: responseData.evcTracking ?? { playerDeposits: 0, gemDeposits: 0, totalEvcReceived: 0 },
         expenses: responseData.expenses ?? { items: [], total: 0, byCategory: {} },
         netProfit: responseData.netProfit ?? 0,
       };

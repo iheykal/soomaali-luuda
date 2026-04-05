@@ -242,6 +242,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   });
   const [accountingSummary, setAccountingSummary] = useState<{
     income: { gameRake: number; gemRevenue: number; total: number };
+    evcTracking?: { playerDeposits: number; gemDeposits: number; totalEvcReceived: number };
     expenses: { items: any[]; total: number; byCategory: Record<string, number> };
     netProfit: number;
   } | null>(null);
@@ -459,6 +460,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       const result = await adminAPI.getAccountingSummary(month);
       setAccountingSummary({
         income: result.income ?? { gameRake: 0, gemRevenue: 0, total: 0 },
+        evcTracking: result.evcTracking ?? { playerDeposits: 0, gemDeposits: 0, totalEvcReceived: 0 },
         expenses: result.expenses ?? { items: [], total: 0, byCategory: {} },
         netProfit: result.netProfit ?? 0,
       });
@@ -2983,7 +2985,11 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                       <div className="flex-1 w-full grid grid-cols-2 gap-4">
                         <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 relative">
                           <p className="text-[10px] uppercase font-black text-indigo-500">💰 Platform Income (In EVC)</p>
-                          <p className="text-2xl font-black text-indigo-900 mt-1">${(income?.total || 0).toFixed(2)}</p>
+                          <p className="text-2xl font-black text-indigo-900 mt-1">${(accountingSummary?.evcTracking?.totalEvcReceived || 0).toFixed(2)}</p>
+                          <div className="mt-2 space-y-1 text-[9px] text-indigo-600 font-bold border-t border-indigo-100 pt-1">
+                            <div className="flex justify-between"><span>Wallet Deposits</span><span>+${(accountingSummary?.evcTracking?.playerDeposits || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Gem Sales</span><span>+${(accountingSummary?.evcTracking?.gemDeposits || 0).toFixed(2)}</span></div>
+                          </div>
                           <div className="absolute top-4 right-4 text-2xl opacity-50">📱</div>
                         </div>
                         <div className="bg-green-50 p-4 rounded-xl border border-green-100 relative">
@@ -2993,9 +2999,9 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                         </div>
                       </div>
                       <div className="flex-1 w-full flex items-center justify-center">
-                        <div className={`p-6 rounded-2xl border-2 ${(income?.total || 0) - cashLogsSummary.bank_deposit > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'} text-center w-full max-w-sm relative shadow-inner`}>
-                          <p className={`text-xs font-black uppercase tracking-widest ${(income?.total || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-600' : 'text-gray-500'}`}>⚠️ Still in EVC (Unbanked)</p>
-                          <p className={`text-4xl font-black mt-2 ${(income?.total || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-700' : 'text-gray-900'}`}>${Math.max(0, (income?.total || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</p>
+                        <div className={`p-6 rounded-2xl border-2 ${(accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'} text-center w-full max-w-sm relative shadow-inner`}>
+                          <p className={`text-xs font-black uppercase tracking-widest ${(accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-600' : 'text-gray-500'}`}>⚠️ Still in EVC (Unbanked)</p>
+                          <p className={`text-4xl font-black mt-2 ${(accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-700' : 'text-gray-900'}`}>${Math.max(0, (accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</p>
                         </div>
                       </div>
                     </div>
