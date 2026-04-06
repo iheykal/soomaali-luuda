@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { validateReferralCode } from '../../services/referralAPI';
-import { Check, X } from 'lucide-react';
 
 interface RegisterProps {
   onSuccess: () => void;
@@ -14,8 +12,6 @@ const Register: React.FC<RegisterProps> = ({ onSuccess, onSwitchToLogin }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
-  const [referralValid, setReferralValid] = useState<boolean | null>(null);
-  const [referrerName, setReferrerName] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,57 +23,8 @@ const Register: React.FC<RegisterProps> = ({ onSuccess, onSwitchToLogin }) => {
     const refCode = urlParams.get('ref');
     if (refCode) {
       setReferralCode(refCode.toUpperCase());
-      validateCode(refCode);
     }
   }, []);
-
-  const validateCode = async (code: string) => {
-    if (!code || code.length < 6) {
-      setReferralValid(null);
-      setReferrerName('');
-      return;
-    }
-
-    try {
-      const result = await validateReferralCode(code);
-      setReferralValid(result.valid);
-      setReferrerName(result.valid ? result.referrerName : '');
-    } catch (err) {
-      setReferralValid(false);
-      setReferrerName('');
-    }
-  };
-
-  const handleReferralCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value;
-
-    // Smart URL parsing: Extract code from pasted URLs
-    // Example: "http://localhost:5173/signup?ref=SOM-LUDO-ABC123" -> "SOM-LUDO-ABC123"
-    if (value.includes('?ref=') || value.includes('&ref=')) {
-      const match = value.match(/[?&]ref=([^&\s]+)/);
-      if (match && match[1]) {
-        value = match[1];
-      }
-    } else if (value.includes('http') || value.includes('signup')) {
-      // Handle other URL formats - extract any SOM-LUDO-XXXXX pattern
-      const match = value.match(/SOM-LUDO-[A-Z0-9]+/i);
-      if (match) {
-        value = match[0];
-      }
-    }
-
-    // Convert to uppercase and remove whitespace
-    const code = value.toUpperCase().trim();
-    setReferralCode(code);
-
-    // Debounce validation
-    if (code.length >= 6) {
-      setTimeout(() => validateCode(code), 500);
-    } else {
-      setReferralValid(null);
-      setReferrerName('');
-    }
-  };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, ''); // Only allow digits
@@ -202,46 +149,6 @@ const Register: React.FC<RegisterProps> = ({ onSuccess, onSwitchToLogin }) => {
               minLength={6}
               disabled={loading}
             />
-          </div>
-
-          {/* Referral Code - Optional */}
-          <div>
-            <label className="block text-gray-600 text-sm  mb-2">
-              Have a Referral Code? <span className="text-gray-500 text-xs">(Optional)</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={referralCode}
-                onChange={handleReferralCodeChange}
-                onPaste={(e) => {
-                  e.preventDefault();
-                  const pastedText = e.clipboardData.getData('text');
-                  // Create synthetic event with parsed value
-                  const syntheticEvent = {
-                    target: { value: pastedText }
-                  } as React.ChangeEvent<HTMLInputElement>;
-                  handleReferralCodeChange(syntheticEvent);
-                }}
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 pr-10 text-gray-900 font-mono uppercase focus:ring-2 focus:ring-cyan-500 outline-none"
-                placeholder="e.g., SOM-LUDO-ABC123"
-                disabled={loading}
-              />
-              {referralValid === true && (
-                <Check className="absolute right-3 top-1/2 transform -translate-y-1/2 text-green-500" size={20} />
-              )}
-              {referralValid === false && (
-                <X className="absolute right-3 top-1/2 transform -translate-y-1/2 text-red-500" size={20} />
-              )}
-            </div>
-            {referralValid && referrerName && (
-              <p className="text-green-600 text-sm mt-1">
-                ✓ Referred by: <strong>{referrerName}</strong>
-              </p>
-            )}
-            {referralValid === false && referralCode.length >= 6 && (
-              <p className="text-red-600 text-sm mt-1">Invalid referral code</p>
-            )}
           </div>
 
           {error && (

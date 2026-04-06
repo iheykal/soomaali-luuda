@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Game = require('../models/Game');
 const Revenue = require('../models/Revenue');
 const FinancialRequest = require('../models/FinancialRequest');
+const CashLog = require('../models/CashLog');
 
 /**
  * GET /api/admin/analytics/today
@@ -20,7 +21,10 @@ router.get('/today', async (req, res) => {
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-        // 1. Money Flow Transactions (all financial requests today)
+        // 1. Money Flow Transactions (all wallet credits today)
+        // Include:
+        // - approved FinancialRequest deposits
+        // - direct credits recorded in User.transactions (deposit/admin_deposit)
         const todayDeposits = await FinancialRequest.aggregate([
             {
                 $match: {
@@ -33,6 +37,28 @@ router.get('/today', async (req, res) => {
                 $group: {
                     _id: null,
                     totalAmount: { $sum: '$amount' },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const todayDirectDeposits = await User.aggregate([
+            { $unwind: '$transactions' },
+            {
+                $match: {
+                    'transactions.type': { $in: ['deposit', 'admin_deposit'] },
+                    $expr: {
+                        $and: [
+                            { $gte: ['$transactions.createdAt', startOfDay] },
+                            { $lte: ['$transactions.createdAt', endOfDay] }
+                        ]
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalAmount: { $sum: '$transactions.amount' },
                     count: { $sum: 1 }
                 }
             }
@@ -65,7 +91,7 @@ router.get('/today', async (req, res) => {
             {
                 $group: {
                     _id: null,
-                    totalRake: { $sum: { $add: ['$amount', { $ifNull: ['$gemRevenue', 0] }] } },
+                    totalRake: { $sum: '$amount' },
                     totalPot: { $sum: '$totalPot' },
                     gamesCount: { $sum: 1 }
                 }
@@ -90,7 +116,12 @@ router.get('/today', async (req, res) => {
         ]);
 
         // Calculate metrics
-        const deposits = todayDeposits[0] || { totalAmount: 0, count: 0 };
+        const depositsFr = todayDeposits[0] || { totalAmount: 0, count: 0 };
+        const depositsDirect = todayDirectDeposits[0] || { totalAmount: 0, count: 0 };
+        const deposits = {
+            totalAmount: (depositsFr.totalAmount || 0) + (depositsDirect.totalAmount || 0),
+            count: (depositsFr.count || 0) + (depositsDirect.count || 0)
+        };
         const withdrawals = todayWithdrawals[0] || { totalAmount: 0, count: 0 };
         const rake = todayRake[0] || { totalRake: 0, totalPot: 0, gamesCount: 0 };
         const games = todayGames[0] || { totalGames: 0, totalStake: 0 };
@@ -100,7 +131,32 @@ router.get('/today', async (req, res) => {
             ? (games.totalStake / deposits.totalAmount) * 100
             : 0;
 
-        // Calculate net money flow
+        // OPTIONAL OVERRIDE:
+        // Show "Total Deposits" as current unbanked EVC wallet balance (what's still in EVC now),
+        // so it matches the EVC→Bank tracker without touching player balances.
+        const totalBankDepositedAgg = await CashLog.aggregate([
+            { $match: { type: 'bank_deposit' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const bankDepositedTotal = totalBankDepositedAgg[0]?.total || 0;
+
+        // Compute total EVC received (all-time) using same logic as accounting summary (wallet credits only; gems excluded)
+        const allTimeFrAgg = await FinancialRequest.aggregate([
+            { $match: { type: 'DEPOSIT', status: 'APPROVED' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]);
+        const allTimeTxAgg = await User.aggregate([
+            { $unwind: '$transactions' },
+            { $match: { 'transactions.type': { $in: ['deposit', 'admin_deposit'] } } },
+            { $group: { _id: null, total: { $sum: '$transactions.amount' } } }
+        ]);
+        const totalEvcReceived = (allTimeFrAgg[0]?.total || 0) + (allTimeTxAgg[0]?.total || 0);
+        const unbankedEvc = Math.max(0, totalEvcReceived - bankDepositedTotal);
+
+        // Override displayed deposits amount to unbanked EVC value.
+        deposits.totalAmount = unbankedEvc;
+
+        // Calculate net money flow (Deposits - Withdrawals)
         const netFlow = deposits.totalAmount - withdrawals.totalAmount;
 
         res.json({

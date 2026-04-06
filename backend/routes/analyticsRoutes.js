@@ -61,7 +61,7 @@ router.get('/ggr', async (req, res) => {
                         month: { $month: '$timestamp' },
                         day: { $dayOfMonth: '$timestamp' }
                     },
-                    totalRevenue: { $sum: { $add: ['$amount', { $ifNull: ['$gemRevenue', 0] }] } },
+                    totalRevenue: { $sum: '$amount' },
                     gamesCount: { $sum: 1 }
                 }
             },
@@ -441,7 +441,7 @@ router.get('/overview', async (req, res) => {
                 {
                     $group: {
                         _id: null,
-                        totalRevenue: { $sum: { $add: ['$amount', { $ifNull: ['$gemRevenue', 0] }] } },
+                        totalRevenue: { $sum: '$amount' },
                         gamesCount: { $sum: 1 }
                     }
                 }

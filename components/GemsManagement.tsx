@@ -22,7 +22,7 @@ const GemsManagement: React.FC<GemsManagementProps> = ({ onClose }) => {
         try {
             const response = await fetch(`/api/admin/gems/${userId}`, {
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${localStorage.getItem('ludo_token')}`
                 }
             });
             const data = await response.json();
@@ -46,23 +46,24 @@ const GemsManagement: React.FC<GemsManagementProps> = ({ onClose }) => {
                 return;
             }
 
-            const response = await fetch('/api/admin/deposit-gems', {
+            // Free giveaway: use the dedicated giveaway endpoint so it never counts as gem sales/income.
+            const response = await fetch('/api/admin/grant-gems', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${localStorage.getItem('ludo_token')}`
                 },
                 body: JSON.stringify({
                     userId: formData.userId,
-                    gemAmount: gemAmount,
-                    comment: formData.comment
+                    gemCount: gemAmount,
+                    reason: formData.comment
                 })
             });
 
             const data = await response.json();
 
             if (response.ok && data.success) {
-                setMessage({ type: 'success', text: `Successfully deposited ${gemAmount} gems` });
+                setMessage({ type: 'success', text: `Successfully gave away ${gemAmount} gems` });
                 setFormData({ ...formData, gemAmount: '', comment: '' });
                 // Refresh user gem data
                 fetchUserGems(formData.userId);
@@ -249,7 +250,7 @@ const GemsManagement: React.FC<GemsManagementProps> = ({ onClose }) => {
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div
-                                                    className={`p-2 rounded-lg ${transaction.type === 'gem_purchase'
+                                                    className={`p-2 rounded-lg ${transaction.type === 'gem_purchase' || transaction.type === 'gem_giveaway'
                                                             ? 'bg-green-500/20 text-green-400'
                                                             : 'bg-red-500/20 text-red-400'
                                                         }`}
@@ -258,7 +259,11 @@ const GemsManagement: React.FC<GemsManagementProps> = ({ onClose }) => {
                                                 </div>
                                                 <div>
                                                     <p className="text-white font-semibold">
-                                                        {transaction.type === 'gem_purchase' ? 'Deposit' : 'Used for Re-roll'}
+                                                        {transaction.type === 'gem_purchase'
+                                                            ? 'Purchased'
+                                                            : transaction.type === 'gem_giveaway'
+                                                                ? 'Giveaway'
+                                                                : 'Used for Re-roll'}
                                                     </p>
                                                     <p className="text-purple-300 text-sm">{transaction.description}</p>
                                                     <p className="text-purple-400 text-xs mt-1">

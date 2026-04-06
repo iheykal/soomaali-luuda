@@ -1628,10 +1628,10 @@ app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, asyn
     if (type.toLowerCase() === 'deposit') {
       targetUser.balance = roundCurrency(targetUser.balance + amountNum);
       targetUser.transactions.push({
-        type: 'admin_deposit',
+        type: 'deposit',
         amount: amountNum,
         description: comment || `Admin deposit by ${adminUser.username}`,
-        timestamp: new Date()
+        createdAt: new Date()
       });
       console.log(`✅ Admin ${adminUser.username} deposited $${amountNum} to ${targetUser.username}`);
       
@@ -1644,10 +1644,10 @@ app.post('/api/admin/users/:id/balance', authenticateToken, authorizeAdmin, asyn
       }
       targetUser.balance = roundCurrency(targetUser.balance - amountNum);
       targetUser.transactions.push({
-        type: 'admin_withdrawal',
+        type: 'withdrawal',
         amount: -amountNum,
         description: comment || `Admin withdrawal by ${adminUser.username}`,
-        timestamp: new Date()
+        createdAt: new Date()
       });
       console.log(`✅ Admin ${adminUser.username} withdrew $${amountNum} from ${targetUser.username}`);
     }
@@ -2004,7 +2004,7 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
     }
 
     // Build query
-    let query = {};
+    let query = { amount: { $gt: 0 } };
     if (startDate && endDate) {
       query.timestamp = { $gte: startDate, $lte: endDate };
     } else if (startDate) {
@@ -2071,7 +2071,7 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
         _id: rev._id,
         gameId: rev.gameId,
         amount: rev.amount,
-        gemRevenue: rev.gemRevenue || 0,
+        gemRevenue: 0,
         totalPot: rev.totalPot,
         winnerId: rev.winnerId,
         timestamp: rev.timestamp,
@@ -2090,7 +2090,7 @@ app.get('/api/admin/revenue', authenticateToken, async (req, res) => {
 
     const totalRevenue = await Revenue.aggregate([
       { $match: query },
-      { $group: { _id: null, total: { $sum: { $add: ["$amount", { $ifNull: ["$gemRevenue", 0] }] } } } }
+      { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     const totalRevenueAmount = totalRevenue.length > 0 ? totalRevenue[0].total : 0;
 
@@ -2284,14 +2284,14 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
       matchQuery.timestamp = { $gte: start, $lt: end };
     }
 
-    // Income: game rake + gem revenue
+    // Income: game rake only (gems are excluded from platform earnings)
     const incomeAgg = await Revenue.aggregate([
       { $match: matchQuery },
-      { $group: { _id: null, gameRake: { $sum: '$amount' }, gemRevenue: { $sum: { $ifNull: ['$gemRevenue', 0] } } } }
+      { $group: { _id: null, gameRake: { $sum: '$amount' } } }
     ]);
     const gameRake = incomeAgg[0]?.gameRake || 0;
-    const gemRevenue = incomeAgg[0]?.gemRevenue || 0;
-    const totalIncome = gameRake + gemRevenue;
+    const gemRevenue = 0;
+    const totalIncome = gameRake;
 
     // Expenses for the month
     let expQuery = {};
@@ -2335,8 +2335,8 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
       },
       {
         $match: {
-          txMonth: month || { $exists: true },
-          "transactions.type": { $in: ['deposit', 'admin_deposit', 'gem_purchase'] }
+          ...(month ? { txMonth: month } : {}),
+          "transactions.type": { $in: ['deposit', 'admin_deposit'] }
         }
       },
       {
@@ -2350,32 +2350,13 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
                 0
               ]
             }
-          },
-          gemSalesRaw: {
-            $sum: {
-              $cond: [
-                { $eq: ["$transactions.type", 'gem_purchase'] },
-                {
-                  $switch: {
-                    branches: [
-                      { case: { $eq: [{ $abs: "$transactions.amount" }, 50] }, then: 0.35 },
-                      { case: { $eq: [{ $abs: "$transactions.amount" }, 150] }, then: 1.00 },
-                      { case: { $eq: [{ $abs: "$transactions.amount" }, 400] }, then: 2.50 },
-                      { case: { $eq: [{ $abs: "$transactions.amount" }, 800] }, then: 4.50 }
-                    ],
-                    default: { $divide: [{ $abs: "$transactions.amount" }, 100] }
-                  }
-                },
-                0
-              ]
-            }
           }
         }
       }
     ]);
 
     const walletFromTxs = txAggregation[0]?.directWalletDeposits || 0;
-    const gemsFromTxs = txAggregation[0]?.gemSalesRaw || 0;
+    const gemsFromTxs = 0;
 
     const evcPlayerDeposits = totalFrDeposits + walletFromTxs;
     const gemDeposits = gemsFromTxs;
@@ -2550,10 +2531,10 @@ app.post('/api/admin/user/balance-update', authenticateToken, async (req, res) =
 
     user.transactions.push({
       type: transactionType,
-      amount: type === 'DEPOSIT' ? amount : -amount, // Store withdrawals as negative amounts
+      amount: normalizedType === 'DEPOSIT' ? amount : -amount, // Store withdrawals as negative amounts
       matchId: null, // No game associated
       description: transactionDescription,
-      timestamp: new Date()
+      createdAt: new Date()
     });
     await user.save();
 

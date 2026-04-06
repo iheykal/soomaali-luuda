@@ -233,7 +233,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   } | null>(null);
   const [referralLeaderboard, setReferralLeaderboard] = useState<ReferralLeaderboardEntry[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
-  const [gemRevenueData, setGemRevenueData] = useState<any>(null);
 
   // Accounting State
   const [accountingMonth, setAccountingMonth] = useState<string>(() => {
@@ -445,14 +444,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     }
   }, []);
 
-  const fetchGemRevenue = useCallback(async () => {
-    try {
-      const result = await adminAPI.getGemRevenueAnalytics();
-      setGemRevenueData(result.data);
-    } catch (err: any) {
-      console.error('Error fetching gem revenue:', err);
-    }
-  }, []);
 
   const fetchAccountingSummary = useCallback(async (month: string) => {
     setAccountingLoading(true);
@@ -565,6 +556,15 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     try {
       const result = await adminAPI.updateUserBalance(userId, amount, type.toLowerCase() as 'deposit' | 'withdrawal', comment);
       showNotificationMessage(result.message || 'Balance updated', 'success');
+      if (selectedUser && result?.user?.balance !== undefined) {
+        setSelectedUser({
+          ...selectedUser,
+          user: {
+            ...selectedUser.user,
+            balance: result.user.balance
+          }
+        });
+      }
       // Refresh lists and selected user details
       await fetchUsers();
       if (selectedUser) {
@@ -828,7 +828,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     if (activeTab === 'dashboard' && user?.role === 'SUPER_ADMIN') {
       fetchVisitorAnalytics();
       fetchReferralLeaderboard();
-      fetchGemRevenue();
     }
     if (activeTab === 'recent') {
       fetchRecentTransactions();
@@ -900,54 +899,10 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   </div>
                   <h2 className="text-lg sm:text-xl font-bold mb-2 text-purple-700">Total Revenue</h2>
                   <p className="text-3xl sm:text-4xl font-black text-gray-900 mb-1">${(revenueStats?.totalRevenue || 0).toFixed(2)}</p>
-                  <p className="text-xs sm:text-sm text-gray-600">Platform earnings (Rake + Gems)</p>
+                  <p className="text-xs sm:text-sm text-gray-600">Platform earnings (Rake only)</p>
                 </div>
               )}
             </div>
-
-            {/* Gem Revenue Summary (Added for visibility) */}
-            {gemRevenueData && user?.role === 'SUPER_ADMIN' && (
-              <div className="bg-white rounded-xl border-2 border-emerald-100 p-5 sm:p-6 shadow-md mt-6">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h3 className="text-lg sm:text-xl font-black text-emerald-900 flex items-center gap-2">
-                      <span className="text-2xl">💎</span> Gem Undo Revenue
-                    </h3>
-                    <p className="text-xs text-emerald-600 font-medium">Earnings from player "Undo" actions</p>
-                  </div>
-                  <button
-                    onClick={fetchGemRevenue}
-                    className="p-2 hover:bg-emerald-50 rounded-full text-emerald-600 transition-colors"
-                    title="Refresh Gem Data"
-                  >
-                    🔄
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-                  <div className="bg-emerald-50 p-3 sm:p-4 rounded-xl border border-emerald-100">
-                    <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider">Today</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${(gemRevenueData.today?.total || 0).toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.today?.count || 0} used</p>
-                  </div>
-                  <div className="bg-emerald-50 p-3 sm:p-4 rounded-xl border border-emerald-100">
-                    <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider">7 Days</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${(gemRevenueData.last7d?.total || 0).toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.last7d?.count || 0} used</p>
-                  </div>
-                  <div className="bg-emerald-50 p-3 sm:p-4 rounded-xl border border-emerald-100">
-                    <p className="text-[10px] uppercase font-black text-emerald-600 tracking-wider">30 Days</p>
-                    <p className="text-xl sm:text-2xl font-black text-emerald-900 mt-1">${(gemRevenueData.last30d?.total || 0).toFixed(2)}</p>
-                    <p className="text-[10px] text-emerald-500 font-bold mt-1">{gemRevenueData.last30d?.count || 0} used</p>
-                  </div>
-                  <div className="bg-emerald-900 p-3 sm:p-4 rounded-xl border border-emerald-700 text-white shadow-lg">
-                    <p className="text-[10px] uppercase font-black text-emerald-300 tracking-wider">All Time</p>
-                    <p className="text-xl sm:text-2xl font-black text-white mt-1">${(gemRevenueData.allTime?.total || 0).toFixed(2)}</p>
-                    <p className="text--[10px] text-emerald-200 font-bold mt-1">{gemRevenueData.allTime?.count || 0} total</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {visitorAnalytics && user?.role === 'SUPER_ADMIN' && (
               <div className="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -1636,32 +1591,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
               <p className="text-xs sm:text-sm text-gray-500 text-right">Showing data for: {getFilterLabel(revenueFilter)}</p>
             </div>
 
-            {/* Gem Revenue Summary - In Revenue Tab Too */}
-            {gemRevenueData && (
-              <div className="mx-4 sm:mx-6 mb-6 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-100 p-4">
-                <p className="text-xs font-black text-emerald-800 uppercase tracking-widest mb-3 flex items-center gap-2">
-                  <span>💎</span> UNDO REVENUE BREAKDOWN
-                </p>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white p-3 rounded-lg shadow-sm border border-emerald-50">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase">Today</p>
-                    <p className="text-lg font-black text-emerald-600">${gemRevenueData.today.total.toFixed(2)}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-lg shadow-sm border border-emerald-50">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase">Last 7d</p>
-                    <p className="text-lg font-black text-emerald-600">${gemRevenueData.last7d.total.toFixed(2)}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-lg shadow-sm border border-emerald-50">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase">Last 30d</p>
-                    <p className="text-lg font-black text-emerald-600">${gemRevenueData.last30d.total.toFixed(2)}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-lg shadow-sm border border-emerald-50">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase">All Time</p>
-                    <p className="text-lg font-black text-emerald-600">${gemRevenueData.allTime.total.toFixed(2)}</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 sm:p-6">
@@ -1678,7 +1607,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                         <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Winner</th>
                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Stake/Pot</th>
                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Rake</th>
-                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Gems</th>
                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Total</th>
                         <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
                       </tr>
@@ -1746,8 +1674,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                             ) : null}
                           </td>
                           <td className="px-3 py-2 text-purple-600 font-medium text-right">${rev.amount.toFixed(2)}</td>
-                          <td className="px-3 py-2 text-emerald-600 font-medium text-right">${(rev.gemRevenue || 0).toFixed(2)}</td>
-                          <td className="px-3 py-2 text-green-600 font-bold text-right">+${(rev.amount + (rev.gemRevenue || 0)).toFixed(2)}</td>
+                          <td className="px-3 py-2 text-green-600 font-bold text-right">+${(rev.amount || 0).toFixed(2)}</td>
                           <td className="px-3 py-2 text-right">
                             <button
                               onClick={(e) => {
@@ -2985,16 +2912,27 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                       <div className="flex-1 w-full grid grid-cols-2 gap-4">
                         <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 relative">
                           <p className="text-[10px] uppercase font-black text-indigo-500">💰 Platform Income (In EVC)</p>
-                          <p className="text-2xl font-black text-indigo-900 mt-1">${(accountingSummary?.evcTracking?.totalEvcReceived || 0).toFixed(2)}</p>
+                          <p className="text-2xl font-black text-indigo-900 mt-1">${Math.max(0, (accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</p>
                           <div className="mt-2 space-y-1 text-[9px] text-indigo-600 font-bold border-t border-indigo-100 pt-1">
-                            <div className="flex justify-between"><span>Wallet Deposits</span><span>+${(accountingSummary?.evcTracking?.playerDeposits || 0).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span>Wallet Deposits</span><span>+${Math.max(0, (accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</span></div>
                             <div className="flex justify-between"><span>Gem Sales</span><span>+${(accountingSummary?.evcTracking?.gemDeposits || 0).toFixed(2)}</span></div>
                           </div>
                           <div className="absolute top-4 right-4 text-2xl opacity-50">📱</div>
                         </div>
                         <div className="bg-green-50 p-4 rounded-xl border border-green-100 relative">
                           <p className="text-[10px] uppercase font-black text-green-600">Total Moved to Bank</p>
-                          <p className="text-2xl font-black text-green-900 mt-1">${cashLogsSummary.bank_deposit.toFixed(2)}</p>
+                          <p className="text-2xl font-black text-green-900 mt-1">
+                            {/* Display bank_deposit excluding internal system adjustments */}
+                            ${(() => {
+                              const systemAdjTotal = (cashLogs || [])
+                                .filter((log: any) => log?.type === 'bank_deposit' && (
+                                  log?.createdBy === 'SYSTEM_ADJUSTMENT' ||
+                                  (log?.note || '').toString().toLowerCase().includes('system adjustment')
+                                ))
+                                .reduce((sum: number, log: any) => sum + (Number(log?.amount) || 0), 0);
+                              return Math.max(0, (cashLogsSummary.bank_deposit || 0) - systemAdjTotal).toFixed(2);
+                            })()}
+                          </p>
                           <div className="absolute top-4 right-4 text-2xl opacity-50">🏦</div>
                         </div>
                       </div>
@@ -3051,7 +2989,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {cashLogs.map(log => (
+                          {cashLogs
+                            .filter((log: any) => !(
+                              log?.type === 'bank_deposit' && (
+                                log?.createdBy === 'SYSTEM_ADJUSTMENT' ||
+                                (log?.note || '').toString().toLowerCase().includes('system adjustment')
+                              )
+                            ))
+                            .map((log: any) => (
                             <tr key={log._id} className="hover:bg-gray-50 group">
                               <td className="px-5 py-3 font-semibold text-gray-900">
                                 {log.type === 'evc_received' ? <span className="text-indigo-600 flex items-center gap-1.5"><span className="text-lg">📱</span> EVC In</span> : <span className="text-green-600 flex items-center gap-1.5"><span className="text-lg">🏦</span> Bank Out</span>}

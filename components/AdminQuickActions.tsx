@@ -184,12 +184,12 @@ const AdminQuickActions: React.FC = () => {
                     body: JSON.stringify({
                         userId: user.userId,
                         gemAmount: transactionAmount,
-                        comment: `Quick Action: ${transactionAmount} gems`
+                        comment: `Quick Action paid gem sale: ${transactionAmount} gems`
                     })
                 });
                 const data = await response.json();
                 if (data.success) {
-                    toast.success(`💎 ${transactionAmount} gems deposited! ($${(transactionAmount * 0.01).toFixed(2)})`);
+                    toast.success(`💎 ${transactionAmount} gems sold! ($${(transactionAmount * 0.01).toFixed(2)})`);
                     setUser(prev => prev ? ({ ...prev, gems: data.newGemBalance }) : null);
                     setConfirmAction(null);
                 } else {
