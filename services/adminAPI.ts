@@ -447,8 +447,8 @@ export const adminAPI = {
     }
   },
 
-  async getTodayAnalytics(): Promise<import('../types').TodayAnalytics> {
-    const url = `${getApiUrl()}/admin/analytics/today`;
+  async getTodayAnalytics(timeRange: string = 'today'): Promise<any> {
+    const url = `${getApiUrl()}/admin/analytics/today?timeRange=${timeRange}`;
     const options = {
       method: 'GET',
       headers: getAuthHeaders(),
@@ -547,6 +547,32 @@ export const adminAPI = {
     } catch (error: any) {
       const errorMessage = error.responseData?.message || error.responseData?.error || 'Failed to fetch recent transactions';
       throw new Error(errorMessage);
+    }
+  },
+
+  async getAdminDepositsSummary(startDate?: string, endDate?: string): Promise<{
+    success: boolean;
+    grandTotal: number;
+    startDate: string | null;
+    endDate: string | null;
+    admins: Array<{
+      adminName: string;
+      totalDeposited: number;
+      transactionCount: number;
+      lastTransaction: string;
+      transactions: Array<{ id: string; shortId: number; userName: string; userId: string; amount: number; timestamp: string }>;
+    }>;
+  }> {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const url = `${getApiUrl()}/admin/quick/admin-deposits-summary${params.toString() ? '?' + params.toString() : ''}`;
+    const options = { method: 'GET', headers: getAuthHeaders() };
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to fetch admin deposits summary');
     }
   },
 

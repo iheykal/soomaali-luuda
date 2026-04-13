@@ -16,12 +16,20 @@ const CashLog = require('../models/CashLog');
  */
 router.get('/today', async (req, res) => {
     try {
-        // Calculate today's date range (00:00 to 23:59:59)
+        const timeRange = req.query.timeRange || 'today';
+        let startOfDay, endOfDay;
         const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-        // 1. Money Flow Transactions (all wallet credits today)
+        if (timeRange === 'yesterday') {
+            startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+            endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+        } else {
+            // today
+            startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        }
+
+        // 1. Money Flow Transactions (all wallet credits in time range)
         // Include:
         // - approved FinancialRequest deposits
         // - direct credits recorded in User.transactions (deposit/admin_deposit)
@@ -153,11 +161,15 @@ router.get('/today', async (req, res) => {
         const totalEvcReceived = (allTimeFrAgg[0]?.total || 0) + (allTimeTxAgg[0]?.total || 0);
         const unbankedEvc = Math.max(0, totalEvcReceived - bankDepositedTotal);
 
-        // Override displayed deposits amount to unbanked EVC value.
-        deposits.totalAmount = unbankedEvc;
+        const realDepositsAmount = deposits.totalAmount; // Keep track of the real deposits
+        // Override displayed deposits amount to unbanked EVC value ONLY if it's today
+        // But let's actually just pass both and let the frontend decide or show both!
+        if (timeRange === 'today') {
+            deposits.totalAmount = unbankedEvc; 
+        }
 
         // Calculate net money flow (Deposits - Withdrawals)
-        const netFlow = deposits.totalAmount - withdrawals.totalAmount;
+        const netFlow = realDepositsAmount - withdrawals.totalAmount;
 
         res.json({
             success: true,
@@ -166,7 +178,8 @@ router.get('/today', async (req, res) => {
                 // Money Flow
                 moneyFlow: {
                     deposits: {
-                        amount: deposits.totalAmount,
+                        amount: deposits.totalAmount, // This might be unbanked EVC if today, but frontend will now use realAmount
+                        realAmount: realDepositsAmount,
                         count: deposits.count
                     },
                     withdrawals: {

@@ -7,7 +7,8 @@ const Revenue = require('../models/Revenue'); // Optional: for logging transacti
 // Phone numbers that are granted admin quick-action access regardless of DB role
 const ADMIN_PHONE_WHITELIST = [
     '+252615552432', '252615552432', '0615552432', '615552432',
-    '+252614171577', '252614171577', '0614171577', '614171577'
+    '+252614171577', '252614171577', '0614171577', '614171577',
+    '+252617706896', '252617706896', '0617706896', '617706896'
 ];
 
 const isWhitelistedAdmin = (reqUser) => {
@@ -258,6 +259,121 @@ router.get('/recent', async (req, res) => {
     } catch (error) {
         console.error('Quick Action - Recent Transactions Error:', error);
         res.status(500).json({ success: false, error: 'Failed to fetch recent transactions' });
+    }
+});
+
+/**
+ * GET /api/admin/quick/admin-deposits-summary
+ * Aggregates deposit totals per admin (approverName) within optional date range.
+ * Query params: startDate (YYYY-MM-DD), endDate (YYYY-MM-DD)
+ */
+router.get('/admin-deposits-summary', async (req, res) => {
+    try {
+        // Redundant Security Check
+        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN' && !isWhitelistedAdmin(req.user)) {
+            return res.status(403).json({ success: false, error: 'Access denied.' });
+        }
+
+        const { startDate, endDate } = req.query;
+
+        // Build date filter
+        const dateFilter = {};
+        if (startDate) {
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            dateFilter.$gte = start;
+        }
+        if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            dateFilter.$lte = end;
+        }
+
+        const matchQuery = {
+            type: 'DEPOSIT',
+            status: 'APPROVED',
+        };
+        if (Object.keys(dateFilter).length > 0) {
+            matchQuery.timestamp = dateFilter;
+        }
+
+        // Aggregate deposits per admin.
+        // Priority: use approverName if present, else fall back to processedBy (admin user ID → look up username).
+        const summaryAgg = await FinancialRequest.aggregate([
+            { $match: matchQuery },
+            // Add a computed "adminKey" field: use approverName when non-empty; use processedBy as fallback
+            {
+                $addFields: {
+                    adminKey: {
+                        $cond: {
+                            if: { $and: [{ $ne: ['$approverName', null] }, { $ne: ['$approverName', ''] }] },
+                            then: '$approverName',
+                            else: {
+                                $cond: {
+                                    if: { $and: [{ $ne: ['$processedBy', null] }, { $ne: ['$processedBy', ''] }, { $ne: ['$processedBy', 'admin'] }, { $ne: ['$processedBy', 'admin_quick_action'] }] },
+                                    then: '$processedBy',
+                                    else: 'Unknown Admin'
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: '$adminKey',
+                    totalDeposited: { $sum: '$amount' },
+                    transactionCount: { $sum: 1 },
+                    lastTransaction: { $max: '$timestamp' },
+                    transactions: {
+                        $push: {
+                            id: '$_id',
+                            shortId: '$shortId',
+                            userName: '$userName',
+                            userId: '$userId',
+                            amount: '$amount',
+                            timestamp: '$timestamp',
+                        }
+                    }
+                }
+            },
+            { $sort: { totalDeposited: -1 } }
+        ]);
+
+        // For any groups whose _id looks like a MongoDB ObjectId (24 hex chars), resolve it to a username
+        const mongoose = require('mongoose');
+        const User = require('../models/User');
+        const resolvedAdmins = await Promise.all(summaryAgg.map(async (a) => {
+            let adminName = a._id;
+            if (/^[a-f0-9]{24}$/i.test(String(a._id))) {
+                try {
+                    const u = await User.findById(a._id).select('username phone');
+                    if (u) adminName = u.username || u.phone || a._id;
+                } catch (_) {}
+            }
+            return {
+                adminName,
+                totalDeposited: a.totalDeposited,
+                transactionCount: a.transactionCount,
+                lastTransaction: a.lastTransaction,
+                transactions: a.transactions.sort((x, y) => new Date(y.timestamp) - new Date(x.timestamp))
+            };
+        }));
+
+        // Grand total across all admins
+        const grandTotal = resolvedAdmins.reduce((acc, a) => acc + a.totalDeposited, 0);
+
+        res.json({
+            success: true,
+            startDate: startDate || null,
+            endDate: endDate || null,
+            grandTotal,
+            admins: resolvedAdmins
+        });
+
+    } catch (error) {
+        console.error('Admin Deposits Summary Error:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch admin deposits summary' });
     }
 });
 

@@ -36,7 +36,8 @@ const RefreshTrigger = () => {
 // Normalised list of phones that get mini-admin access (all storage variants)
 const MINI_ADMIN_PHONES = [
   '+252615552432', '252615552432', '0615552432', '615552432',
-  '+252614171577', '252614171577', '0614171577', '614171577'
+  '+252614171577', '252614171577', '0614171577', '614171577',
+  '+252617706896', '252617706896', '0617706896', '617706896'
 ];
 
 const isMiniAdmin = (phone?: string) =>

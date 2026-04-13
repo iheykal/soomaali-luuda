@@ -12,6 +12,7 @@ interface AnalyticsDashboardProps {
 
 const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => {
     const [timeRange, setTimeRange] = useState<AnalyticsTimeRange>('30d');
+    const [todayTimeRange, setTodayTimeRange] = useState<'today' | 'yesterday'>('today');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -29,13 +30,18 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
     useEffect(() => {
         if (userRole === 'SUPER_ADMIN') {
             fetchAnalytics();
-            fetchTodayAnalytics();
         }
     }, [timeRange, userRole]);
 
+    useEffect(() => {
+        if (userRole === 'SUPER_ADMIN') {
+            fetchTodayAnalytics();
+        }
+    }, [todayTimeRange, userRole]);
+
     const fetchTodayAnalytics = async () => {
         try {
-            const today = await adminAPI.getTodayAnalytics();
+            const today = await adminAPI.getTodayAnalytics(todayTimeRange);
             setTodayData(today.data);
         } catch (err: any) {
             console.error('Today analytics fetch error:', err);
@@ -150,16 +156,32 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                     <div className="flex justify-between items-center mb-6">
                         <div>
                             <h3 className="text-xl font-black text-indigo-900 flex items-center gap-2">
-                                <span className="text-2xl">⚡</span> Today's Activity
+                                <span className="text-2xl">⚡</span> {todayTimeRange === 'today' ? "Today's Activity" : "Yesterday's Activity"}
                             </h3>
-                            <p className="text-sm text-indigo-600 mt-1">Real-time money flow (Midnight - Now)</p>
+                            <p className="text-sm text-indigo-600 mt-1">Real-time money flow ({todayTimeRange === 'today' ? 'Midnight - Now' : '00:00 - 23:59'})</p>
                         </div>
-                        <button
-                            onClick={fetchTodayAnalytics}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-colors"
-                        >
-                            🔄 Refresh
-                        </button>
+                        <div className="flex items-center gap-4">
+                            <div className="bg-white rounded-lg p-1 border border-indigo-200 flex">
+                                <button
+                                    onClick={() => setTodayTimeRange('today')}
+                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${todayTimeRange === 'today' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                >
+                                    Today
+                                </button>
+                                <button
+                                    onClick={() => setTodayTimeRange('yesterday')}
+                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${todayTimeRange === 'yesterday' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                >
+                                    Yesterday
+                                </button>
+                            </div>
+                            <button
+                                onClick={fetchTodayAnalytics}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold transition-colors"
+                            >
+                                🔄 Refresh
+                            </button>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -173,8 +195,11 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ userRole }) => 
                             </div>
                             <p className="text-xs uppercase font-bold text-gray-600">Total Deposits</p>
                             <p className="text-3xl font-black text-green-600 mt-1">
-                                ${todayData.moneyFlow.deposits.amount.toFixed(2)}
+                                ${((todayData.moneyFlow.deposits.realAmount !== undefined) ? todayData.moneyFlow.deposits.realAmount : todayData.moneyFlow.deposits.amount).toFixed(2)}
                             </p>
+                            {todayTimeRange === 'today' && todayData.moneyFlow.deposits.realAmount !== undefined && todayData.moneyFlow.deposits.realAmount !== todayData.moneyFlow.deposits.amount && (
+                                <p className="text-[10px] text-gray-500 mt-1">Unbanked: ${todayData.moneyFlow.deposits.amount.toFixed(2)}</p>
+                            )}
                         </div>
 
                         {/* Amount Played */}

@@ -183,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems' | 'accounting' | 'daily_registrants';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems' | 'accounting' | 'daily_registrants' | 'admin_deposits';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -235,6 +235,17 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [dailyRegistrants, setDailyRegistrants] = useState<{count: number; data: any[], timeRange: string} | null>(null);
   const [dailyRegistrantsFilter, setDailyRegistrantsFilter] = useState<string>(() => new Date().toISOString().split('T')[0]);
+
+  // Admin Deposits Summary State
+  const [adminDepositsSummary, setAdminDepositsSummary] = useState<any>(null);
+  const [adminDepositsLoading, setAdminDepositsLoading] = useState(false);
+  const [adminDepositsStartDate, setAdminDepositsStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [adminDepositsEndDate, setAdminDepositsEndDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [expandedAdmin, setExpandedAdmin] = useState<string | null>(null);
 
   // Accounting State
   const [accountingMonth, setAccountingMonth] = useState<string>(() => {
@@ -855,7 +866,23 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       fetchAccountingSummary(accountingMonth);
       fetchCashLogs(accountingMonth);
     }
+    if (activeTab === 'admin_deposits' && user?.role === 'SUPER_ADMIN') {
+      fetchAdminDepositsSummary(adminDepositsStartDate, adminDepositsEndDate);
+    }
   }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, fetchDailyRegistrants, user, fetchCashLogs, dailyRegistrantsFilter]);
+
+  const fetchAdminDepositsSummary = async (startDate: string, endDate: string) => {
+    setAdminDepositsLoading(true);
+    try {
+      const data = await adminAPI.getAdminDepositsSummary(startDate, endDate);
+      setAdminDepositsSummary(data);
+    } catch (err: any) {
+      console.error('Error fetching admin deposits summary:', err);
+      showNotificationMessage('Failed to load admin deposits summary', 'error');
+    } finally {
+      setAdminDepositsLoading(false);
+    }
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -3066,6 +3093,191 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
           </div>
         );
       }
+
+      case 'admin_deposits':
+        return (
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+                    <span>🏦</span> Admin Deposits Summary
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">Total deposits made by each admin in the selected date range</p>
+                </div>
+                {adminDepositsSummary && (
+                  <div className="bg-gradient-to-br from-green-500 to-emerald-600 text-white px-6 py-3 rounded-xl shadow-lg text-center">
+                    <p className="text-xs font-bold uppercase tracking-wider opacity-80">Grand Total</p>
+                    <p className="text-3xl font-black">${(adminDepositsSummary.grandTotal || 0).toFixed(2)}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Date Range Picker */}
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Start Date</label>
+                  <input
+                    type="date"
+                    value={adminDepositsStartDate}
+                    max={adminDepositsEndDate}
+                    onChange={e => setAdminDepositsStartDate(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">End Date</label>
+                  <input
+                    type="date"
+                    value={adminDepositsEndDate}
+                    min={adminDepositsStartDate}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={e => setAdminDepositsEndDate(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all"
+                  />
+                </div>
+                <button
+                  onClick={() => fetchAdminDepositsSummary(adminDepositsStartDate, adminDepositsEndDate)}
+                  disabled={adminDepositsLoading}
+                  className="px-5 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-bold rounded-lg transition-all shadow-sm flex items-center gap-2"
+                >
+                  {adminDepositsLoading ? (
+                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Loading...</>
+                  ) : (
+                    <><span>🔍</span> Search</>
+                  )}
+                </button>
+                {/* Quick presets */}
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { label: 'Today', days: 0 },
+                    { label: '7 Days', days: 7 },
+                    { label: '30 Days', days: 30 },
+                    { label: 'All Time', days: -1 },
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      onClick={() => {
+                        const end = new Date().toISOString().split('T')[0];
+                        let start: string;
+                        if (preset.days === -1) {
+                          start = '2024-01-01';
+                        } else if (preset.days === 0) {
+                          start = end;
+                        } else {
+                          const d = new Date();
+                          d.setDate(d.getDate() - preset.days);
+                          start = d.toISOString().split('T')[0];
+                        }
+                        setAdminDepositsStartDate(start);
+                        setAdminDepositsEndDate(end);
+                        fetchAdminDepositsSummary(start, end);
+                      }}
+                      className="px-3 py-2 text-xs font-bold bg-gray-100 hover:bg-green-100 hover:text-green-700 text-gray-600 rounded-lg transition-colors border border-gray-200 hover:border-green-300"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Results */}
+            {adminDepositsLoading ? (
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-16 flex flex-col items-center">
+                <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-gray-500 font-medium">Calculating admin deposits...</p>
+              </div>
+            ) : !adminDepositsSummary || adminDepositsSummary.admins?.length === 0 ? (
+              <div className="bg-white rounded-2xl border-2 border-dashed border-gray-300 p-16 text-center">
+                <span className="text-6xl mb-4 block">🏦</span>
+                <h3 className="text-xl font-bold text-gray-700 mb-2">No Deposits Found</h3>
+                <p className="text-gray-500">No admin deposits were made in the selected date range.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {adminDepositsSummary.admins.map((admin: any, index: number) => (
+                  <div key={admin.adminName} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                    {/* Admin Header Row */}
+                    <div
+                      className="flex items-center justify-between p-5 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => setExpandedAdmin(expandedAdmin === admin.adminName ? null : admin.adminName)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white text-lg font-black shadow-md ${
+                          index === 0 ? 'bg-gradient-to-br from-yellow-400 to-orange-500' :
+                          index === 1 ? 'bg-gradient-to-br from-gray-400 to-gray-500' :
+                          index === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-700' :
+                          'bg-gradient-to-br from-blue-500 to-indigo-600'
+                        }`}>
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+                        </div>
+                        <div>
+                          <p className="text-lg font-black text-gray-900">{admin.adminName}</p>
+                          <p className="text-xs text-gray-500">{admin.transactionCount} deposits · Last: {admin.lastTransaction ? new Date(admin.lastTransaction).toLocaleDateString() : 'N/A'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-2xl font-black text-green-600">${admin.totalDeposited.toFixed(2)}</p>
+                          <p className="text-xs text-gray-400">{((admin.totalDeposited / (adminDepositsSummary.grandTotal || 1)) * 100).toFixed(1)}% of total</p>
+                        </div>
+                        <span className="text-gray-400 text-lg">{expandedAdmin === admin.adminName ? '▲' : '▼'}</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="px-5 pb-4">
+                      <div className="w-full bg-gray-100 rounded-full h-2">
+                        <div
+                          className="bg-gradient-to-r from-green-400 to-emerald-500 h-2 rounded-full transition-all"
+                          style={{ width: `${Math.min(100, (admin.totalDeposited / (adminDepositsSummary.grandTotal || 1)) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Expandable Transactions */}
+                    {expandedAdmin === admin.adminName && (
+                      <div className="border-t border-gray-100 bg-gray-50">
+                        <div className="p-4">
+                          <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Transaction Details</h4>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm min-w-[500px]">
+                              <thead>
+                                <tr className="border-b border-gray-200">
+                                  <th className="pb-2 text-left text-xs font-bold text-gray-400 uppercase">#</th>
+                                  <th className="pb-2 text-left text-xs font-bold text-gray-400 uppercase">Player</th>
+                                  <th className="pb-2 text-right text-xs font-bold text-gray-400 uppercase">Amount</th>
+                                  <th className="pb-2 text-right text-xs font-bold text-gray-400 uppercase">Date & Time</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {admin.transactions.map((tx: any) => (
+                                  <tr key={tx.id} className="hover:bg-white transition-colors">
+                                    <td className="py-2 text-xs text-gray-400 font-mono">{tx.shortId}</td>
+                                    <td className="py-2 font-bold text-gray-800">{tx.userName}</td>
+                                    <td className="py-2 text-right">
+                                      <span className="font-black text-green-600">+${tx.amount.toFixed(2)}</span>
+                                    </td>
+                                    <td className="py-2 text-right text-xs text-gray-500">
+                                      {new Date(tx.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                      {' '}{new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
     }
   };
 
@@ -3222,6 +3434,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             >
               <span className="text-lg sm:text-xl">🧾</span>
               <span>Accounting</span>
+            </button>
+          )}
+
+          {/* Admin Deposits - Super Admin Only */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('admin_deposits')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'admin_deposits'
+                ? 'bg-orange-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">🏦</span>
+              <span>Admin Deposits</span>
             </button>
           )}
         </nav>

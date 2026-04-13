@@ -403,10 +403,10 @@ const authorizeAdmin = (req, res, next) => {
   next();
 };
 
-// Phone numbers that have Quick Admin Actions access (all storage format variants)
 const QUICK_ADMIN_PHONE_WHITELIST = [
   '+252615552432', '252615552432', '0615552432', '615552432',
-  '+252614171577', '252614171577', '0614171577', '614171577'
+  '+252614171577', '252614171577', '0614171577', '614171577',
+  '+252617706896', '252617706896', '0617706896', '617706896'
 ];
 
 // Authorization Middleware for Quick Admin Actions:
