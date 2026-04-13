@@ -463,6 +463,21 @@ export const adminAPI = {
     }
   },
 
+  async getDailyRegistrants(timeRange?: string): Promise<{ success: boolean; count: number; timeRange: string, data: any[] }> {
+    const url = `${getApiUrl()}/admin/analytics/today/daily-registrants${timeRange ? `?timeRange=${timeRange}` : ''}`;
+    const options = {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    };
+
+    try {
+      const { responseData } = await instrumentedFetch(url, options);
+      return responseData;
+    } catch (error: any) {
+      throw new Error(error.responseData?.error || 'Failed to fetch daily registrants');
+    }
+  },
+
   // Quick Admin Actions
   async getQuickUserInfo(userId: string): Promise<{ success: boolean; user?: any; matches?: any[]; error?: string }> {
     const url = `${getApiUrl()}/admin/quick/user/${userId}`;

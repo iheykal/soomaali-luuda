@@ -183,7 +183,7 @@ interface SuperAdminDashboardProps {
   onExit: () => void;
 }
 
-type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems' | 'accounting';
+type AdminTab = 'dashboard' | 'analytics' | 'users' | 'games' | 'wallet' | 'revenue' | 'recent' | 'settings' | 'password' | 'gems' | 'accounting' | 'daily_registrants';
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => {
   const { user } = useAuth();
@@ -233,6 +233,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
   } | null>(null);
   const [referralLeaderboard, setReferralLeaderboard] = useState<ReferralLeaderboardEntry[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [dailyRegistrants, setDailyRegistrants] = useState<{count: number; data: any[], timeRange: string} | null>(null);
+  const [dailyRegistrantsFilter, setDailyRegistrantsFilter] = useState<string>(() => new Date().toISOString().split('T')[0]);
 
   // Accounting State
   const [accountingMonth, setAccountingMonth] = useState<string>(() => {
@@ -443,6 +445,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
       setLoading(false);
     }
   }, []);
+
+  const fetchDailyRegistrants = useCallback(async (filter: string = dailyRegistrantsFilter) => {
+    setLoading(true);
+    try {
+      const data = await adminAPI.getDailyRegistrants(filter);
+      setDailyRegistrants(data);
+      setDailyRegistrantsFilter(filter);
+    } catch (err: any) {
+      console.error('Error fetching daily registrants:', err);
+      showNotificationMessage('Failed to fetch daily registrants', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [dailyRegistrantsFilter]);
 
 
   const fetchAccountingSummary = useCallback(async (month: string) => {
@@ -832,11 +848,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
     if (activeTab === 'recent') {
       fetchRecentTransactions();
     }
+    if (activeTab === 'daily_registrants' && user?.role === 'SUPER_ADMIN') {
+      fetchDailyRegistrants(dailyRegistrantsFilter);
+    }
     if (activeTab === 'accounting' && user?.role === 'SUPER_ADMIN') {
       fetchAccountingSummary(accountingMonth);
       fetchCashLogs(accountingMonth);
     }
-  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, user, fetchCashLogs]);
+  }, [activeTab, fetchUsers, fetchRequests, fetchRevenue, fetchActiveGames, fetchVisitorAnalytics, fetchReferralLeaderboard, fetchRecentTransactions, fetchDailyRegistrants, user, fetchCashLogs, dailyRegistrantsFilter]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -997,6 +1016,91 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             <AnalyticsDashboard userRole={user?.role || 'USER'} />
           </div>
         );
+      case 'daily_registrants':
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-4 sm:p-6 border-b border-gray-200 bg-gray-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-900">
+                    Daily Registrants ({
+                        dailyRegistrants?.timeRange?.match(/^\d{4}-\d{2}-\d{2}$/) 
+                        ? new Date(dailyRegistrants.timeRange).toLocaleDateString() 
+                        : 'Today'
+                    })
+                </h2>
+                <p className="text-sm text-gray-600">Users who registered AND made their first deposit.</p>
+              </div>
+              <div className="flex bg-white shadow-sm rounded-lg overflow-hidden border border-gray-200 font-bold text-sm">
+                 <input
+                     type="date"
+                     max={new Date().toISOString().split('T')[0]}
+                     value={dailyRegistrantsFilter}
+                     onChange={(e) => {
+                         if (e.target.value) {
+                             setDailyRegistrantsFilter(e.target.value);
+                             fetchDailyRegistrants(e.target.value);
+                         }
+                     }}
+                     className="px-3 py-2 bg-white text-gray-700 border-r border-gray-200 outline-none hover:bg-gray-50 transition-colors"
+                 />
+                 <div className="px-4 py-2 bg-green-50 text-green-700 flex items-center justify-center">Total: {dailyRegistrants?.count || 0}</div>
+              </div>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[600px]">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-700 text-xs sm:text-sm border-b border-gray-200">
+                    <th className="p-3 sm:p-4 font-semibold">User</th>
+                    <th className="p-3 sm:p-4 font-semibold">Phone</th>
+                    <th className="p-3 sm:p-4 font-semibold text-right">Balance</th>
+                    <th className="p-3 sm:p-4 font-semibold text-right">Joined / Deposit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-gray-500">
+                         <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                         Loading daily registrants...
+                      </td>
+                    </tr>
+                  ) : !dailyRegistrants || dailyRegistrants.data.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-gray-500">
+                        <span className="text-3xl mb-2 block">😴</span>
+                        No daily registrants found for today.
+                      </td>
+                    </tr>
+                  ) : (
+                    dailyRegistrants.data.map((u: any) => (
+                      <tr key={u.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-3 sm:p-4">
+                          <div className="font-bold text-gray-900 flex items-center gap-2">
+                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xs shadow-inner">
+                                {u.username.charAt(0).toUpperCase()}
+                             </div>
+                             {u.username}
+                          </div>
+                        </td>
+                        <td className="p-3 sm:p-4 text-gray-600 font-mono text-xs">{u.phone || 'N/A'}</td>
+                        <td className="p-3 sm:p-4 text-right">
+                          <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg border border-green-100">
+                            ${(u.balance || 0).toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="p-3 sm:p-4 text-right text-gray-500 text-xs">
+                           {new Date(u.joinedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+
       case 'users':
         return (
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -2892,129 +2996,6 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
                   </div>
                 </div>
 
-                {/* EVC -> Bank Tracker */}
-                <div className="mt-8 bg-white rounded-2xl border-2 border-indigo-100 shadow-sm overflow-hidden mb-8">
-                  <div className="p-5 border-b border-indigo-50 bg-gradient-to-r from-indigo-50 to-white flex items-center justify-between">
-                    <div>
-                      <h3 className="font-black text-indigo-900 flex items-center gap-2">📱 EVC → 🏦 Bank Cash Flow</h3>
-                      <p className="text-xs text-indigo-600 mt-1 font-medium">Track real-world money received vs deposited to bank</p>
-                    </div>
-                    <button
-                      onClick={() => setShowCashLogForm(!showCashLogForm)}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors"
-                    >
-                      {showCashLogForm ? 'Cancel' : '+ Log Transfer'}
-                    </button>
-                  </div>
-                  
-                  <div className="p-5">
-                    <div className="flex flex-col md:flex-row gap-6 items-center">
-                      <div className="flex-1 w-full grid grid-cols-2 gap-4">
-                        <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 relative">
-                          <p className="text-[10px] uppercase font-black text-indigo-500">💰 Platform Income (In EVC)</p>
-                          <p className="text-2xl font-black text-indigo-900 mt-1">${Math.max(0, (accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</p>
-                          <div className="mt-2 space-y-1 text-[9px] text-indigo-600 font-bold border-t border-indigo-100 pt-1">
-                            <div className="flex justify-between"><span>Wallet Deposits</span><span>+${Math.max(0, (accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</span></div>
-                            <div className="flex justify-between"><span>Gem Sales</span><span>+${(accountingSummary?.evcTracking?.gemDeposits || 0).toFixed(2)}</span></div>
-                          </div>
-                          <div className="absolute top-4 right-4 text-2xl opacity-50">📱</div>
-                        </div>
-                        <div className="bg-green-50 p-4 rounded-xl border border-green-100 relative">
-                          <p className="text-[10px] uppercase font-black text-green-600">Total Moved to Bank</p>
-                          <p className="text-2xl font-black text-green-900 mt-1">
-                            {/* Display bank_deposit excluding internal system adjustments */}
-                            ${(() => {
-                              const systemAdjTotal = (cashLogs || [])
-                                .filter((log: any) => log?.type === 'bank_deposit' && (
-                                  log?.createdBy === 'SYSTEM_ADJUSTMENT' ||
-                                  (log?.note || '').toString().toLowerCase().includes('system adjustment')
-                                ))
-                                .reduce((sum: number, log: any) => sum + (Number(log?.amount) || 0), 0);
-                              return Math.max(0, (cashLogsSummary.bank_deposit || 0) - systemAdjTotal).toFixed(2);
-                            })()}
-                          </p>
-                          <div className="absolute top-4 right-4 text-2xl opacity-50">🏦</div>
-                        </div>
-                      </div>
-                      <div className="flex-1 w-full flex items-center justify-center">
-                        <div className={`p-6 rounded-2xl border-2 ${(accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'} text-center w-full max-w-sm relative shadow-inner`}>
-                          <p className={`text-xs font-black uppercase tracking-widest ${(accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-600' : 'text-gray-500'}`}>⚠️ Still in EVC (Unbanked)</p>
-                          <p className={`text-4xl font-black mt-2 ${(accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit > 0 ? 'text-amber-700' : 'text-gray-900'}`}>${Math.max(0, (accountingSummary?.evcTracking?.totalEvcReceived || 0) - cashLogsSummary.bank_deposit).toFixed(2)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {showCashLogForm && (
-                    <div className="p-5 bg-indigo-50/50 border-t border-indigo-100">
-                      <form onSubmit={handleAddCashLog} className="flex flex-col md:flex-row gap-3">
-                        <select
-                          value={cashLogForm.type}
-                          disabled
-                          className="px-3 py-2 border border-gray-100 bg-gray-50 rounded-lg text-sm flex-1 font-bold text-gray-700 cursor-not-allowed"
-                        >
-                          <option value="bank_deposit">🏦 Deposit to Bank (extracted money)</option>
-                        </select>
-                        <input
-                          type="number"
-                          placeholder="Amount ($)"
-                          step="0.01"
-                          required
-                          value={cashLogForm.amount}
-                          onChange={(e) => setCashLogForm({ ...cashLogForm, amount: e.target.value })}
-                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-32 font-bold text-gray-900"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Note (e.g. 'Daily batch')"
-                          value={cashLogForm.note}
-                          onChange={(e) => setCashLogForm({ ...cashLogForm, note: e.target.value })}
-                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm flex-1"
-                        />
-                        <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm shadow-md transition-all">Save</button>
-                      </form>
-                    </div>
-                  )}
-
-                  {cashLogs.length > 0 && (
-                    <div className="border-t border-gray-100 max-h-60 overflow-y-auto w-full">
-                      <table className="w-full text-left text-xs bg-white">
-                        <thead className="bg-gray-50/80 sticky top-0 border-b border-gray-200">
-                          <tr>
-                            <th className="px-5 py-3 font-bold text-gray-500 uppercase">Type</th>
-                            <th className="px-5 py-3 font-bold text-gray-500 uppercase text-right">Amount</th>
-                            <th className="px-5 py-3 font-bold text-gray-500 uppercase hidden sm:table-cell">Note</th>
-                            <th className="px-5 py-3 font-bold text-gray-500 uppercase bg-transparent">Date</th>
-                            <th className="px-5 py-3 font-bold text-gray-500 uppercase text-center w-12 border-none"></th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {cashLogs
-                            .filter((log: any) => !(
-                              log?.type === 'bank_deposit' && (
-                                log?.createdBy === 'SYSTEM_ADJUSTMENT' ||
-                                (log?.note || '').toString().toLowerCase().includes('system adjustment')
-                              )
-                            ))
-                            .map((log: any) => (
-                            <tr key={log._id} className="hover:bg-gray-50 group">
-                              <td className="px-5 py-3 font-semibold text-gray-900">
-                                {log.type === 'evc_received' ? <span className="text-indigo-600 flex items-center gap-1.5"><span className="text-lg">📱</span> EVC In</span> : <span className="text-green-600 flex items-center gap-1.5"><span className="text-lg">🏦</span> Bank Out</span>}
-                              </td>
-                              <td className="px-5 py-3 font-black text-gray-900 text-right">${log.amount.toFixed(2)}</td>
-                              <td className="px-5 py-3 text-gray-500 italic hidden sm:table-cell max-w-[150px] truncate">{log.note || '-'}</td>
-                              <td className="px-5 py-3 text-gray-500 font-mono">{new Date(log.createdAt).toLocaleDateString()}</td>
-                              <td className="px-5 py-3 text-center border-none">
-                                <button onClick={() => handleDeleteCashLog(log._id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity" title="Delete entry">🗑️</button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
                 {/* Expense List */}
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="p-5 border-b border-gray-100 flex items-center justify-between">
@@ -3122,6 +3103,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ onExit }) => 
             >
               <span className="text-lg sm:text-xl">📉</span>
               <span>Analytics</span>
+            </button>
+          )}
+
+          {/* Daily Registrants Tab - Only for SUPER_ADMIN */}
+          {user?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('daily_registrants')}
+              className={`w-full text-left px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 flex items-center gap-2 sm:gap-3 text-sm sm:text-base ${activeTab === 'daily_registrants'
+                ? 'bg-green-600 text-white shadow-md font-semibold'
+                : 'text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                }`}
+            >
+              <span className="text-lg sm:text-xl">🆕</span>
+              <span>Daily Registrants</span>
             </button>
           )}
 

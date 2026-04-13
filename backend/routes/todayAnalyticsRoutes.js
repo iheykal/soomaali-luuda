@@ -200,4 +200,84 @@ router.get('/today', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/admin/analytics/today/daily-registrants
+ * Get users who registered and made their first deposit in the given time frame.
+ */
+router.get('/today/daily-registrants', async (req, res) => {
+    try {
+        const timeRange = req.query.timeRange || 'today';
+        let startOfRange, endOfRange;
+        const now = new Date();
+        
+        if (timeRange && timeRange.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const tDate = new Date(timeRange);
+            startOfRange = new Date(tDate.getFullYear(), tDate.getMonth(), tDate.getDate(), 0, 0, 0, 0);
+            endOfRange = new Date(tDate.getFullYear(), tDate.getMonth(), tDate.getDate(), 23, 59, 59, 999);
+        } else {
+            switch (timeRange) {
+                case 'yesterday':
+                    startOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+                    endOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+                    break;
+                case '7d':
+                    startOfRange = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    endOfRange = now;
+                    break;
+                case '30d':
+                    startOfRange = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                    endOfRange = now;
+                    break;
+                case 'today':
+                default:
+                    startOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+                    endOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+                    break;
+            }
+        }
+
+        const users = await User.find({
+            createdAt: { $gte: startOfRange, $lte: endOfRange }
+        });
+
+        const userIds = users.map(u => u._id);
+
+        const depositsFr = await FinancialRequest.find({
+             type: 'DEPOSIT',
+             status: 'APPROVED',
+             userId: { $in: userIds }
+        });
+
+        const depositedUserIds = new Set(depositsFr.map(req => req.userId));
+
+        const dailyRegistrants = users.filter(user => {
+             if (depositedUserIds.has(user._id)) return true;
+             
+             if (user.transactions && user.transactions.length > 0) {
+                 return user.transactions.some(tx => 
+                     (tx.type === 'deposit' || tx.type === 'admin_deposit')
+                 );
+             }
+             return false;
+        });
+
+        res.json({
+            success: true,
+            timeRange: timeRange,
+            count: dailyRegistrants.length,
+            data: dailyRegistrants.map(u => ({
+                id: u._id,
+                username: u.username,
+                phone: u.phone,
+                balance: u.balance,
+                joinedAt: u.createdAt
+            }))
+        });
+
+    } catch (error) {
+        console.error('Daily registrants error:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch daily registrants' });
+    }
+});
+
 module.exports = router;
