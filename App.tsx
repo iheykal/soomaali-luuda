@@ -25,6 +25,7 @@ import { notificationService, WinNotificationData } from './services/notificatio
 
 
 import SuperAdminDashboard from './components/superadmin/SuperAdminDashboard';
+import MiniAdminDashboard from './components/MiniAdminDashboard';
 import Wallet from './components/Wallet';
 import ReferralDashboard from './components/ReferralDashboard';
 import AdminDiceControl from './components/AdminDiceControl';
@@ -76,6 +77,7 @@ const AppContent: React.FC = () => {
   const { user, isAuthenticated, loading: authLoading, refreshUser } = useAuth();
   const [view, setView] = useState<View>('login');
   const [showSuperAdminOverlay, setShowSuperAdminOverlay] = useState(false);
+  const [showMiniAdminDashboard, setShowMiniAdminDashboard] = useState(false);
   const [isRejoining, setIsRejoining] = useState(false); // New state for rejoining status
   const [showWallet, setShowWallet] = useState(false);
   const [showReferrals, setShowReferrals] = useState(false);
@@ -267,6 +269,13 @@ const AppContent: React.FC = () => {
       await refreshUser();
     }
     setShowSuperAdminOverlay(true);
+  };
+
+  const handleEnterMiniAdmin = async () => {
+    if (refreshUser) {
+      await refreshUser();
+    }
+    setShowMiniAdminDashboard(true);
   };
   const handleToggleWallet = async () => {
     if (!showWallet) {
@@ -466,6 +475,9 @@ const AppContent: React.FC = () => {
   return (
     <>
       {renderSuperAdminOverlay()}
+      {showMiniAdminDashboard && (
+        <MiniAdminDashboard onClose={() => setShowMiniAdminDashboard(false)} />
+      )}
       {showWallet && <Wallet onClose={handleExitWallet} />}
       {showReferrals && <ReferralDashboard onClose={handleExitReferrals} />}
       {winNotification && (
@@ -495,6 +507,7 @@ const AppContent: React.FC = () => {
           onEnterLobby={handleEnterLobby}
           onRejoinGame={handleRejoinGame}
           onEnterSuperAdmin={handleEnterSuperAdmin}
+          onEnterMiniAdmin={handleEnterMiniAdmin}
           onEnterWallet={handleEnterWallet}
           onEnterReferrals={handleEnterReferrals}
           onEnterLiveMatches={handleEnterLiveMatches}

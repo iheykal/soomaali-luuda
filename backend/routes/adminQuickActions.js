@@ -4,6 +4,18 @@ const User = require('../models/User');
 const FinancialRequest = require('../models/FinancialRequest');
 const Revenue = require('../models/Revenue'); // Optional: for logging transaction if needed
 
+// Phone numbers that are granted admin quick-action access regardless of DB role
+const ADMIN_PHONE_WHITELIST = [
+    '+252615552432', '252615552432', '0615552432', '615552432',
+    '+252614171577', '252614171577', '0614171577', '614171577'
+];
+
+const isWhitelistedAdmin = (reqUser) => {
+    if (!reqUser) return false;
+    const phone = reqUser.phone || '';
+    return ADMIN_PHONE_WHITELIST.includes(phone);
+};
+
 // GET /api/admin/quick/user/:userId
 // Fetch user details for quick action
 router.get('/user/:userId', async (req, res) => {
@@ -106,7 +118,8 @@ router.get('/user/:userId', async (req, res) => {
 router.post('/transaction', async (req, res) => {
     try {
         // Redundant Security Check (Defense in Depth)
-        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN') {
+        // Allow SUPER_ADMIN, ADMIN roles OR whitelisted phone numbers
+        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN' && !isWhitelistedAdmin(req.user)) {
             console.warn(`[SECURITY] Unauthorized balance manipulation attempt by user ${req.user.username}`);
             return res.status(403).json({ success: false, error: 'Access denied. Unauthorized activity logged.' });
         }
@@ -213,8 +226,8 @@ router.post('/transaction', async (req, res) => {
 // Fetch 10 most recent quick admin transactions
 router.get('/recent', async (req, res) => {
     try {
-        // Redundant Security Check
-        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN') {
+        // Redundant Security Check — allow whitelisted phones too
+        if (req.user && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN' && !isWhitelistedAdmin(req.user)) {
             return res.status(403).json({ success: false, error: 'Access denied.' });
         }
 

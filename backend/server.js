@@ -20,6 +20,17 @@ const Loan = require('./models/Loan');
 const Expense = require('./models/Expense');
 const CashLog = require('./models/CashLog');
 
+// --- Accounting Adjustment Model ---
+// Allows SuperAdmin to manually override/adjust dashboard accounting totals.
+const AccountingAdjustmentSchema = new mongoose.Schema({
+  amount: { type: Number, required: true },
+  reason: { type: String, required: true },
+  adminId: { type: String, required: true },
+  adminUsername: { type: String },
+  timestamp: { type: Date, default: Date.now }
+});
+const AccountingAdjustment = mongoose.model('AccountingAdjustment', AccountingAdjustmentSchema);
+
 // Global TTT Queue - Must// Global queue for tic-tac-toe matchmaking
 const ticTacToeQueue = [];
 
@@ -392,8 +403,43 @@ const authorizeAdmin = (req, res, next) => {
   next();
 };
 
+// Phone numbers that have Quick Admin Actions access (all storage format variants)
+const QUICK_ADMIN_PHONE_WHITELIST = [
+  '+252615552432', '252615552432', '0615552432', '615552432',
+  '+252614171577', '252614171577', '0614171577', '614171577'
+];
+
+// Authorization Middleware for Quick Admin Actions:
+// Allows ADMIN/SUPER_ADMIN roles OR specific whitelisted phone numbers.
+// Does a DB lookup because the JWT token doesn't include the phone field.
+const authorizeQuickAdmin = async (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // Fast-path: role is already admin
+  if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN') {
+    return next();
+  }
+
+  // Slow-path: check if the user's phone is whitelisted
+  try {
+    const dbUser = await User.findById(req.user.userId).select('phone');
+    if (dbUser && QUICK_ADMIN_PHONE_WHITELIST.includes(dbUser.phone)) {
+      // Attach phone to req.user so downstream handlers can see it
+      req.user.phone = dbUser.phone;
+      return next();
+    }
+  } catch (err) {
+    console.error('[authorizeQuickAdmin] DB lookup error:', err);
+  }
+
+  console.warn(`[SECURITY] Unauthorized quick-admin access attempt by ${req.user.username} (${req.user.userId})`);
+  return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+};
+
 // Mount route files (MUST be after middleware is defined)
-app.use('/api/admin/quick', authenticateToken, authorizeAdmin, adminQuickActions);
+app.use('/api/admin/quick', authenticateToken, authorizeQuickAdmin, adminQuickActions);
 app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, analyticsRoutes);
 app.use('/api/admin/analytics', authenticateToken, authorizeAdmin, todayAnalyticsRoutes);
 app.use('/api/gems', authenticateToken, gemsRoutes);
@@ -946,7 +992,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 app.get('/api/admin/search-user', authenticateToken, async (req, res) => {
   try {
     const adminUser = await User.findById(req.user.userId);
-    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN')) {
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ADMIN' && !QUICK_ADMIN_PHONE_WHITELIST.includes(adminUser.phone))) {
       return res.status(403).json({ error: 'Access denied. Admin role required.' });
     }
 
@@ -2311,8 +2357,8 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
       byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
     });
 
-    // 1. ALL APPROVED FINANCIAL REQUEST DEPOSITS (from app requests + quick admin actions)
-    let frMatchQuery = { type: 'DEPOSIT', status: 'APPROVED' };
+    // 1. ALL APPROVED FINANCIAL REQUESTS (Deposits - Withdrawals)
+    let frMatchQuery = { status: 'APPROVED' };
     if (month) {
       const start = new Date(`${month}-01T00:00:00.000Z`);
       const end = new Date(start);
@@ -2321,11 +2367,22 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
     }
     const approvedFrAgg = await FinancialRequest.aggregate([
       { $match: frMatchQuery },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
+      { $group: { 
+          _id: null, 
+          net: { 
+            $sum: { 
+              $cond: [
+                { $eq: ['$type', 'DEPOSIT'] }, 
+                '$amount', 
+                { $multiply: ['$amount', -1] } // Subtract if WITHDRAWAL
+              ] 
+            } 
+          } 
+      } }
     ]);
-    const totalFrDeposits = approvedFrAgg[0]?.total || 0;
+    const totalFrNet = approvedFrAgg[0]?.net || 0;
 
-    // 2. COMPREHENSIVE DB-LEVEL AGGREGATION FOR ALL USER TRANSACTIONS
+    // 2. COMPREHENSIVE DB-LEVEL AGGREGATION FOR ALL USER TRANSACTIONS (Net: Deposits - Withdrawals)
     const txAggregation = await User.aggregate([
       { $unwind: '$transactions' },
       { 
@@ -2336,18 +2393,18 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
       {
         $match: {
           ...(month ? { txMonth: month } : {}),
-          "transactions.type": { $in: ['deposit', 'admin_deposit'] }
+          "transactions.type": { $in: ['deposit', 'admin_deposit', 'withdrawal', 'admin_withdrawal', 'loan_repayment', 'loan_auto_repayment', 'loan_settlement'] }
         }
       },
       {
         $group: {
           _id: null,
-          directWalletDeposits: {
+          netWallet: {
             $sum: {
               $cond: [
                 { $in: ["$transactions.type", ['deposit', 'admin_deposit']] },
                 "$transactions.amount",
-                0
+                { $multiply: ["$transactions.amount", -1] } // Subtract if withdrawal
               ]
             }
           }
@@ -2355,19 +2412,54 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
       }
     ]);
 
-    const walletFromTxs = txAggregation[0]?.directWalletDeposits || 0;
+    const walletFromTxs = txAggregation[0]?.netWallet || 0;
     const gemsFromTxs = 0;
 
-    const evcPlayerDeposits = totalFrDeposits + walletFromTxs;
+    const evcPlayerNet = totalFrNet + walletFromTxs;
     const gemDeposits = gemsFromTxs;
-    const totalEVCReceived = evcPlayerDeposits + gemDeposits;
+    const totalEVCReceived = evcPlayerNet + gemDeposits;
 
-    console.log(`📊 ACC SUMMARY: Month=${month || 'all'}, Wallet=${evcPlayerDeposits}, Gems=${gemDeposits}`);
+    // ACTUAL DATABASE TOTALS (Liability check)
+    // Using a more robust aggregation that handles potential nulls/missing fields
+    const liabilityAgg = await User.aggregate([
+      { 
+        $group: { 
+          _id: null, 
+          total: { 
+            $sum: { 
+              $add: [
+                { $ifNull: ["$balance", 0] }, 
+                { $ifNull: ["$reservedBalance", 0] }
+              ] 
+            } 
+          } 
+        } 
+      }
+    ]);
+    const actualLiability = liabilityAgg.length > 0 ? (liabilityAgg[0].total || 0) : 0;
+
+    // FETCH MANUAL ADJUSTMENTS (We will create this model below)
+    let manualAdjustment = 0;
+    try {
+      const Adjustment = mongoose.model('AccountingAdjustment');
+      const adjResult = await Adjustment.aggregate([
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]);
+      manualAdjustment = adjResult[0]?.total || 0;
+    } catch (e) {
+      // Model might not exist yet on first run
+    }
+
+    const totalEVCWithAdj = totalEVCReceived + manualAdjustment;
+
+    console.log(`📊 ACC SUMMARY: Month=${month || 'all'}, Net Inflow=${totalEVCReceived}, Adj=${manualAdjustment}, Real Liability=${actualLiability}`);
 
     const evcTracking = { 
-      playerDeposits: evcPlayerDeposits, 
+      playerDeposits: evcPlayerNet,
+      actualLiability: actualLiability,
       gemDeposits: gemDeposits, 
-      totalEvcReceived: totalEVCReceived 
+      totalEvcReceived: totalEVCWithAdj,
+      manualAdjustment: manualAdjustment
     };
 
     res.json({
@@ -2381,6 +2473,36 @@ app.get('/api/admin/accounting/summary', authenticateToken, async (req, res) => 
   } catch (e) {
     console.error('Accounting summary error:', e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 5. MANUAL ACCOUNTING ADJUSTMENT
+app.post('/api/admin/accounting/adjust', authenticateToken, async (req, res) => {
+  try {
+    const adminUser = await User.findById(req.user.userId);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Access denied. Super Admin only.' });
+    }
+
+    const { amount, reason } = req.body;
+    
+    if (amount === undefined || !reason) {
+      return res.status(400).json({ error: 'Amount and reason are required' });
+    }
+
+    const adjustment = new AccountingAdjustment({
+      amount: parseFloat(amount),
+      reason,
+      adminId: req.user.userId,
+      adminUsername: adminUser.username || 'Admin'
+    });
+
+    await adjustment.save();
+
+    res.json({ success: true, message: 'Adjustment saved successfully' });
+  } catch (error) {
+    console.error('Accounting adjustment error:', error);
+    res.status(500).json({ error: 'Failed to save adjustment' });
   }
 });
 
@@ -5254,7 +5376,7 @@ setInterval(async () => {
 
   // Admin Quick Actions routes
   const adminQuickActionsRoutes = require('./routes/adminQuickActions');
-  app.use('/api/admin/quick', authenticateToken, authorizeAdmin, adminQuickActionsRoutes);
+  app.use('/api/admin/quick', authenticateToken, authorizeQuickAdmin, adminQuickActionsRoutes);
 
   // Analytics Routes
   const analyticsRoutes = require('./routes/analyticsRoutes');

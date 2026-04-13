@@ -16,6 +16,7 @@ interface GameSetupProps {
   onEnterLobby: () => void;
   onRejoinGame?: (gameId: string, playerColor: string) => void;
   onEnterSuperAdmin?: () => void;
+  onEnterMiniAdmin?: () => void;
   onEnterWallet?: () => void;
   onEnterReferrals?: () => void;
   onEnterLiveMatches?: () => void;
@@ -32,7 +33,16 @@ const RefreshTrigger = () => {
   return null;
 };
 
-const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterAdmin, onEnterSuperAdmin, onEnterWallet, onEnterReferrals, onEnterLiveMatches, onInstall, showInstallButton }) => {
+// Normalised list of phones that get mini-admin access (all storage variants)
+const MINI_ADMIN_PHONES = [
+  '+252615552432', '252615552432', '0615552432', '615552432',
+  '+252614171577', '252614171577', '0614171577', '614171577'
+];
+
+const isMiniAdmin = (phone?: string) =>
+  phone ? MINI_ADMIN_PHONES.includes(phone) : false;
+
+const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejoinGame, onEnterAdmin, onEnterSuperAdmin, onEnterMiniAdmin, onEnterWallet, onEnterReferrals, onEnterLiveMatches, onInstall, showInstallButton }) => {
   const { user, logout, refreshUser } = useAuth();
   const [isPurchasing, setIsPurchasing] = useState(false);
 
@@ -537,8 +547,8 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
 
 
 
-      {/* Admin Quick Actions (Only visible to Admin/SuperAdmin/Cali) */}
-      {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.phone === '+2520614171577' || user?.phone === '2520614171577' || user?.phone === '0614171577') && (
+      {/* Admin Quick Actions (Only visible to Admin/SuperAdmin/Whitelisted phones) */}
+      {(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || isMiniAdmin(user?.phone)) && (
         <AdminQuickActions />
       )}
 
@@ -654,6 +664,20 @@ const GameSetup: React.FC<GameSetupProps> = ({ onStartGame, onEnterLobby, onRejo
               <span className="text-xs text-pink-200/80 uppercase tracking-widest font-black">Premium Store</span>
             </div>
           </button>
+
+          {/* Mini Admin Dashboard Button - for whitelisted phones */}
+          {isMiniAdmin(user?.phone) && onEnterMiniAdmin && (
+            <button
+              onClick={onEnterMiniAdmin}
+              className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-lg py-3 rounded-lg shadow-xl transition-all transform hover:scale-105 border-2 border-amber-400/40 mt-4"
+            >
+              <span className="text-2xl">🛡️</span>
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-bold">Admin Panel</span>
+                <span className="text-[10px] text-amber-100/80 uppercase tracking-widest">Active Games & Requests</span>
+              </div>
+            </button>
+          )}
 
           {/* Super Admin Button - Prominent in Main Menu */}
           {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && onEnterSuperAdmin && (

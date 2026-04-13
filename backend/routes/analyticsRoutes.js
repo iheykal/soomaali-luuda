@@ -500,12 +500,12 @@ router.get('/overview', async (req, res) => {
 
             // Playable users and their total balance (balance >= 0.25)
             User.aggregate([
-                { $match: { balance: { $gte: 0.25 } } },
+                { $match: { $or: [{ balance: { $gt: 0 } }, { reservedBalance: { $gt: 0 } }] } },
                 {
                     $group: {
                         _id: null,
                         count: { $sum: 1 },
-                        totalBalance: { $sum: '$balance' }
+                        totalBalance: { $sum: { $add: ["$balance", { $ifNull: ["$reservedBalance", 0] }] } }
                     }
                 }
             ])
